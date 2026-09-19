@@ -371,8 +371,28 @@ listing is refreshed every ~30 s. In seven minutes with the window open
 no report had landed. So a Deep research step needs the window kept open
 until the connector reports done, and how the report is written back (a
 follow-up turn through the gated send, most likely, given the `prepare`
-calls) is the one thing still unobserved; one run with the window open for
-up to the 25-minute budget would settle it.
+calls) is the one thing still unobserved.
+
+**The run with the window kept open for 23 minutes (the third Deep research
+send of the day)** did not settle it: the page polled `call_mcp get_state`
+seven times in the first 2.5 minutes and then stopped (a push channel is
+the likely successor: the page fetches `/backend-api/celsius/ws/user` at
+load), refreshed the sidebar listing every ~30 s, and no follow-up
+`f/conversation` POST and no new turn appeared. **`get_state` works over
+plain HTTP with the bearer token** (`POST /backend-api/ecosystem/call_mcp`
+with the captured body: `app_uri`, `method: "tools/call"`, `params.name:
+"get_state"`, `params.arguments.session_id`, `conversation_id`,
+`message_id`); it answers 200 with an MCP tool result (`content: []`,
+`structuredContent: null`, `isError: false`, `result: ""`) whose `_meta`
+carries `deep_research_widget_messages` (thoughts with summaries,
+`web.run` tool messages with `search_model_queries`, assistant text
+messages whose `parts` stayed empty, `reasoning_recap` such as "Worked
+for 49s") and `source_searches` (79 entries). Nothing in it changed
+between minute 25 and minute 55 after the send, and the conversation kept
+its six turns. So the progress is readable headlessly, but where and when
+the finished report lands was not observed in three runs; the session id
+comes from the page's own `call_mcp` calls, which a headless run does not
+see unless it records them from the window that sent.
 
 ## Re-run this when
 

@@ -237,10 +237,18 @@ orchestrator is not modified.
    through the page, not over plain HTTP. Design consequence: a Deep
    research step must keep its window open until the connector is done
    (tens of minutes of the browser budget), then collect the follow-up
-   turn. Still unobserved: the completion itself. Next: one run with the
-   window kept open up to the 25-minute budget, recording the follow-up
-   send; that costs one Deep research run. `send_prompt.py --system-hint`
-   already starts the research; the UI path is not needed.
+   turn. **Third run, window open 23 minutes**: still no report, no
+   follow-up send; the page's own polling stopped after 2.5 minutes. But
+   `call_mcp get_state` answers over plain HTTP with the bearer token and
+   exposes the progress (`references/endpoint-discovery.md`), so a
+   headless collector is possible in principle once the completion is
+   understood. **Parked**: three runs on 2026-09-20 never showed a
+   finished report; value was rated "medium, uncertain" and the cost is a
+   Deep research run per attempt. Revisit when a run needs it, starting
+   from a hand-made Deep research chat in the user's own browser observed
+   to completion (what turn appears, and what the page calls when it
+   does), which costs no skill work. `send_prompt.py --system-hint` starts
+   the research; the UI path is not needed.
 
 Exit criterion: `send_prompt.py` exposes the four choices, the client's
 tests cover them offline, and one measured send per feature is recorded in
