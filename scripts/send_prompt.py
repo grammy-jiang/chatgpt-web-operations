@@ -50,9 +50,16 @@ exits before anything is written.
 ``--record-send-body PATH`` writes the ``f/conversation`` POST's method,
 url and body to PATH (``original``/``sent`` when effort, model, search or a
 hint rewrote it, else plain ``post_data``), so one real send can document
-what actually left the browser (ROADMAP.md, Stage 3 items 1-2). With more
-than one ``PROMPT_FILE`` every send in the window writes to the same PATH,
-so only the last one's body survives; point it elsewhere when that matters.
+what actually left the browser (ROADMAP.md, Stage 3 items 1-2). It also
+records that POST's own response stream to the sibling ``PATH.stream.txt``,
+because a Deep research send's connector session id is visible only there
+(WHY, ``chatgpt_client.py``'s module docstring); ``--json`` then carries
+``"stream_file"`` (that sibling path, or null when ``--record-send-body``
+was not given) and ``"session_id"`` (the id read back out of it with
+``chatgpt_client.stream_events`` / ``find_session_id``, or null when the
+file does not exist or carries none). With more than one ``PROMPT_FILE``
+every send in the window writes to the same PATH, so only the last one's
+body survives; point it elsewhere when that matters.
 
 ``--attach`` uploads each file through the composer's file input before
 the prompt is filled (``BrowserSender.attachments`` / ``_upload_files``,
@@ -184,6 +191,22 @@ def _build_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def _stream_session_id(cc, stream_file: str | None) -> str | None:
+    """The Deep research connector's session id recorded in ``stream_file``.
+
+    ``None`` when ``--record-send-body`` was not given (``stream_file`` is
+    then ``None`` too) or the sibling file does not exist (a plain send
+    with nothing to stream, or the recorder itself found nothing); ``None``
+    too when the file exists but carries no ``session_id`` anywhere.
+    ``stream_events`` / ``find_session_id`` are pure parsers that do not
+    raise on odd input.
+    """
+    if not stream_file or not Path(stream_file).is_file():
+        return None
+    text = Path(stream_file).read_text(encoding="utf-8")
+    return cc.find_session_id(cc.stream_events(text))
+
+
 def _send_single(
     cc,
     args: argparse.Namespace,
@@ -273,6 +296,9 @@ def _send_single(
         print(f"send failed: {str(exc)[:200]}")
         return 1
 
+    stream_file = (
+        f"{args.record_send_body}{cc.STREAM_SUFFIX}" if args.record_send_body else None
+    )
     doc = {
         "conversation_id": conversation_id,
         "url": f"https://chatgpt.com/c/{conversation_id}",
@@ -282,6 +308,8 @@ def _send_single(
         "search": args.search,
         "system_hints": list(args.system_hints),
         "send_body_file": args.record_send_body or None,
+        "stream_file": stream_file,
+        "session_id": _stream_session_id(cc, stream_file),
         "sent_at": sent_at,
         "resolved": not cc.is_provisional(conversation_id),
         "attachments": attachments,
@@ -431,6 +459,11 @@ def _send_batch(
                 errors[i] = f"send failed: {str(exc)[:200]}"
                 print(f"{prompt_path.name} {label} failed: {errors[i]}")
 
+    stream_file = (
+        f"{args.record_send_body}{cc.STREAM_SUFFIX}" if args.record_send_body else None
+    )
+    session_id = _stream_session_id(cc, stream_file)
+
     docs = []
     for i, (_prompt_path, _text) in enumerate(prompts):
         conversation_id = conversation_ids[i] or ""
@@ -446,6 +479,8 @@ def _send_batch(
             "search": args.search,
             "system_hints": list(args.system_hints),
             "send_body_file": args.record_send_body or None,
+            "stream_file": stream_file,
+            "session_id": session_id,
             "sent_at": sent_ats[i],
             "resolved": resolved,
             "attachments": attachments,

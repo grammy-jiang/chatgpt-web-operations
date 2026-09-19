@@ -653,18 +653,21 @@ def test_record_send_body_keeps_the_old_shape_when_nothing_is_pinned(
     enter_env, fake_pw, tmp_path
 ) -> None:
     """Backward compatibility: a sender with no effort/model/search must
-    still write exactly {"method", "url", "post_data"}, the shape
-    ``_record_request`` wrote before any rewrite hook existed, so it cannot
-    be widened by accident for a sender that pins nothing. Pinned by the
-    section below too, moved here from the old tests/test_client_search.py."""
+    still write exactly {"method", "url", "post_data", "stream_file"} --
+    the shape ``_record_request`` wrote before any rewrite hook existed,
+    plus the one field ``_write_record`` now always adds -- so it cannot be
+    widened any further by accident for a sender that pins nothing. Pinned
+    by the section below too, moved here from the old
+    tests/test_client_search.py."""
     target = tmp_path / "body.json"
     sender = cc.BrowserSender(record_send_body=str(target))
     try:
         sender._open()
         sender.page.emit_request(SEND_URL, method="POST", post_data='{"a": 1}')
         doc = json.loads(target.read_text(encoding="utf-8"))
-        assert set(doc) == {"method", "url", "post_data"}
+        assert set(doc) == {"method", "url", "post_data", "stream_file"}
         assert doc["post_data"] == '{"a": 1}'
+        assert doc["stream_file"] == f"{target}.stream.txt"
     finally:
         sender._stack.close()
         sender._owner.shutdown(wait=True)
@@ -698,6 +701,7 @@ def test_record_send_body_writes_the_f_conversation_post_body(
             "method": "POST",
             "url": "https://chatgpt.com/backend-api/f/conversation",
             "post_data": '{"system_hints": ["search"]}',
+            "stream_file": f"{target}.stream.txt",
         }
     finally:
         sender._stack.close()
@@ -746,6 +750,215 @@ def test_record_send_body_off_by_default_attaches_no_listener(
         sender._open()
 
         assert sender.page._event_handlers.get("request", []) == []
+        assert sender.page._event_handlers.get("response", []) == []
+    finally:
+        sender._stack.close()
+        sender._owner.shutdown(wait=True)
+
+
+# ---------------------------------------------------------------------------
+# stream_events / find_session_id -- pure parsers over a recorded SSE stream
+# (the Deep research connector's session id is visible only there; module
+# docstring, WHY)
+# ---------------------------------------------------------------------------
+
+
+def test_stream_events_parses_data_lines_and_skips_the_rest() -> None:
+    sse = (
+        'event: delta\ndata: {"a": 1}\n\ndata: {"b": 2}\ndata: not-json\ndata: [DONE]\n'
+    )
+    assert cc.stream_events(sse) == [{"a": 1}, {"b": 2}]
+
+
+def test_stream_events_over_empty_text_is_an_empty_list() -> None:
+    assert cc.stream_events("") == []
+
+
+def test_find_session_id_nested_several_levels_deep() -> None:
+    events = [
+        {"type": "delta", "v": {"other": 1}},
+        {"type": "tool", "output": {"deep": {"session_id": "sess-123"}}},
+    ]
+    assert cc.find_session_id(events) == "sess-123"
+
+
+def test_find_session_id_inside_a_list() -> None:
+    events = [{"items": [{"x": 1}, {"session_id": "abc"}]}]
+    assert cc.find_session_id(events) == "abc"
+
+
+def test_find_session_id_returns_the_first_occurrence() -> None:
+    events = [{"session_id": "first"}, {"session_id": "second"}]
+    assert cc.find_session_id(events) == "first"
+
+
+def test_find_session_id_absent_returns_none() -> None:
+    events = [{"a": 1}, {"b": [1, 2, {"c": 3}]}]
+    assert cc.find_session_id(events) is None
+
+
+# ---------------------------------------------------------------------------
+# _record_response -- the response listener attached in _open next to the
+# request one, recording the send POST's own SSE stream to a sibling
+# ".stream.txt" file
+# ---------------------------------------------------------------------------
+
+
+def test_record_response_writes_the_sibling_stream_file(
+    enter_env, fake_pw, tmp_path
+) -> None:
+    target = tmp_path / "body.json"
+    sender = cc.BrowserSender(record_send_body=str(target))
+    try:
+        sender._open()
+        sse = 'data: {"session_id": "abc"}\n\ndata: [DONE]\n'
+        sender.page.emit_response(
+            SEND_URL, status=200, text=sse, method="POST", post_data="{}"
+        )
+
+        stream_file = Path(f"{target}.stream.txt")
+        assert stream_file.read_text(encoding="utf-8") == sse
+    finally:
+        sender._stack.close()
+        sender._owner.shutdown(wait=True)
+
+
+def test_record_response_ignores_the_prepare_handshake(
+    enter_env, fake_pw, tmp_path
+) -> None:
+    target = tmp_path / "body.json"
+    sender = cc.BrowserSender(record_send_body=str(target))
+    try:
+        sender._open()
+        sender.page.emit_response(
+            PREPARE_URL, status=200, text="data: {}\n", method="POST", post_data="x"
+        )
+        assert not Path(f"{target}.stream.txt").exists()
+    finally:
+        sender._stack.close()
+        sender._owner.shutdown(wait=True)
+
+
+def test_record_response_ignores_gets(enter_env, fake_pw, tmp_path) -> None:
+    target = tmp_path / "body.json"
+    sender = cc.BrowserSender(record_send_body=str(target))
+    try:
+        sender._open()
+        sender.page.emit_response(SEND_URL, status=200, text="data: {}\n", method="GET")
+        assert not Path(f"{target}.stream.txt").exists()
+    finally:
+        sender._stack.close()
+        sender._owner.shutdown(wait=True)
+
+
+def test_record_response_ignores_other_backend_api_paths(
+    enter_env, fake_pw, tmp_path
+) -> None:
+    target = tmp_path / "body.json"
+    sender = cc.BrowserSender(record_send_body=str(target))
+    try:
+        sender._open()
+        sender.page.emit_response(
+            "https://chatgpt.com/backend-api/other",
+            status=200,
+            text="data: {}\n",
+            method="POST",
+            post_data="{}",
+        )
+        assert not Path(f"{target}.stream.txt").exists()
+    finally:
+        sender._stack.close()
+        sender._owner.shutdown(wait=True)
+
+
+def test_record_response_failing_text_records_nothing_and_does_not_raise(
+    enter_env, fake_pw, tmp_path
+) -> None:
+    target = tmp_path / "body.json"
+    sender = cc.BrowserSender(record_send_body=str(target))
+    try:
+        sender._open()
+
+        class _FailingTextResponse:
+            def __init__(self, request):
+                self.request = request
+
+            def text(self):
+                raise RuntimeError("boom")
+
+        response = _FailingTextResponse(fp.Request(SEND_URL, "POST", "{}"))
+        sender._record_response(response)  # must not raise
+
+        assert not Path(f"{target}.stream.txt").exists()
+    finally:
+        sender._stack.close()
+        sender._owner.shutdown(wait=True)
+
+
+def test_record_response_calls_finished_before_text_when_the_driver_has_it(
+    enter_env, fake_pw, tmp_path
+) -> None:
+    """Real Playwright's ``Response.finished()`` must be awaited before
+    ``.text()`` on a streaming response; this repository's own fake has no
+    such method (tests/fake_playwright.py), so a small local stand-in
+    proves ``_record_response`` calls it when the driver does have it."""
+    target = tmp_path / "body.json"
+    sender = cc.BrowserSender(record_send_body=str(target))
+    try:
+        sender._open()
+
+        class _StreamingResponse:
+            def __init__(self, request, body):
+                self.request = request
+                self._body = body
+                self.finished_called = False
+
+            def finished(self):
+                self.finished_called = True
+
+            def text(self):
+                return self._body
+
+        body = "data: {}\n\ndata: [DONE]\n"
+        response = _StreamingResponse(fp.Request(SEND_URL, "POST", "{}"), body)
+        sender._record_response(response)
+
+        assert response.finished_called is True
+        assert Path(f"{target}.stream.txt").read_text(encoding="utf-8") == body
+    finally:
+        sender._stack.close()
+        sender._owner.shutdown(wait=True)
+
+
+def test_write_record_includes_the_stream_file_path(
+    enter_env, fake_pw, tmp_path
+) -> None:
+    target = tmp_path / "body.json"
+    sender = cc.BrowserSender(record_send_body=str(target))
+    try:
+        sender._open()
+        sender.page.emit_request(SEND_URL, method="POST", post_data='{"a": 1}')
+
+        doc = json.loads(target.read_text(encoding="utf-8"))
+        assert doc["stream_file"] == f"{target}.stream.txt"
+    finally:
+        sender._stack.close()
+        sender._owner.shutdown(wait=True)
+
+
+def test_write_record_includes_the_stream_file_path_when_rewriting_too(
+    enter_env, fake_pw, tmp_path
+) -> None:
+    target = tmp_path / "body.json"
+    sender = cc.BrowserSender(effort="max", record_send_body=str(target))
+    try:
+        sender._open()
+        ctx = fake_pw.chromium.launch_persistent_context_result
+        original = json.dumps({"thinking_effort": "standard"})
+        ctx.trigger_route(SEND_URL, method="POST", post_data=original)
+
+        doc = json.loads(target.read_text(encoding="utf-8"))
+        assert doc["stream_file"] == f"{target}.stream.txt"
     finally:
         sender._stack.close()
         sender._owner.shutdown(wait=True)

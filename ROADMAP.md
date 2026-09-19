@@ -249,6 +249,13 @@ orchestrator is not modified.
    to completion (what turn appears, and what the page calls when it
    does), which costs no skill work. `send_prompt.py --system-hint` starts
    the research; the UI path is not needed.
+   **Later the same day**: the connector's tools are `start`, `steer`,
+   `get_state`, `subscribe`, `pause`, `skip_sleep`, `stop`, `export` (pdf
+   or docx) and `get_inline_images`, all taking the "session (backing
+   conversation) id": the research runs in a hidden backing conversation
+   whose id travels only in the send's SSE stream, so `--record-send-body`
+   now records that stream and `send_prompt.py --json` reports
+   `session_id`. Deleting the front conversation deletes the backing one.
 
 Exit criterion: `send_prompt.py` exposes the four choices, the client's
 tests cover them offline, and one measured send per feature is recorded in

@@ -554,6 +554,133 @@ def test_search_and_record_send_body_default_off_in_the_json_document(
 
 
 # ---------------------------------------------------------------------------
+# "stream_file" / "session_id" -- read back out of --record-send-body's
+# sibling .stream.txt after the send (a FakeSender never writes one itself,
+# so these tests create it by hand where they need it present)
+# ---------------------------------------------------------------------------
+
+
+def test_json_document_carries_stream_file_and_session_id_when_present(
+    monkeypatch, tmp_path
+) -> None:
+    fake_sender = FakeSender(result=REAL_ID)
+    monkeypatch.setattr(cc, "BrowserSender", fake_sender)
+    monkeypatch.setattr(cc, "ChatGPTSession", lambda browser: FakeSession())
+    monkeypatch.setattr(cc, "wait_for_reply", lambda *a, **kw: "ok")
+
+    body_path = tmp_path / "send-body.json"
+    stream_path = tmp_path / "send-body.json.stream.txt"
+    stream_path.write_text(
+        'data: {"session_id": "sess-abc"}\n\ndata: [DONE]\n', encoding="utf-8"
+    )
+    out_json = tmp_path / "out.json"
+
+    rc = send_prompt.main(
+        [
+            str(_prompt(tmp_path)),
+            "--chat",
+            REAL_ID,
+            "--record-send-body",
+            str(body_path),
+            "--json",
+            str(out_json),
+        ]
+    )
+
+    assert rc == 0
+    doc = json.loads(out_json.read_text())
+    assert doc["stream_file"] == f"{body_path}.stream.txt"
+    assert doc["session_id"] == "sess-abc"
+
+
+def test_json_document_nulls_stream_file_and_session_id_when_not_recording(
+    monkeypatch, tmp_path
+) -> None:
+    fake_sender = FakeSender(result=REAL_ID)
+    monkeypatch.setattr(cc, "BrowserSender", fake_sender)
+    monkeypatch.setattr(cc, "ChatGPTSession", lambda browser: FakeSession())
+    monkeypatch.setattr(cc, "wait_for_reply", lambda *a, **kw: "ok")
+
+    out_json = tmp_path / "out.json"
+    rc = send_prompt.main(
+        [str(_prompt(tmp_path)), "--chat", REAL_ID, "--json", str(out_json)]
+    )
+
+    assert rc == 0
+    doc = json.loads(out_json.read_text())
+    assert doc["stream_file"] is None
+    assert doc["session_id"] is None
+
+
+def test_json_document_stream_file_path_survives_a_missing_sibling_file(
+    monkeypatch, tmp_path
+) -> None:
+    """--record-send-body was given but nothing wrote its .stream.txt
+    sibling (a FakeSender never touches disk): stream_file still names the
+    path a real send would have used, and session_id is null."""
+    fake_sender = FakeSender(result=REAL_ID)
+    monkeypatch.setattr(cc, "BrowserSender", fake_sender)
+    monkeypatch.setattr(cc, "ChatGPTSession", lambda browser: FakeSession())
+    monkeypatch.setattr(cc, "wait_for_reply", lambda *a, **kw: "ok")
+
+    body_path = tmp_path / "send-body.json"
+    out_json = tmp_path / "out.json"
+    rc = send_prompt.main(
+        [
+            str(_prompt(tmp_path)),
+            "--chat",
+            REAL_ID,
+            "--record-send-body",
+            str(body_path),
+            "--json",
+            str(out_json),
+        ]
+    )
+
+    assert rc == 0
+    doc = json.loads(out_json.read_text())
+    assert doc["stream_file"] == f"{body_path}.stream.txt"
+    assert doc["session_id"] is None
+
+
+def test_batch_json_documents_carry_stream_file_and_session_id(
+    monkeypatch, tmp_path
+) -> None:
+    fake_sender = FakeSender(results=[REAL_ID, REAL_ID_2])
+    monkeypatch.setattr(cc, "BrowserSender", fake_sender)
+    monkeypatch.setattr(cc, "ChatGPTSession", lambda browser: FakeSession())
+    monkeypatch.setattr(cc, "new_chat_lock", lambda *a, **kw: _NoopCM())
+    monkeypatch.setattr(cc, "resolve_new_conversation", _boom)  # both already real
+    monkeypatch.setattr(cc, "wait_for_reply", lambda *a, **kw: "ok")
+
+    body_path = tmp_path / "send-body.json"
+    stream_path = tmp_path / "send-body.json.stream.txt"
+    stream_path.write_text(
+        'data: {"session_id": "sess-batch"}\n\ndata: [DONE]\n', encoding="utf-8"
+    )
+    p1 = _prompt_file(tmp_path, "p1.md", "first")
+    p2 = _prompt_file(tmp_path, "p2.md", "second")
+    out_json = tmp_path / "out.json"
+
+    rc = send_prompt.main(
+        [
+            str(p1),
+            str(p2),
+            "--record-send-body",
+            str(body_path),
+            "--json",
+            str(out_json),
+        ]
+    )
+
+    assert rc == 0
+    docs = json.loads(out_json.read_text())
+    assert docs[0]["stream_file"] == f"{body_path}.stream.txt"
+    assert docs[0]["session_id"] == "sess-batch"
+    assert docs[1]["session_id"] == "sess-batch"
+
+
+# ---------------------------------------------------------------------------
 # --system-hint -- the generic form of --search (ROADMAP.md, Stage 3 item 4)
 # ---------------------------------------------------------------------------
 

@@ -29,6 +29,8 @@ Reply parsing:
 
     extract_blocks(text)  -> {name: content} for ===BEGIN name=== ... ===END name===
     fenced_json(text)     -> content of the last ```json fence (fallback)
+    stream_events(text)   -> [dict, ...] parsed from a recorded SSE stream
+    find_session_id(events) -> the connector session id nested in them, or None
 
 The binnacle helpers and Playwright are imported lazily so this module can
 be unit-tested without them.
@@ -148,6 +150,60 @@ def parse_json_text(text: str) -> Any:
             with contextlib.suppress(json.JSONDecodeError):
                 return json.loads(text[start : end + 1])
     raise ValueError("no JSON object found in the reply")
+
+
+def stream_events(text: str) -> list[dict]:
+    """Parse a recorded SSE stream (``record_send_body``'s ``.stream.txt``
+    sibling, see ``BrowserSender._record_response``) into its JSON payloads.
+
+    One entry per ``data: `` line whose payload parses as JSON, in order;
+    ``data: [DONE]`` (the stream's own end marker), blank lines, ``event: ``
+    lines, and any payload that does not parse as JSON are all skipped.
+    """
+    events: list[dict] = []
+    for line in text.splitlines():
+        if not line.startswith("data: "):
+            continue
+        payload = line[len("data: ") :].strip()
+        if payload == "[DONE]":
+            continue
+        try:
+            events.append(json.loads(payload))
+        except json.JSONDecodeError:
+            continue
+    return events
+
+
+def find_session_id(events: Iterable[dict]) -> str | None:
+    """The first ``session_id`` value found anywhere inside ``events``.
+
+    ``events`` is normally ``stream_events(text)``'s list. A Deep research
+    send's connector session id (module docstring, WHY) is nested somewhere
+    inside one of them, never at a fixed path, so the search is recursive
+    and unconditional on shape: both dict values and list items are
+    walked, depth first, and the first match wins.
+    """
+
+    def _search(value: Any) -> str | None:
+        if isinstance(value, dict):
+            if "session_id" in value:
+                return value["session_id"]
+            for v in value.values():
+                found = _search(v)
+                if found is not None:
+                    return found
+        elif isinstance(value, list):
+            for item in value:
+                found = _search(item)
+                if found is not None:
+                    return found
+        return None
+
+    for event in events:
+        found = _search(event)
+        if found is not None:
+            return found
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -1069,6 +1125,14 @@ def virtual_display(visible: bool = False) -> Generator[None]:
                 proc.wait(timeout=5)
 
 
+# The sibling suffix a send's recorded response stream is written under
+# (``BrowserSender._record_response``): a module-level constant, not a
+# ``BrowserSender`` one, so ``send_prompt.py`` can read it as
+# ``cc.STREAM_SUFFIX`` even in a test that monkeypatches ``cc.BrowserSender``
+# itself to a fake.
+STREAM_SUFFIX = ".stream.txt"
+
+
 class BrowserSender:
     """One scripted Chrome page per run that posts messages to chatgpt.com.
 
@@ -1166,7 +1230,10 @@ class BrowserSender:
         self.hints = tuple(h.strip() for h in hints if str(h).strip())
         # File path: when set, the f/conversation POST body (method, url,
         # post_data) is recorded there, so one real send can document what
-        # the page actually sends with and without search.
+        # the page actually sends with and without search. The response's
+        # own SSE stream is recorded too, to the sibling STREAM_SUFFIX path
+        # (_record_response) -- a Deep research send's connector session id
+        # is only ever visible there (module docstring).
         self.record_send_body = record_send_body.strip()
         # Files to upload through the composer before the prompt is filled
         # (ROADMAP.md, Stage 3 item 3 / B4): the same file input and the
@@ -1288,6 +1355,7 @@ class BrowserSender:
         self.page = ctx.new_page()
         if self.record_send_body:
             self.page.on("request", self._record_request)
+            self.page.on("response", self._record_response)
 
     def _launch(self, pw: Any) -> Any:
         """A browser context that keeps its HTTP cache between sends.
@@ -1392,14 +1460,20 @@ class BrowserSender:
     def _write_record(self, doc: dict[str, Any]) -> None:
         """Write ``doc`` to ``record_send_body``; never raises.
 
-        Every attachment path is added under ``"attachments"`` when this
-        send has any, so the one file both call sites (the rewritten and
-        the plain shape) write through stays exactly as it was -- the
-        backward-compatibility contract of ``record_send_body`` -- for a
-        send that pins nothing at all, including no attachments.
+        ``"stream_file"`` -- the sibling path ``_record_response`` writes
+        this same POST's response stream to -- is added to every record, in
+        both shapes, so a reader can always find it and pull the Deep
+        research connector's session id out of it (``stream_events`` /
+        ``find_session_id``). Every attachment path is added under
+        ``"attachments"`` when this send has any, so the one file both call
+        sites (the rewritten and the plain shape) write through stays
+        exactly as it was otherwise -- the backward-compatibility contract
+        of ``record_send_body`` -- for a send that pins nothing at all,
+        including no attachments.
         """
+        doc = {**doc, "stream_file": self.record_send_body + STREAM_SUFFIX}
         if self.attachments:
-            doc = {**doc, "attachments": self.attachments}
+            doc["attachments"] = self.attachments
         with contextlib.suppress(Exception):
             target = Path(self.record_send_body)
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -1444,6 +1518,42 @@ class BrowserSender:
         else:
             doc = {"method": req.method, "url": req.url, "post_data": req.post_data}
         self._write_record(doc)
+
+    def _record_response(self, response: Any) -> None:
+        """Write the send POST's response body to a sibling ``.stream.txt``.
+
+        A Deep research send's connector session id -- what a later,
+        plain-HTTP ``get_state`` call needs to follow the research after
+        this window closes -- is returned only inside this response's own
+        server-sent-event stream; the conversation JSON read back
+        afterwards shows the tool reply as ``{}`` (module docstring, WHY).
+        Only a POST to exactly ``RECORD_ENDPOINT`` is recorded, the same
+        test ``_record_request`` uses.
+
+        A streaming response's body is available only once Playwright has
+        finished receiving it, so ``response.finished()`` is called first
+        when the driver has it (``getattr``, since this repository's own
+        test fake, ``tests/fake_playwright.py``, does not); ``.text()``
+        then returns the full SSE text. Everything here runs inside one
+        ``contextlib.suppress(Exception)``: a body that never finishes, a
+        closed page, or any other Playwright failure leaves the sibling
+        file unwritten rather than breaking the send -- never raises,
+        exactly like ``_record_request``.
+        """
+        with contextlib.suppress(Exception):
+            req = response.request
+            if req.method != "POST":
+                return
+            path = req.url.split("?", 1)[0].split("#", 1)[0]
+            if not path.endswith(self.RECORD_ENDPOINT):
+                return
+            finished = getattr(response, "finished", None)
+            if callable(finished):
+                finished()
+            text = response.text()
+            target = Path(self.record_send_body + STREAM_SUFFIX)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text, encoding="utf-8")
 
     RATE_LIMIT_TEXT = "too many requests"
     RATE_LIMIT_MODAL = '[data-testid="modal-conversation-history-rate-limit"]'
