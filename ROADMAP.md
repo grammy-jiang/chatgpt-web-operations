@@ -63,8 +63,8 @@ it, including capture. "Evidence" says whether the endpoint is already known.
 | R5 | Installed plugins and skills (`ps/plugins/installed`, `hazelnuts`) | read | seen | low: checks the research-pipeline skill is installed on chatgpt.com | small | deferred |
 | R6 | Global search of chats by content | read | not captured; needs a typed query | medium | small once captured | deferred |
 | M2 | Pin and unpin a chat (`is_starred`), unarchive | write | not captured; likely the conversation PATCH family | medium: mark a run's report chat | one recorded action each | 2 |
-| M3 | Set or update a project's instructions | write | not captured (`gizmos/<id>` read is known) | high: house rules for workers become explicit per run | one recorded action | 2 |
-| M4 | Memory isolation for worker chats: per-project memory setting, or `is_do_not_remember` on the conversation | write / send | not captured; conversation items expose `memory_scope` and `is_do_not_remember`; projects expose `memory_enabled` and `memory_scope` (all `global` on 2026-09-20); Project settings offers "Project-only memory" (read 2026-09-20, PATCH not captured); the account-wide "Enable memory" switch has no identified key in `settings/user` | high: stops runs from reading or writing the user's memory | investigate first | 2 |
+| M3 | Set or update a project's instructions | write | captured 2026-09-20: `PATCH /backend-api/projects/<g-p-id>` with the full body (name, instructions, emoji, theme) | high: house rules for workers become explicit per run | command pending | 2 |
+| M4 | Memory isolation for worker chats: per-project memory setting, or `is_do_not_remember` on the conversation | write / send | not captured; conversation items expose `memory_scope` and `is_do_not_remember`; projects expose `memory_enabled` and `memory_scope` (all `global` on 2026-09-20); Project settings' "Project-only memory" captured 2026-09-20: the same PATCH with `memory_scope` `project_v2` or `global`; the account-wide "Enable memory" switch has no identified key in `settings/user` | high: stops runs from reading or writing the user's memory | investigate first | 2 |
 | M5 | Move a chat into a project; rename or delete a project | write | not captured; deliberately unimplemented so far | low | one recorded action each | deferred |
 | M6 | Memory entries and custom instructions: edit | write | not captured | low, and it changes the user's global profile | one recorded action | not planned |
 | M7 | Scheduled task create or pause; share links | write | not captured | low | one recorded action | not planned |
@@ -94,14 +94,24 @@ send. All endpoints are already observed; no browser, no writes.
    would have been repository work; by decision 2 it became item 4.
 2. `list_projects.py --id … --files`: full instructions and the file list
    from `gizmos/<g-p-id>` instead of the sidebar's truncated copy.
+   **Done 2026-09-20**: `--id` now reads `gizmos/<id>` directly with the full
+   instructions and memory scope, `--files` lists scalar file fields, and the
+   bare listing pages every sidebar page so its count is the true total.
 3. `probe_account.py`: two more lines from `wham/usage`, credits balance and
    the plan window, labelled as not covering chat sends.
+   **Done 2026-09-20**: added, plus a third line stating plainly that the
+   window and credits exclude chat sends; a failed or missing usage read is
+   reported and never turns CLEAR into NOT CLEAR.
 4. The pre-run step, in the skill: `SKILL.md` documents
    `profile_context.py --project … --json <workdir>/chatgpt/profile_context.json`
    before a run, and `review_topic.py` gains a seventh invariant that warns
    when a topic has no such file or its `captured_at` is older than the
    newest round. A per-round capture would need the orchestrator, which
    stays untouched.
+   **Done 2026-09-20**: `SKILL.md` documents the pre-run call, and the
+   seventh invariant warns (without changing the exit code) when a topic has
+   no `chatgpt/profile_context*.json` or the newest one predates the start of
+   the newest round.
 
 Exit criterion: a topic's archive states what the profile looked like when
 the run started, and `review_topic.py` says so when it does not.
@@ -111,12 +121,14 @@ the run started, and `review_topic.py` says so when it does not.
 Goal: a run can shape its own project and leave the user's account tidy,
 with a dry run before every change.
 
-1. Project instructions set or update (M3). Capture by editing the
-   instructions of the sandbox project once in the recorded window.
+1. Project instructions set or update (M3). Captured 2026-09-20 on the
+   sandbox project and reproduced over HTTP (`references/endpoint-discovery.md`,
+   "Captured 2026-09-20"); the command is next.
 2. Memory isolation (M4). Project settings offers "Default memory" or
-   "Project-only memory" (read 2026-09-20), so the lever is project-level.
-   Capture by switching the sandbox project once, then verify that a chat
-   created inside it no longer reports `memory_scope: global_enabled`.
+   "Project-only memory", and both directions were captured 2026-09-20 in
+   the same PATCH (`memory_scope` `project_v2` / `global`). The sandbox now
+   runs project-only. Still to verify: what a chat created inside such a
+   project reports as its own `memory_scope`.
 3. Pin and unpin, unarchive (M2). Capture by pinning one sandbox chat.
 Exit criterion: each command has a dry run, a test over a fake session, and
 its endpoint recorded in `references/endpoint-discovery.md`.

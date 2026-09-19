@@ -132,7 +132,7 @@ def fenced_json(text: str) -> str | None:
     if fences:
         return fences[-1].strip() + "\n"
     stripped = text.strip()
-    if stripped[:1] in "{[":
+    if stripped and stripped[0] in "{[":
         return stripped + "\n"
     return None
 

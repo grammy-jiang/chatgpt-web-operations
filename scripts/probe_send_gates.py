@@ -17,6 +17,7 @@ required.
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 import urllib.error
@@ -56,9 +57,12 @@ def fetch(session) -> dict:
 
 
 def main(argv: list[str] | None = None) -> int:
-    del argv
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--browser", default="chrome", help="which browser's cookies")
+    args = ap.parse_args(argv)
+
     try:
-        body = fetch(open_session())
+        body = fetch(open_session(args.browser))
     except urllib.error.HTTPError as exc:
         print(f"sentinel returned {exc.code}: {exc.read().decode()[:200]}")
         return 1

@@ -50,13 +50,13 @@ needs `--apply`, and `create_project.py` creates a project.
 
 | Command | Purpose | Exit code means |
 |---------|---------|-----------------|
-| `probe_account.py` | Does the account answer at all? Auth, `/me`, one listing. | 0 reads work |
+| `probe_account.py` | Does the account answer at all? Auth, `/me`, one listing, plan window and credits. | 0 reads work |
 | `probe_cookies.py` | Which cookies decrypt. Never prints a value. | 0 session cookie readable |
 | `probe_send_gates.py` | What a send requires right now: proof-of-work, Turnstile, `so`. | 0 no browser needed |
 | `model_settings.py` | Which model and effort a send will use: the Power slider's presets, and the profile's cookie resolved to one. | 0 cookie resolves |
 | `profile_context.py` | The hidden inputs of a run: custom instructions, memory usage, model and effort from cookie and server, one project's instructions and files. `--json` keeps them beside a run. | 0 every read answered |
 | `list_chats.py` | Recent conversations by title substring; `--pinned`, `--archived`, `--no-project-chats`; flags project / pinned / archived. | 0 always |
-| `list_projects.py` | Projects, their instructions, and the chats inside one. | 0 found |
+| `list_projects.py` | Every project (paged), one project's full instructions and files, and the chats inside one. | 0 found, 1 no such `--id` |
 | `create_project.py` | Create a project by driving the UI, and report the call that did it. | 0 created |
 | `read_chat.py` | One conversation: is the turn finished, and what did it say? | 0 turn finished |
 | `clean_chats.py` | Archive or delete worker chats. Dry run unless `--apply`. | 0 always |
@@ -94,7 +94,8 @@ simply too slow on a loaded host.
 inherit: custom instructions, memory, the model and effort preset, the
 project's instructions. Without it the archive cannot say which profile
 produced a round. The summary prints lengths and counts only; the text goes
-to the JSON.
+to the JSON. `review_topic.py` warns, without failing, when a topic has no
+such file or the newest one predates the newest round.
 
 **ChatGPT changed something.** `discover_endpoints.py`, then
 `references/endpoint-discovery.md` for how to read the output.
@@ -117,7 +118,7 @@ say gizmo and nothing says project:
 
 | Endpoint | Use |
 |----------|-----|
-| `GET /backend-api/gizmos/snorlax/sidebar?owned_only=true&limit=50` | projects, pinned first, with instructions and files. **Paged**: without `limit` it returns 5 and a `cursor`, and `list_projects.py` still reads only that first page (Stage 1 item 2) |
+| `GET /backend-api/gizmos/snorlax/sidebar?owned_only=true&limit=50` | projects, pinned first, with instructions and files. **Paged**: without `limit` it returns 5 and a `cursor`; `list_projects.py` walks every page since 2026-09-20, so its printed count is the true total |
 | `GET /backend-api/gizmos/<g-p-id>/conversations` | the chats inside one |
 
 A project's `short_url` gives its page: `https://chatgpt.com/g/<short_url>/project`.
@@ -251,7 +252,10 @@ in a transcript says whether it did. What the reads expose (2026-09-20):
 - Project settings (the project's "…" menu) offers "Default memory" or
   "Project-only memory": with the second, the project's chats use only their
   own memory and it stays hidden from outside chats. That is the lever for
-  isolating worker chats; the PATCH behind it is not captured yet.
+  isolating worker chats. Captured 2026-09-20: `PATCH
+  /backend-api/projects/<g-p-id>` with `memory_scope` `project_v2` (project
+  only) or `global` (default), alongside name and instructions; see
+  `references/endpoint-discovery.md`.
 - The account-wide switch is **Enable memory** at `#settings/Personalization`
   (the older "Reference saved memories / chat history" pair is gone). Its
   state is not carried by `memories` or by any named key in `settings/user`,

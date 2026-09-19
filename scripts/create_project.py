@@ -112,6 +112,12 @@ def main(argv: list[str] | None = None) -> int:
             return 2
 
         opener = page.locator(NEW_PROJECT)
+        # The sidebar renders after its own API calls, and on a loaded host
+        # that takes longer than any fixed pause: at load average 6 the
+        # control was absent after 8 s and the report read as "the sidebar
+        # wording changed". Wait for the control itself.
+        with contextlib.suppress(Exception):
+            opener.first.wait_for(state="attached", timeout=60_000)
         if not opener.count():
             browser.close()
             print(f"no control matching {NEW_PROJECT}; the sidebar wording changed")

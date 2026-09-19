@@ -1,0 +1,14 @@
+{
+  "object": "user_system_message_detail",
+  "about_user_message": "<redacted 534 chars>",
+  "about_model_message": "<redacted 318 chars>",
+  "name_user_message": "<redacted 12 chars>",
+  "role_user_message": "<redacted 41 chars>",
+  "traits_model_message": "<redacted 318 chars>",
+  "other_user_message": "<redacted 534 chars>",
+  "personality_type_selection": "default",
+  "disabled_tools": [],
+  "enabled": true,
+  "traits_enabled": true,
+  "personality_traits": {}
+}

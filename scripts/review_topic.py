@@ -19,7 +19,7 @@ assumed, because a first version reported two false alarms on a clean one:
     screen/screened.jsonl                           the CUMULATIVE corpus
     analysis/<paper_id>_analysis.json               one per corpus paper
 
-Six invariants, in the order they matter:
+Seven invariants, in the order they matter:
 
  1. Every candidate was scored.
  2. Everything shortlisted was judged.
@@ -33,12 +33,21 @@ Six invariants, in the order they matter:
     to this, which is why it needs its own pass: Topic 08 was rejected for
     citing one paper as two corroborating sources, and Topic 04 was already
     closed and reported with 47 papers when it has 45.
+ 7. The account's profile was on record before the newest round:
+    ``chatgpt/profile_context*.json`` exists, and its ``captured_at`` is not
+    older than the newest round's start. That start is the earliest
+    ``sent_at`` of the highest round number in ``chatgpt/conversations.json``
+    -- the same clock ``cost()`` already reads, since ``round_context.json``
+    carries no timestamp and a run directory's mtime does not survive a copy
+    or restore reliably. Warn-only: unlike 1-6, it never changes the exit
+    code.
 
 A check that cries wolf gets ignored, which is how that round stayed
 invisible, so rounds that have not reached the screen stage are skipped and
 a conversation left at ``sent`` is reported as uncollected, not as failed.
 
-Exit 0 when nothing is wrong, 1 when any invariant is broken.
+Exit 0 when nothing is wrong, 1 when any of invariants 1-6 is broken;
+invariant 7 only warns.
 """
 
 from __future__ import annotations
@@ -51,6 +60,7 @@ from datetime import datetime
 
 OK = "  ok"
 BAD = "  !!"
+WARN = "  ~~"
 
 
 def read_json(path: pathlib.Path):
@@ -271,6 +281,85 @@ def cost(topic: pathlib.Path) -> list[str]:
     return lines or ["    (no conversation ledger)"]
 
 
+PROFILE_CONTEXT_GLOB = "profile_context*.json"
+
+
+def newest_profile_context(
+    topic: pathlib.Path,
+) -> tuple[pathlib.Path, datetime] | None:
+    """The freshest ``chatgpt/profile_context*.json``, by its own ``captured_at``.
+
+    ``profile_context.py`` writes one JSON document with a top-level
+    ``captured_at`` (ISO 8601 with offset); more than one may exist if it was
+    run again, so the newest by that field -- not by filename -- is reported.
+    """
+    chat_dir = topic / "chatgpt"
+    if not chat_dir.is_dir():
+        return None
+    found: list[tuple[datetime, pathlib.Path]] = []
+    for path in sorted(chat_dir.glob(PROFILE_CONTEXT_GLOB)):
+        data = read_json(path)
+        captured = (data or {}).get("captured_at")
+        if not captured:
+            continue
+        with contextlib.suppress(ValueError):
+            found.append((datetime.fromisoformat(captured), path))
+    if not found:
+        return None
+    found.sort(key=lambda pair: pair[0])
+    when, path = found[-1]
+    return path, when
+
+
+def newest_round_start(topic: pathlib.Path) -> datetime | None:
+    """When the highest-numbered round began.
+
+    ``round_context.json`` carries only a round number, never a timestamp
+    (see ``rounds_of``), and a run directory's mtime does not survive a copy
+    or a restore reliably, so this reads the same clock ``cost()`` already
+    trusts: ``chatgpt/conversations.json``'s ``sent_at``. A round's start is
+    the earliest ``sent_at`` among its own records.
+    """
+    ledger = read_json(topic / "chatgpt" / "conversations.json") or []
+    by_round: dict[int, list[datetime]] = {}
+    for record in ledger:
+        sent_at = record.get("sent_at")
+        if not sent_at:
+            continue
+        with contextlib.suppress(ValueError):
+            by_round.setdefault(int(record.get("round", 0)), []).append(
+                datetime.fromisoformat(sent_at)
+            )
+    if not by_round:
+        return None
+    return min(by_round[max(by_round)])
+
+
+def profile_context_lines(topic: pathlib.Path) -> list[str]:
+    """Invariant 7: warn-only, so it never adds to ``problems``.
+
+    A run's hidden inputs are supposed to be on record before the first send
+    (``SKILL.md``, "Before a run starts"). Their absence, or a capture that
+    predates the newest round, is worth a warning but is not the corpus
+    damage the first six invariants catch, so the exit code never moves.
+    """
+    found = newest_profile_context(topic)
+    if found is None:
+        return [
+            f"{WARN} profile context: none recorded; run profile_context.py "
+            f"--json {topic}/chatgpt/profile_context.json before a run"
+        ]
+    path, when = found
+    lines = [f"    profile context: {path.name}, captured_at {when.isoformat()}"]
+    started = newest_round_start(topic)
+    if started is not None and when < started:
+        lines.append(
+            f"{WARN} profile context is older than the newest round's start "
+            f"({started.isoformat()}); re-run profile_context.py"
+        )
+    return lines
+
+
 def main(folders: list[str]) -> int:
     problems = 0
     for folder in folders:
@@ -298,6 +387,9 @@ def main(folders: list[str]) -> int:
         print("\n  conversations and duration")
         for line in cost(topic):
             problems += BAD.strip() in line
+            print(line)
+        print("\n  profile context")
+        for line in profile_context_lines(topic):
             print(line)
     print(f"\n{'=' * 74}")
     if problems:

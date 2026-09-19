@@ -16,7 +16,7 @@ from pathlib import Path
 
 import chatgpt_client as cc
 import round_state as cr
-from _common import ensure_venv
+from _common import ensure_venv, open_session
 
 
 def main(workdir: Path) -> int:
@@ -47,7 +47,7 @@ def main(workdir: Path) -> int:
     ]
     if pending:
         print(f"\n{len(pending)} conversation(s) sent but not collected:")
-        session = cc.ChatGPTSession("chrome")
+        session = open_session()
         for entry in pending:
             try:
                 conv = session.get_conversation(entry["chat"])

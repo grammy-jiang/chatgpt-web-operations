@@ -145,6 +145,8 @@ def _cookie_header(browser: str) -> str:
 def pick_browser(choice: str = "auto") -> str:
     """Return the browser to use; 'auto' picks one with a ChatGPT session."""
     if choice != "auto":
+        if choice not in BROWSERS:
+            fail(f"unknown browser {choice!r}; choose one of {', '.join(BROWSERS)}")
         return choice
     for name, (db, _) in BROWSERS.items():
         if not db.exists():
@@ -153,11 +155,13 @@ def pick_browser(choice: str = "auto") -> str:
             with tempfile.NamedTemporaryFile(suffix=".db") as tmp:
                 shutil.copy2(db, tmp.name)
                 con = sqlite3.connect(tmp.name)
-                row = con.execute(
-                    "SELECT 1 FROM cookies WHERE host_key LIKE '%chatgpt.com' "
-                    "AND name LIKE '__Secure-next-auth.session-token%' LIMIT 1"
-                ).fetchone()
-                con.close()
+                try:
+                    row = con.execute(
+                        "SELECT 1 FROM cookies WHERE host_key LIKE '%chatgpt.com' "
+                        "AND name LIKE '__Secure-next-auth.session-token%' LIMIT 1"
+                    ).fetchone()
+                finally:
+                    con.close()
             if row:
                 return name
         except sqlite3.Error:

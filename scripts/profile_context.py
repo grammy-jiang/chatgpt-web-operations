@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from _common import ensure_venv, load_client, open_session
-from list_projects import project_url
+from list_projects import project_of
 from model_settings import (
     CONFIG_COOKIE,
     MODELS,
@@ -50,8 +50,6 @@ SURFACE = "web"
 # The account-wide "Enable memory" switch lives here and nowhere the reads
 # above expose (checked 2026-09-20); the command reports usage instead.
 PERSONALIZATION_PAGE = "https://chatgpt.com/#settings/Personalization"
-
-SCALAR = (str, int, float, bool, type(None))
 
 
 def custom_instructions_of(payload: dict[str, Any]) -> dict[str, Any]:
@@ -152,33 +150,6 @@ def model_of(
         },
         "ultra_effort_enabled": bool(prefs.get("model_picker_persists_ultra_effort")),
     }
-
-
-def project_of(payload: dict[str, Any]) -> dict[str, Any]:
-    """Instructions, files and memory scope of one project, from ``gizmos/<id>``.
-
-    File records keep their scalar fields only; their shape has not been seen
-    on a project with files yet, and nested blobs would bloat the document.
-    """
-    gizmo = payload.get("gizmo") or {}
-    display = gizmo.get("display") or {}
-    project = {
-        "id": str(gizmo.get("id") or ""),
-        "name": str(display.get("name") or "(unnamed)"),
-        "short_url": str(gizmo.get("short_url") or ""),
-        "instructions": str(gizmo.get("instructions") or ""),
-        "files": [
-            {k: v for k, v in f.items() if isinstance(v, SCALAR)}
-            for f in payload.get("files") or []
-            if isinstance(f, dict)
-        ],
-        "memory_enabled": gizmo.get("memory_enabled"),
-        "memory_scope": gizmo.get("memory_scope"),
-        "context_stuffing_budget": gizmo.get("context_stuffing_budget"),
-        "model": gizmo.get("model") or gizmo.get("default_model"),
-    }
-    project["url"] = project_url(project)
-    return project
 
 
 def collect(

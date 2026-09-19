@@ -19,6 +19,14 @@ The user's words: *"Probably the way you are checking it is not correct."*
 And later: *"I still can visit my chatgpt, through chrome browser, so I think
 it is not blocking me."*
 
+A fourth on 2026-09-20, caught before the user had to: `create_project.py`
+reported "no control matching button[aria-label=\"New project\"]; the sidebar
+wording changed". The control and its label were unchanged (checked in the
+user's Chrome). The script paused a fixed 8 s after `domcontentloaded`, and
+at load average 6 (six test agents running) the sidebar was not rendered
+yet. Fix: wait for the control itself, up to 60 s (32 s end to end on the
+retry). A fixed pause on a loaded host reads exactly like changed wording.
+
 ## Measurements worth keeping
 
 Composer fill, the real 89 kB review prompt, on an idle host:

@@ -166,7 +166,7 @@ changed.
 
 | Endpoint | What it carries |
 |----------|-----------------|
-| `GET /backend-api/gizmos/snorlax/sidebar` | **paged**: without parameters it returns 5 items and a `cursor`; the page asks for `?owned_only=true&conversations_per_gizmo=5&limit=20`; `?owned_only=true&limit=50` returned all 32 projects, pinned ones first. `list_projects.py` still reads the first page only (Stage 1 item 2). With `conversations_per_gizmo` the items are shaped differently, not inspected |
+| `GET /backend-api/gizmos/snorlax/sidebar` | **paged**: without parameters it returns 5 items and a `cursor`; the page asks for `?owned_only=true&conversations_per_gizmo=5&limit=20`; `?owned_only=true&limit=50` returned all 32 projects, pinned ones first. `list_projects.py` pages with cursor since 2026-09-20. With `conversations_per_gizmo` the items are shaped differently, not inspected |
 | `GET /backend-api/pins` | a list of `{"item_type": "feature" / "conversation" / "project", "item": {…}, "pinned_at": …}` |
 | `GET /backend-api/system_hints?mode=basic` | the composer's "+" items: `search` (Search, category `source`, persists between messages, allowed in temporary chats), `picture_v2`, `tasks`, `tatertot` (Study), `canvas`, `sketch` |
 | `GET /backend-api/system_hints?mode=plugins&suggestions=true` | `plugin:connector_openai_deep_research` (Deep research: persists between messages, `requires_personalization`, not allowed in temporary chats) and one entry per installed connector. Whether a send carries `system_hints` in its body is not captured yet (Stage 3, B2 and B3) |
@@ -183,8 +183,9 @@ anything: Project name, Instructions (a textarea), Memory as a two-way
 choice, "Default memory" ("This project can access memory from outside
 chats, and vice versa") or "Project-only memory" ("This project can only
 access its own memory. Its memory is hidden from outside chats. Work mode
-isn't available for this type of project"), and Delete project. The PATCH
-behind each field is not captured yet.
+isn't available for this type of project"), and Delete project. Nothing is
+saved until the dialog's Save button, which appears once a field changed;
+Close discards. The PATCH is captured below.
 
 A `?query` appended to a project URL gives an error page in Chrome; navigate
 to the canonical URL.
@@ -235,6 +236,35 @@ of reasoning would have produced:
 - **Take a screenshot and look at it.** Four runs were spent inferring the
   page state from selector failures. One screenshot showed the dialog open
   with its field and button, and the fix was immediate.
+
+**Captured 2026-09-20** on the sandbox project `rp-test-sandbox`, from the
+user's own Chrome through Claude in Chrome: a `window.fetch` hook stored
+every non-GET `backend-api` call, the Project settings dialog was driven by
+hand, and each body was then reproduced over HTTP with the bearer token and
+verified with `GET gizmos/<id>`:
+
+```
+PATCH /backend-api/projects/<g-p-id>          content-type: application/json
+{"name": "<name>", "instructions": "<text>", "emoji": null, "theme": null}
+{"name": ..., "instructions": ..., "emoji": null, "theme": null, "memory_scope": "project_v2"}
+{"name": ..., "instructions": ..., "emoji": null, "theme": null, "memory_scope": "global"}
+-> 200 {"resource": {"gizmo": {...}}, "error": null, "sharing_targets": [...]}
+```
+
+- One endpoint carries name, instructions and memory; the page always sends
+  the whole set, so a command should read the gizmo first and resend it with
+  the changed field. Name and instructions live under `gizmo.instructions`
+  and `gizmo.display.name`; `emoji` and `theme` under `gizmo.display`.
+- "Project-only memory" is `memory_scope: "project_v2"`; "Default memory"
+  is `memory_scope: "global"`. `memory_enabled` follows: `false` for
+  `project_v2`, `true` for `global`. Read them back from `gizmos/<id>` (the
+  sidebar item shows the same values).
+- Two capture facts worth an hour: the page passes its body inside a
+  `Request` object, not in `fetch`'s `init`, so a hook must read
+  `input.clone().text()`; and the extension's network log shows method, URL
+  and status but never a body, so the hook is the only way to see one from
+  the user's own Chrome (`discover_endpoints.py --bodies` remains the
+  Playwright way).
 
 ## Re-run this when
 

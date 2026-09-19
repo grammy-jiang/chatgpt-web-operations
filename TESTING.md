@@ -108,6 +108,15 @@ tests:
 Total: 1876 statements, 34.7%. Only `profile_context.py` and
 `clean_chats.py` meet their bar today.
 
+After the first wave, the same day: 497 T0 tests; every module at 100%
+except `profile_context.py` (99%) and `review_topic.py` (92%), and the three
+browser commands still to do (`create_project.py` 17.5%,
+`discover_endpoints.py` 26%, `measure_window.py` 0%), which need the fake
+Playwright that the BrowserSender tests brought (`tests/fake_playwright.py`).
+Lesson from the merge: a T0 test must never reach the real `cc._helpers()`,
+because it patches the `chatgpt_session` module in place and every later
+cookie test then runs against the patched functions.
+
 ## 5. Reaching the bar on what exists
 
 Ordered so the safety net exists before any live tier runs.
