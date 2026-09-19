@@ -146,10 +146,10 @@ def main(argv: list[str] | None = None) -> int:
     steps = ["send"]
     if not args.chat:
         steps.append("resolve")
-    if args.title:
-        steps.append("rename")
     if not args.no_wait:
         steps.append("wait")
+    if args.title:
+        steps.append("rename")
     total = len(steps)
     step = 0
 
@@ -195,16 +195,20 @@ def main(argv: list[str] | None = None) -> int:
                 else:
                     _progress(step, total, "already a real conversation id")
 
-        if args.title:
-            step += 1
-            _progress(step, total, f"renaming to {args.title!r}...")
-            session.rename(conversation_id, args.title)
-
         if not args.no_wait:
             step += 1
             _progress(step, total, "waiting for the reply...")
             reply = cc.wait_for_reply(session, conversation_id, timeout=args.timeout)
             print(reply)
+
+        # After the reply: ChatGPT titles a new chat itself once the first
+        # reply lands, and that overwrote a rename done before the wait
+        # (2026-09-20, "rp-test send 1" became "Reply PONG"). With --no-wait
+        # the rename still happens now and the auto-title may win later.
+        if args.title:
+            step += 1
+            _progress(step, total, f"renaming to {args.title!r}...")
+            session.rename(conversation_id, args.title)
     except Exception as exc:  # BrowserSender, resolve and wait all raise here
         print(f"send failed: {str(exc)[:200]}")
         return 1

@@ -258,7 +258,9 @@ in a transcript says whether it did. What the reads expose (2026-09-20):
   isolating worker chats. Captured 2026-09-20: `PATCH
   /backend-api/projects/<g-p-id>` with `memory_scope` `project_v2` (project
   only) or `global` (default), alongside name and instructions; see
-  `references/endpoint-discovery.md`.
+  `references/endpoint-discovery.md`. A chat created inside such a project
+  reports `memory_scope: project_v2` itself; elsewhere chats read
+  `global_enabled`. `project_settings.py --memory project-only` sets it.
 - The account-wide switch is **Enable memory** at `#settings/Personalization`
   (the older "Reference saved memories / chat history" pair is gone). Its
   state is not carried by `memories` or by any named key in `settings/user`,

@@ -27,6 +27,12 @@ at load average 6 (six test agents running) the sidebar was not rendered
 yet. Fix: wait for the control itself, up to 60 s (32 s end to end on the
 retry). A fixed pause on a loaded host reads exactly like changed wording.
 
+And a fifth the same day, in the new send path: `send_prompt.py --title`
+renamed the chat before waiting for the reply, and ChatGPT's own title
+("Reply PONG") overwrote it when the first reply landed. The sandbox sweep
+finds test chats by their `rp-test` title, so a lost rename is a chat that
+never gets cleaned up. The rename now happens after the wait.
+
 ## Measurements worth keeping
 
 Composer fill, the real 89 kB review prompt, on an idle host:

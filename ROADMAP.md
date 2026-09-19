@@ -62,7 +62,7 @@ it, including capture. "Evidence" says whether the endpoint is already known.
 | R4 | Scheduled tasks list (`tasks`) | read | seen | low | small | deferred |
 | R5 | Installed plugins and skills (`ps/plugins/installed`, `hazelnuts`) | read | seen | low: checks the research-pipeline skill is installed on chatgpt.com | small | deferred |
 | R6 | Global search of chats by content | read | not captured; needs a typed query | medium | small once captured | deferred |
-| M2 | Pin and unpin a chat (`is_starred`), unarchive | write | not captured; likely the conversation PATCH family | medium: mark a run's report chat | one recorded action each | 2 |
+| M2 | Pin and unpin a chat (`is_starred`), unarchive | write | captured 2026-09-20: `PATCH /backend-api/conversation/<id>` with `is_starred` or `is_archived` true / false | medium: mark a run's report chat | command pending | 2 |
 | M3 | Set or update a project's instructions | write | captured 2026-09-20: `PATCH /backend-api/projects/<g-p-id>` with the full body (name, instructions, emoji, theme) | high: house rules for workers become explicit per run | command pending | 2 |
 | M4 | Memory isolation for worker chats: per-project memory setting, or `is_do_not_remember` on the conversation | write / send | not captured; conversation items expose `memory_scope` and `is_do_not_remember`; projects expose `memory_enabled` and `memory_scope` (all `global` on 2026-09-20); Project settings' "Project-only memory" captured 2026-09-20: the same PATCH with `memory_scope` `project_v2` or `global`; the account-wide "Enable memory" switch has no identified key in `settings/user` | high: stops runs from reading or writing the user's memory | investigate first | 2 |
 | M5 | Move a chat into a project; rename or delete a project | write | not captured; deliberately unimplemented so far | low | one recorded action each | deferred |
@@ -133,9 +133,11 @@ with a dry run before every change.
    the same PATCH (`memory_scope` `project_v2` / `global`). The sandbox now
    runs project-only. **Done 2026-09-20** with M3 above: `--memory` maps to
    `memory_scope` and the read-back checks the derived `memory_enabled` too.
-   Still to verify: what a chat created inside such a project reports as its
-   own `memory_scope`.
-3. Pin and unpin, unarchive (M2). Capture by pinning one sandbox chat.
+   Verified 2026-09-20: a chat created inside such a project reports
+   `memory_scope: project_v2` itself.
+3. Pin and unpin, unarchive (M2). Captured 2026-09-20 on the sandbox chat
+   (`references/endpoint-discovery.md`, "Captured 2026-09-20, later"); the
+   command is next.
 Exit criterion: each command has a dry run, a test over a fake session, and
 its endpoint recorded in `references/endpoint-discovery.md`.
 

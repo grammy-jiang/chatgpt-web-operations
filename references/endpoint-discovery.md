@@ -266,6 +266,25 @@ PATCH /backend-api/projects/<g-p-id>          content-type: application/json
   the user's own Chrome (`discover_endpoints.py --bodies` remains the
   Playwright way).
 
+**Captured 2026-09-20, later** on a chat inside the sandbox project, the
+same way (the conversation header's More menu, and Data controls → Archived
+chats → Manage for the unarchive), each verified with `GET conversation/<id>`:
+
+```
+PATCH /backend-api/conversation/<id>   {"is_starred": true}     Pin chat
+PATCH /backend-api/conversation/<id>   {"is_starred": false}    Unpin chat
+PATCH /backend-api/conversation/<id>   {"is_archived": true}    Archive
+PATCH /backend-api/conversation/<id>   {"is_archived": false}   Unarchive
+```
+
+So pin and unarchive are the conversation PATCH family the client already
+uses for rename, archive and delete. Two more facts from the same session:
+a chat created inside a project set to "Project-only memory" reports
+`memory_scope: project_v2` itself (the sandbox chat did; chats elsewhere
+read `global_enabled`), and ChatGPT titles a new chat by itself once the
+first reply lands, which overwrote a rename done before the wait
+(`send_prompt.py` now renames after the reply).
+
 ## Re-run this when
 
 - a send starts failing in a way `probe_account.py` says is not the account
