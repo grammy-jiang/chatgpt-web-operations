@@ -43,13 +43,6 @@ LIBRARY_MODULES = {
     "chatgpt_cookies.py",
 }
 
-# Scripts other agents are adding this same wave (see the task brief); only
-# used to soften a "no row yet" failure into an expected xfail, and only for
-# the specific names below -- never to hide any other kind of miss.
-# project_settings.py and send_prompt.py: both confirmed still missing their
-# row at the final test run on 2026-09-20 (see the FINAL REPORT).
-_MID_WAVE_PENDING: set[str] = {"project_settings.py", "send_prompt.py"}
-
 
 def _import(name: str) -> Any:
     return importlib.import_module(name)
@@ -92,25 +85,7 @@ def _skill_command_rows() -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def _command_name_params() -> list[Any]:
-    """One parametrize case per command, xfail(strict=False) only for a name
-    in _MID_WAVE_PENDING that is, right now, still missing its row -- so a
-    row added later turns the case into a plain pass, not a masked failure.
-    """
-    rows = set(_skill_command_rows())
-    params = []
-    for name in _command_names():
-        if name in _MID_WAVE_PENDING and name not in rows:
-            marks = pytest.mark.xfail(
-                strict=False, reason="command added this wave; row pending"
-            )
-            params.append(pytest.param(name, marks=marks))
-        else:
-            params.append(name)
-    return params
-
-
-@pytest.mark.parametrize("name", _command_name_params())
+@pytest.mark.parametrize("name", _command_names())
 def test_every_command_script_has_a_skill_md_row(name: str) -> None:
     """A command cannot be added without its row (TESTING.md, "consistency")."""
     assert name in _skill_command_rows()
