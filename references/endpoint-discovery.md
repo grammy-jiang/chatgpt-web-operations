@@ -348,8 +348,31 @@ model call the connector as a tool (assistant `code` message with
 `reasoning_recap`, then a text acknowledgement, all from
 `gpt-5-6-instant` within seconds). The conversation's `async_status` was
 7 right after and `null` a minute later; no further message appeared in
-30 minutes. What the page itself sends for Deep research, and what it
-polls while a report is pending, is not captured.
+30 minutes.
+
+**The page's own Deep research send, captured 2026-09-20 in the skill's
+window** ("+" → "Deep research", selected *after* the prompt was filled:
+`Locator.fill()` clears an already selected item, which is why the earlier
+"+" clicks never reached the wire). The body carries the hint twice, top
+level and in the message: `system_hints: ["plugin:connector_openai_deep_research"]`,
+`messages[0].metadata.system_hints` the same, plus
+`deep_research_version: "standard"`, `venus_model_variant: "standard"`,
+`caterpillar_selected_sources: []`, `selected_mcp_sources: []`, and
+`serialization_metadata.custom_symbol_offsets` marking an
+`ecosystemMention` for the text `@Deep research ` that the composer appends
+to the message. The reply is the same acknowledgement as with the injected
+hint. **What happens next is driven by the page**: every ~60 s it posts
+`/backend-api/ecosystem/call_mcp` with `{"app_uri":
+"connectors://connector_openai_deep_research", "method": "tools/call",
+"params": {"name": "get_state", "arguments": {"session_id": "…"}},
+"conversation_id": …, "message_id": …}`, and from about two minutes it
+also posts `f/conversation/prepare` for the conversation; the sidebar
+listing is refreshed every ~30 s. In seven minutes with the window open
+no report had landed. So a Deep research step needs the window kept open
+until the connector reports done, and how the report is written back (a
+follow-up turn through the gated send, most likely, given the `prepare`
+calls) is the one thing still unobserved; one run with the window open for
+up to the 25-minute budget would settle it.
 
 ## Re-run this when
 

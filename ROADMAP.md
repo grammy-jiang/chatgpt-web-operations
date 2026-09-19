@@ -229,11 +229,18 @@ orchestrator is not modified.
    minute, and **no report arrived in the conversation within 30 minutes
    of polling** (`GET conversation/<id>` every 60 s). So the hint reaches
    the connector but does not, by itself, deliver a report over HTTP; the
-   page-driven flow (window kept open, whatever it polls) is not captured.
-   B3 stays open with that capture as its first step: record the page's
-   own Deep research send and what it calls while the report is pending.
-   `wait_for_reply` returns on the acknowledgement, so a Deep research
-   step would in any case need its own collector.
+   page-driven flow is now captured (`references/endpoint-discovery.md`,
+   "The page's own Deep research send"): the page adds
+   `messages[0].metadata` fields and an `@Deep research` mention, then
+   polls `ecosystem/call_mcp get_state` every ~60 s and prepares a
+   follow-up turn from about two minutes, so the report is delivered
+   through the page, not over plain HTTP. Design consequence: a Deep
+   research step must keep its window open until the connector is done
+   (tens of minutes of the browser budget), then collect the follow-up
+   turn. Still unobserved: the completion itself. Next: one run with the
+   window kept open up to the 25-minute budget, recording the follow-up
+   send; that costs one Deep research run. `send_prompt.py --system-hint`
+   already starts the research; the UI path is not needed.
 
 Exit criterion: `send_prompt.py` exposes the four choices, the client's
 tests cover them offline, and one measured send per feature is recorded in

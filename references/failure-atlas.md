@@ -64,6 +64,13 @@ Research has started working on your query and will update you with the
 report". Read the reply before judging it; metadata describes the turn
 that exists, not the one still coming.
 
+From the Deep research capture: selecting a composer item ("+" → Web
+search or Deep research) and *then* filling the prompt sends a body with
+`system_hints: []`, because `Locator.fill()` resets the composer's state
+and the pill goes with it. Two earlier "the click did not work" readings
+were this. Verify the state right before the click on send, not right
+after the selection.
+
 ## Measurements worth keeping
 
 Composer fill, the real 89 kB review prompt, on an idle host:
