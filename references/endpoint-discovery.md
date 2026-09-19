@@ -318,6 +318,24 @@ The Create dialog also offers the memory choice, so `memory_scope` may be
 the dialog says so and it cannot be undone. With the body known,
 `create_project.py` no longer needs a browser.
 
+**Attachments, measured 2026-09-20** with `send_prompt.py --attach` on a
+73-byte Markdown file in the sandbox: the composer uploads through
+`input#upload-files` (`POST /backend-api/files`, a storage PUT, then
+`POST /backend-api/files/process_upload_stream`, about 10 s end to end for
+that file), and the send body then carries the file in
+`messages[0].metadata.attachments`:
+
+```
+{"id": "file_…", "size": 73, "name": "rp-test-attach.md", "mime_type": "text/plain",
+ "source": "local", "library_persistence_result": "temporary", "is_big_paste": false}
+```
+
+The reply quoted the file's third line exactly, so the content reached the
+model. Timing that matters: the composer's busy indicator appears only
+~2.5 s after the input is set; a send clicked before the upload finished
+was silently ignored ("message was not posted"), so `_upload_files` waits
+for busy to appear and clear.
+
 ## Re-run this when
 
 - a send starts failing in a way `probe_account.py` says is not the account

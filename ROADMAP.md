@@ -199,7 +199,13 @@ orchestrator is not modified.
    validates the paths and uploads them through the composer's file input
    (`_upload_files`, shared with the large-prompt path) before the fill;
    `send_prompt.py --attach` uploads instead of only recording. 14 T0
-   tests, both modules at 100%.
+   tests, both modules at 100%. **Measured 2026-09-20**: one send with a
+   73-byte Markdown file; the reply quoted its third line exactly; the body
+   carries the file in `messages[0].metadata.attachments`
+   (`references/endpoint-discovery.md`, "Attachments"). The first try was
+   ignored because the send went out before the upload finished; the
+   upload wait now follows the busy indicator. Not yet measured: a real
+   paper PDF (size, processing time, whether retrieval truncates).
 
 Exit criterion: `send_prompt.py` exposes the four choices, the client's
 tests cover them offline, and one measured send per feature is recorded in

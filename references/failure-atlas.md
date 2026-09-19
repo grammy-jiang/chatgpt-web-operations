@@ -51,6 +51,12 @@ metadata proved the rewrite had gone out. The record is now written by the
 route handler, which is the only place that knows both bodies. Order of
 events is a measurement, not a guess.
 
+And one from the attachment path: the first send with a file was ignored
+by the page ("message was not posted") because the upload wait checked
+"busy right now" 2 s after the input was set, and the busy indicator only
+appears ~2.5 s later. A wait that can return before the thing it waits for
+has started is not a wait. Poll for the indicator to appear and then clear.
+
 ## Measurements worth keeping
 
 Composer fill, the real 89 kB review prompt, on an idle host:
