@@ -43,6 +43,14 @@ a transcript does not record the effort, and it does (assistant message
 `metadata.thinking_effort`). Record the wire body and read the reply's
 metadata; a setting that is "far steadier" but unmeasured is a guess.
 
+One more, small, from fixing it: the first version of the send-body
+recorder wrote "sent" from the page's `request` event, assuming the route
+had already rewritten the body. Playwright fires that event before any
+route runs, so the record said `sent == original` while the reply's
+metadata proved the rewrite had gone out. The record is now written by the
+route handler, which is the only place that knows both bodies. Order of
+events is a measurement, not a guess.
+
 ## Measurements worth keeping
 
 Composer fill, the real 89 kB review prompt, on an idle host:

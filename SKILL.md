@@ -240,8 +240,19 @@ did not move either (T3). Every run before that day used the profile's
 setting, whatever `TASK_EFFORT` asked for. A transcript does record what
 was used: each assistant message's `metadata` carries `thinking_effort`,
 `model_slug`, `resolved_model_slug`, `search_result_groups` and
-`citations` (`read_chat.py --effort`). The fix under test rewrites the send
-body in flight inside the skill's own window; see `ROADMAP.md`, Stage 3.
+`citations` (`read_chat.py --effort`).
+
+**What pins it now (verified 2026-09-20).** The client rewrites the
+`f/conversation` POST body itself, in flight, before it leaves the skill's
+own window (`chatgpt_client.rewrite_send_body`, a route that
+`BrowserSender._open` registers only when effort, model or search is set):
+`thinking_effort`, `model` and `system_hints` (`"search"` for Web search).
+One recorded send with `--effort standard --search` came back with
+`metadata.thinking_effort: standard`, `search_result_groups` filled and a
+cited reply, where the two sends before it had posted `max` and no search.
+No account setting is touched, so the user's own default stays as it is.
+`--record-send-body PATH` keeps `original` (what the page built) and
+`sent` (what left the browser) for every such send.
 
 **Which level each research step should use** is decided in the
 research-pipeline repository's `docs/chatgpt-research-effort-levels.md`:

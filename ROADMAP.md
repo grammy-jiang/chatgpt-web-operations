@@ -179,12 +179,16 @@ orchestrator is not modified.
    `standard` carried `thinking_effort: max` and, with `--search`,
    `system_hints: []`: neither the cookie (B1) nor the "+" menu click (B2)
    reached the wire; the page takes both from the account's server-side
-   state. Next: rewrite the body in flight (`page.route` on
-   `f/conversation`: `thinking_effort`, `model`, `system_hints`), then one
-   recorded send verified through the reply's `metadata.thinking_effort`
-   and `search_result_groups`. Changing the account's
-   `last_used_model_config` instead would change the user's own default,
-   so it is not the plan.
+   state. Changing the account's `last_used_model_config` instead would
+   change the user's own default, so it was not the plan.
+   **Fixed and verified 2026-09-20**: `rewrite_send_body` edits
+   `thinking_effort`, `model` and `system_hints` in the POST body in flight
+   (a route registered in `_open` only when something is pinned); one
+   recorded send with `--effort standard --search` produced a reply whose
+   metadata says `thinking_effort: standard`, `search_result_groups`
+   filled, and a cited answer (`read_chat.py --effort`). 27 T0 tests in
+   `tests/test_client_rewrite.py`. Left to remove: the inert cookie
+   rewrite, the "+" menu click and the T3 label test they justified.
 3. File attachments (B4), then Deep research (B3): measure each on one real
    paper before designing anything, because both change the shape and the
    timing of what comes back. Attachments come first because they feed the

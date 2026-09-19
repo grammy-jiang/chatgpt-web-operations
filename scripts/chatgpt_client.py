@@ -450,11 +450,61 @@ UNUSED_ON_SEND = (
 )
 
 
-def block_unused(context: Any, allow_project: bool = False) -> None:
+def rewrite_send_body(body: dict, effort: str, model: str, search: bool) -> dict:
+    """The ``f/conversation`` POST body, with effort/model/search pinned.
+
+    Two recorded sends on 2026-09-20 proved ``with_effort``/``with_model``
+    do not, by themselves, pin what a send uses: the page takes
+    ``thinking_effort`` and ``model`` from the account's server-side
+    ``last_used_model_config``, not from the ``oai-last-model-config``
+    cookie those two rewrite, so both sends carried ``"max"`` regardless of
+    the cookie. This rewrites the body the page already built -- the one
+    thing that actually reaches the server -- which is what makes the pin
+    real (SKILL.md, "Reasoning effort").
+
+    ``search`` appends ``"search"`` to ``system_hints`` rather than
+    replacing it, so a hint the page itself set survives; a hint already
+    present is not duplicated. Returns ``body`` itself, unchanged, when
+    ``effort``, ``model`` and ``search`` are all blank/false: nothing to
+    rewrite, so nothing is copied.
+    """
+    if not effort and not model and not search:
+        return body
+    out = dict(body)
+    if effort:
+        out["thinking_effort"] = effort
+    if model:
+        out["model"] = model
+    if search:
+        hints = list(out.get("system_hints") or [])
+        if "search" not in hints:
+            hints.append("search")
+        out["system_hints"] = hints
+    return out
+
+
+def block_unused(
+    context: Any, allow_project: bool = False, rewrite_send: Any = None
+) -> None:
     """Refuse the page's fetches that a scripted send does not read.
 
     ``allow_project`` keeps the project sidebar, because composing inside a
     project needs its page to render.
+
+    ``rewrite_send``, when given, is offered every request this function
+    would otherwise pass through unchanged (never one it aborts): a
+    callable taking the intercepted route and returning ``True`` once it
+    has resolved the route itself, so this function's own ``continue_()``
+    is skipped for that one request. ``_open`` passes ``BrowserSender``'s
+    own ``_rewrite_send_route`` here, and only when a send needs to pin its
+    effort, model or search, so "block what a send never reads" and
+    "rewrite the one request that matters" share a single route per
+    pattern instead of two racing for the same URL. Real Playwright would
+    resolve two separately-registered routes on the same URL in the order
+    opposite to their registration; this module's own test fake
+    (``tests/fake_playwright.py``) resolves the same case by first
+    registration instead; a second route could not be ordered to agree
+    with both. One route with an optional extra step avoids the question.
     """
     skip = tuple(
         path for path in UNUSED_ON_SEND if not (allow_project and "gizmo" in path)
@@ -465,6 +515,8 @@ def block_unused(context: Any, allow_project: bool = False) -> None:
         if any(path in url for path in skip):
             with contextlib.suppress(Exception):
                 handler.abort()
+            return
+        if rewrite_send is not None and rewrite_send(handler):
             return
         with contextlib.suppress(Exception):
             handler.continue_()
@@ -1086,7 +1138,8 @@ class BrowserSender:
     # The message itself, never its sentinel .../f/conversation/prepare
     # handshake sibling nor any GET (SKILL.md, "The transport split";
     # ROADMAP.md, Stage 3 item 2): the only POST worth recording for
-    # ``record_send_body``.
+    # ``record_send_body``, and the only one ``_rewrite_send_route`` ever
+    # rewrites.
     RECORD_ENDPOINT = "/backend-api/f/conversation"
 
     # This host is memory-tight and swaps under load. One scripted page for a
@@ -1143,6 +1196,12 @@ class BrowserSender:
         # post_data) is recorded there, so one real send can document what
         # the page actually sends with and without search.
         self.record_send_body = record_send_body.strip()
+        # Set by _rewrite_send_route: the exact post_data (JSON text) that
+        # went on the wire for the last f/conversation POST, once effort,
+        # model or search rewrote it. Stays None until then, and forever
+        # None when nothing here is pinned. _record_request reads it to
+        # tell "what the page built" from "what was actually sent".
+        self._last_sent_body: str | None = None
         self._stack = contextlib.ExitStack()
         self.page: Any = None
         # Playwright's sync objects may only be used from the thread that
@@ -1230,7 +1289,15 @@ class BrowserSender:
         ctx = self._launch(pw)
         self._own_pids = scripted_browser_pids() - before
         ctx.add_cookies(cookies)
-        block_unused(ctx, allow_project=bool(self.project))
+        # rewrite_send_body only has work to do when one of these is set;
+        # block_unused must not be handed a hook otherwise, or every send
+        # (even one pinning nothing) would pay the extra JSON round trip.
+        rewrites = bool(self.effort or self.model or self.search)
+        block_unused(
+            ctx,
+            allow_project=bool(self.project),
+            rewrite_send=self._rewrite_send_route if rewrites else None,
+        )
         self.page = ctx.new_page()
         if self.record_send_body:
             self.page.on("request", self._record_request)
@@ -1286,6 +1353,65 @@ class BrowserSender:
             viewport={"width": self.WIDTH, "height": self.HEIGHT}
         )
 
+    def _rewrite_send_route(self, route: Any) -> bool:
+        """Rewrite this send's own POST body in flight: effort, model, search.
+
+        Offered to ``block_unused`` as its ``rewrite_send`` hook, so it only
+        ever sees a request ``block_unused`` was already about to let
+        through unchanged (never one of ``UNUSED_ON_SEND``). Resolves the
+        route itself and returns ``True`` for a POST to exactly
+        ``RECORD_ENDPOINT`` with a JSON object body -- the one request this
+        exists for; returns ``False`` for anything else (a GET, the
+        ``/prepare`` sibling, a body that is not a JSON object), so the
+        caller's own ``continue_()`` finishes it untouched.
+
+        ``self._last_sent_body`` records the exact ``post_data`` that went
+        on the wire, as text, so ``_record_request`` can tell "what the
+        page built" from "what was actually sent" when both are being
+        recorded (ROADMAP.md, Stage 3 items 1-2).
+        """
+        req = route.request
+        if req.method != "POST":
+            return False
+        path = req.url.split("?", 1)[0].split("#", 1)[0]
+        if not path.endswith(self.RECORD_ENDPOINT):
+            return False
+        try:
+            body = json.loads(req.post_data) if req.post_data else None
+        except (TypeError, ValueError):
+            return False
+        if not isinstance(body, dict):
+            return False
+        sent = json.dumps(
+            rewrite_send_body(body, self.effort, self.model, self.search)
+        )
+        self._last_sent_body = sent
+        # The page's ``request`` event fires before any route runs, so the
+        # record of a rewritten send must be written here, where both
+        # bodies are known; ``_record_request`` writes only unrewritten ones.
+        if self.record_send_body:
+            self._write_record(
+                {
+                    "method": req.method,
+                    "url": req.url,
+                    "original": req.post_data,
+                    "sent": sent,
+                }
+            )
+        with contextlib.suppress(Exception):
+            route.continue_(post_data=sent)
+        return True
+
+    def _write_record(self, doc: dict[str, Any]) -> None:
+        """Write ``doc`` to ``record_send_body``; never raises."""
+        with contextlib.suppress(Exception):
+            target = Path(self.record_send_body)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(
+                json.dumps(doc, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
+
     def _record_request(self, req: Any) -> None:
         """Write one f/conversation POST's body to ``record_send_body``.
 
@@ -1295,24 +1421,33 @@ class BrowserSender:
         without Web search -- for the lead's one real verification send
         (ROADMAP.md, Stage 3 item 2). Never raises: a recording failure
         must not fail the send it is only there to document.
+
+        When this send pins effort, model or search, this writes a
+        provisional record with ``"sent"`` equal to ``"original"``, and
+        ``_rewrite_send_route`` overwrites it with the real ``"sent"`` once
+        it has rewritten the body: the ``request`` event fires before any
+        route has run, so this handler cannot know the rewritten body
+        (2026-09-20: a record written only here showed ``sent`` equal to
+        ``original`` while the reply's metadata proved the rewrite had gone
+        out). A body the route declines (not a JSON object) keeps the
+        provisional record, which is then exact. Without a rewrite the file
+        keeps its plain ``"post_data"`` field.
         """
         if req.method != "POST":
             return
         path = req.url.split("?", 1)[0].split("#", 1)[0]
         if not path.endswith(self.RECORD_ENDPOINT):
             return
-        with contextlib.suppress(Exception):
-            target = Path(self.record_send_body)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(
-                json.dumps(
-                    {"method": req.method, "url": req.url, "post_data": req.post_data},
-                    indent=2,
-                    ensure_ascii=False,
-                )
-                + "\n",
-                encoding="utf-8",
-            )
+        if self.effort or self.model or self.search:
+            doc: dict[str, Any] = {
+                "method": req.method,
+                "url": req.url,
+                "original": req.post_data,
+                "sent": req.post_data,
+            }
+        else:
+            doc = {"method": req.method, "url": req.url, "post_data": req.post_data}
+        self._write_record(doc)
 
     RATE_LIMIT_TEXT = "too many requests"
     RATE_LIMIT_MODAL = '[data-testid="modal-conversation-history-rate-limit"]'

@@ -18,10 +18,19 @@ concurrent new-chat sends cannot claim each other's conversation.
 ``--chat`` continues an existing conversation instead, and needs no resolve
 (so it refuses ``--project``, which only targets a new one).
 
-``--effort`` and ``--model`` pin the reasoning effort and the model the
-composer uses, through ``with_effort`` / ``with_model``; blank inherits
-whatever the profile last used. ``--title`` renames the conversation once
-its id is final -- how the sandbox tests mark their chats ``rp-test ...``.
+``--effort`` and ``--model`` pin the reasoning effort and the model this
+send actually uses. Two recorded sends on 2026-09-20 proved the composer's
+``oai-last-model-config`` cookie (``with_effort`` / ``with_model``) does
+not by itself pin either: the page takes both from the account's
+server-side ``last_used_model_config``, not from that cookie, so both
+sends carried ``thinking_effort: "max"`` regardless of what the cookie
+said. What a send actually uses is set by rewriting the ``f/conversation``
+POST body in flight, inside this window, before it leaves the browser
+(``chatgpt_client.rewrite_send_body``, applied through a route registered
+in ``BrowserSender._open``); the cookie is kept only because it still
+steers the composer's own label. Blank inherits whatever the account's own
+settings last used. ``--title`` renames the conversation once its id is
+final -- how the sandbox tests mark their chats ``rp-test ...``.
 
 ``--search`` turns Web search on for this send through the composer's "+"
 menu (``BrowserSender._enable_search``); absent leaves it off.
