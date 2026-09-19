@@ -16,7 +16,9 @@ import conftest
 import coverage_gate
 import pytest
 import record_fixture
+from live import conftest as live_conftest
 from live import guard as live_guard
+from live import test_browser_upload as live_test_browser_upload
 
 # ---------------------------------------------------------------------------
 # The T0 network guard (tests/conftest.py's autouse fixture)
@@ -412,6 +414,129 @@ def test_delete_gizmo_is_refused_for_the_sandbox_id_even_if_marked_created() -> 
     with pytest.raises(live_guard.GuardViolation):
         guarded.call("/backend-api/gizmos/g-p-sand", method="DELETE")
     assert inner.calls == []
+
+
+# ---------------------------------------------------------------------------
+# live/conftest.py -- sweep_targets, the pure half of the sandbox teardown
+# ---------------------------------------------------------------------------
+
+
+def test_sweep_targets_of_an_empty_listing_is_empty() -> None:
+    assert live_conftest.sweep_targets([]) == []
+
+
+def test_sweep_targets_reads_a_single_page() -> None:
+    page = {
+        "items": [
+            {"id": "conv-1", "title": "rp-test send 1"},
+            {"id": "conv-2", "title": "Reply PONG"},
+        ],
+        "cursor": None,
+    }
+    assert live_conftest.sweep_targets([page]) == [
+        ("conv-1", "rp-test send 1"),
+        ("conv-2", "Reply PONG"),
+    ]
+
+
+def test_sweep_targets_merges_every_page_walked_via_cursor() -> None:
+    """The fixture walks the cursor and hands every page it collected here;
+    sweep_targets must merge all of them, not just the first."""
+    page_one = {"items": [{"id": "conv-1", "title": "a"}], "cursor": "opaque-2"}
+    page_two = {"items": [{"id": "conv-2", "title": "b"}], "cursor": None}
+    assert live_conftest.sweep_targets([page_one, page_two]) == [
+        ("conv-1", "a"),
+        ("conv-2", "b"),
+    ]
+
+
+def test_sweep_targets_includes_every_title_not_only_rp_test_ones() -> None:
+    """The bug this replaces: ChatGPT overwrites a chat's title once the
+    first reply lands, so a title filter let a renamed chat escape the
+    sweep and it had to be deleted by hand (TESTING.md §1). The fix is no
+    title filter at all -- every conversation in the sandbox is a target."""
+    page = {
+        "items": [
+            {"id": "conv-1", "title": "Python Release Schedule Summary"},
+            {"id": "conv-2", "title": ""},
+            {"id": "conv-3"},  # title missing entirely
+        ],
+        "cursor": None,
+    }
+    assert live_conftest.sweep_targets([page]) == [
+        ("conv-1", "Python Release Schedule Summary"),
+        ("conv-2", ""),
+        ("conv-3", ""),
+    ]
+
+
+def test_sweep_targets_skips_an_item_with_no_id() -> None:
+    """An id-less entry must not become a PATCH to .../conversation/."""
+    page = {"items": [{"title": "no id here"}, {"id": "conv-1", "title": "ok"}]}
+    assert live_conftest.sweep_targets([page]) == [("conv-1", "ok")]
+
+
+def test_sweep_targets_tolerates_a_malformed_page() -> None:
+    """A page that is not the expected shape must not crash the sweep."""
+    assert live_conftest.sweep_targets([None, {}, {"items": None}, "oops"]) == []
+
+
+# ---------------------------------------------------------------------------
+# live/test_browser_upload.py -- verify(), the T3 upload probe's own check
+# ---------------------------------------------------------------------------
+
+
+def test_browser_upload_verify_passes_a_matching_chip_and_enabled_send() -> None:
+    info = {
+        "remove_label": "Remove file 1: rp-test-browser-upload.txt",
+        "send_exists": True,
+        "send_enabled": True,
+    }
+    assert live_test_browser_upload.verify(info, "rp-test-browser-upload.txt") == []
+
+
+def test_browser_upload_verify_flags_a_missing_remove_chip() -> None:
+    info = {"remove_label": None, "send_exists": True, "send_enabled": True}
+    mismatches = live_test_browser_upload.verify(info, "rp-test-browser-upload.txt")
+    assert len(mismatches) == 1
+    assert "Remove file" in mismatches[0]
+
+
+def test_browser_upload_verify_flags_a_chip_naming_the_wrong_file() -> None:
+    """A 'Remove file' chip that names a different file must not pass just
+    because some upload succeeded."""
+    info = {
+        "remove_label": "Remove file 1: some-other-file.txt",
+        "send_exists": True,
+        "send_enabled": True,
+    }
+    mismatches = live_test_browser_upload.verify(info, "rp-test-browser-upload.txt")
+    assert len(mismatches) == 1
+    assert "rp-test-browser-upload.txt" in mismatches[0]
+
+
+def test_browser_upload_verify_flags_a_missing_send_button() -> None:
+    info = {
+        "remove_label": "Remove file 1: rp-test-browser-upload.txt",
+        "send_exists": False,
+        "send_enabled": False,
+    }
+    mismatches = live_test_browser_upload.verify(info, "rp-test-browser-upload.txt")
+    assert mismatches == [
+        "no send button (neither [data-testid=send-button] nor "
+        '[aria-label="Send prompt"])'
+    ]
+
+
+def test_browser_upload_verify_flags_a_disabled_send_button() -> None:
+    info = {
+        "remove_label": "Remove file 1: rp-test-browser-upload.txt",
+        "send_exists": True,
+        "send_enabled": False,
+    }
+    assert live_test_browser_upload.verify(info, "rp-test-browser-upload.txt") == [
+        "send button is present but not enabled"
+    ]
 
 
 # ---------------------------------------------------------------------------

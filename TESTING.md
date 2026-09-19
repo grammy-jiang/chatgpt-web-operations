@@ -35,9 +35,12 @@ Enforcement, not promises:
   continue unless the name is exactly `rp-test-sandbox`, so a stale id can
   never point the tests at a real project.
 - Teardown deletes every conversation a test created, in `finally`. A
-  session-scoped fixture sweeps the sandbox at the end and deletes anything
-  titled `rp-test …` that remains. `--keep-sandbox-chats` disables both and
-  prints what stayed.
+  session-scoped fixture then sweeps the sandbox: it pages through
+  `gizmos/<sandbox_id>/conversations`, notes every id with the guard and
+  PATCHes each one `is_visible: false`, whatever its title (an earlier
+  version kept only `rp-test …` titles, and ChatGPT's own auto-title after
+  the first reply let renamed chats escape it). It prints what it deleted;
+  `--keep-sandbox-chats` disables it and prints what stayed.
 - T3 and T4 refuse to start when the rate-limit modal or a 429 is present,
   when `pgrep -f "chatgpt_researc[h].py"` finds a run in flight, or when
   available memory is under `RP_MIN_AVAILABLE_MB`. The browser budget
@@ -60,7 +63,7 @@ Enforcement, not promises:
 | robustness | T0 | every parser survives `{}`, `None` fields, wrong types and half-written messages | parametrized |
 | smoke | T1 | each read command exits as documented against the real account; assertions on shape, never on the user's data | `profile_context.py` exits 0; the slider has 5 positions |
 | round trip | T2 | each write command: act, read back, revert; the cleanup is verified by a read | set instructions on the sandbox, read `gizmos/<id>`, restore |
-| browser dry run | T3 | the send path opens: window, cookies, composer found; never sends | none written yet; the model-label check was removed 2026-09-20 because the cookie steers neither the send nor the label |
+| browser dry run | T3 | the send path opens: window, cookies, composer found, upload works; never sends | `tests/live/test_browser_upload.py`: upload one file, the composer shows its `Remove file …` chip and the send button stays enabled, never clicked |
 | measured send | T4 | the send path end to end, one message per feature, timings recorded in `failure-atlas.md` | search on and off, one attachment, one deep research |
 
 ## 3. Coverage gate
