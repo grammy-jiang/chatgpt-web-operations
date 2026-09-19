@@ -216,16 +216,20 @@ orchestrator is not modified.
    part)**: 28 T0 tests, both modules at 100%.
    **Deep research measured 2026-09-20**: one send with `--system-hint
    plugin:connector_openai_deep_research` (the hint id the models payload
-   lists) **does start a research run**, and the output shape is the
-   point: the first reply arrives in seconds from `gpt-5-6-instant` and
-   says only "Deep Research has started working on your query and will
-   update you with the report"; the report is appended later,
-   asynchronously (the conversation carries `async_status`). So
-   `wait_for_reply` returns on the acknowledgement, not the report: a
-   Deep research step needs its own collector that polls until a later
-   assistant turn with `search_result_groups` / citations appears, with a
-   budget of tens of minutes. The first reading of this send (an "ordinary
-   answer") was wrong because only the metadata was read, not the text.
+   lists) makes the model invoke the Deep research connector as a tool:
+   the conversation shows an assistant `code` message to
+   `api_tool.call_tool`, a `tool` reply, `thoughts`, then the text "Deep
+   Research has started working on your query and will update you with
+   the report" (all on `gpt-5-6-instant`, seconds after the send). The
+   conversation's `async_status` read 7 and cleared after about a
+   minute, and **no report arrived in the conversation within 30 minutes
+   of polling** (`GET conversation/<id>` every 60 s). So the hint reaches
+   the connector but does not, by itself, deliver a report over HTTP; the
+   page-driven flow (window kept open, whatever it polls) is not captured.
+   B3 stays open with that capture as its first step: record the page's
+   own Deep research send and what it calls while the report is pending.
+   `wait_for_reply` returns on the acknowledgement, so a Deep research
+   step would in any case need its own collector.
 
 Exit criterion: `send_prompt.py` exposes the four choices, the client's
 tests cover them offline, and one measured send per feature is recorded in

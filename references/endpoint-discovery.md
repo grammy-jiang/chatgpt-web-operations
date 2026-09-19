@@ -336,6 +336,16 @@ model. Timing that matters: the composer's busy indicator appears only
 was silently ignored ("message was not posted"), so `_upload_files` waits
 for busy to appear and clear.
 
+**Deep research through `system_hints`, measured 2026-09-20**: a send
+with `system_hints: ["plugin:connector_openai_deep_research"]` made the
+model call the connector as a tool (assistant `code` message with
+`recipient: api_tool.call_tool`, a `tool` message back, `thoughts`,
+`reasoning_recap`, then a text acknowledgement, all from
+`gpt-5-6-instant` within seconds). The conversation's `async_status` was
+7 right after and `null` a minute later; no further message appeared in
+30 minutes. What the page itself sends for Deep research, and what it
+polls while a report is pending, is not captured.
+
 ## Re-run this when
 
 - a send starts failing in a way `probe_account.py` says is not the account
