@@ -4,3 +4,4 @@
 playwright==1.62.0
 cryptography>=43
 pytest>=8
+pytest-cov>=6

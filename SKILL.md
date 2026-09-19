@@ -20,8 +20,8 @@ it is resolved from the scripts' own location, and no command imports
 anything from a repository checkout. It carries its own copy of the
 chatgpt.com client (`scripts/chatgpt_client.py`), the cookie helpers
 (`chatgpt_session.py`, `chatgpt_cookies.py`) and the round bookkeeping
-(`round_state.py`); `VENDORED.md` records where each came from and how to
-re-sync it.
+(`round_state.py`); `VENDORED.md` records where each came from. Since
+2026-09-20 they are owned and changed here.
 
 The commands run in the skill's own virtual environment, `.venv`, and switch
 to it by themselves: `python3 $S/<command>` works from any directory, and

@@ -15,13 +15,39 @@ a research run needs something listed here.
    risk. Writes act on the user's account and default to a dry run. Anything
    in the send path lives in `BrowserSender`, is fragile, and costs a
    browser window per test.
-3. **The vendored client changes at its origin.** `chatgpt_client.py` is a
-   copy of the research-pipeline repository's file (`VENDORED.md`). Send-path
-   work is done there, tested there, then re-vendored; commands here never
-   fork the client.
+3. **The bundled client is owned here** (decision 2 below; before
+   2026-09-20 it was re-vendored from the research-pipeline repository, see
+   `VENDORED.md`). Send-path work is done in `scripts/chatgpt_client.py` and
+   tested here; the repository is not modified any more.
 4. **Nothing that spends the user's limits or exposes their data is
    automated.** Pro lane, Ultra, Deep research and sharing are opt-in per
    run, never defaults.
+
+## Decisions of 2026-09-20
+
+The user approved the staged plan and answered its open points:
+
+1. Every recorded action (the Stage 2 captures, the Stage 3 sends) is
+   performed by the agent through Chrome, one action at a time, announced
+   before it is made, on the sandbox project or a worker chat only; never on
+   the user's own chats or global settings.
+2. The research-pipeline repository and its worktree
+   `~/Projects/research-pipeline-chatgpt` are not touched any more; all work
+   stays in this skill. Consequences: Stage 1 item 4 (the orchestrator's
+   once-per-round call) becomes a pre-run step documented in `SKILL.md` plus
+   a `review_topic.py` warning when a topic lacks a fresh
+   `chatgpt/profile_context*.json`; Stage 3 changes the skill's own client
+   and gets its own send entry point, `send_prompt.py`, instead of tables in
+   `chatgpt_research.py`; `VENDORED.md` is provenance only.
+3. A failed profile read warns and continues; the document records the
+   failures.
+4. Order: 1.2 → 1.3 → 1.4 → 2.1 (M3) → 2.2 (M4) → 2.3 (M2) → 3.1 (B1) →
+   3.2 (B2) → 3.3 (B4) → 3.4 (B3).
+5. Stage 3 may spend one or two real messages per item, inside the sandbox
+   project, and every test conversation is deleted afterwards. The test
+   tiers, their guards and the coverage gates (95% per core module, 90% per
+   other module) are in `TESTING.md`; the harness comes first, then the
+   existing modules are brought to the bar, then the stages.
 
 ## Inventory
 
@@ -65,14 +91,20 @@ send. All endpoints are already observed; no browser, no writes.
    reported as usage (tokens, entry count, per-project scope) because the
    account-wide switch has no identified key; the model comes from both the
    cookie and the server's `last_used_model_config`. The once-per-round call
-   is repository work in `chatgpt_research.py`, still to do.
+   would have been repository work; by decision 2 it became item 4.
 2. `list_projects.py --id … --files`: full instructions and the file list
    from `gizmos/<g-p-id>` instead of the sidebar's truncated copy.
 3. `probe_account.py`: two more lines from `wham/usage`, credits balance and
    the plan window, labelled as not covering chat sends.
+4. The pre-run step, in the skill: `SKILL.md` documents
+   `profile_context.py --project … --json <workdir>/chatgpt/profile_context.json`
+   before a run, and `review_topic.py` gains a seventh invariant that warns
+   when a topic has no such file or its `captured_at` is older than the
+   newest round. A per-round capture would need the orchestrator, which
+   stays untouched.
 
-Exit criterion: a round's archive states what the profile looked like when
-the round started.
+Exit criterion: a topic's archive states what the profile looked like when
+the run started, and `review_topic.py` says so when it does not.
 
 ## Stage 2: writes, one captured action each
 
@@ -80,29 +112,34 @@ Goal: a run can shape its own project and leave the user's account tidy,
 with a dry run before every change.
 
 1. Project instructions set or update (M3). Capture by editing the
-   instructions of the run's own project once in the recorded window.
-2. Pin and unpin, unarchive (M2). Capture by pinning one worker chat.
-3. Memory isolation (M4). First read what Project settings offers and what
-   the conversation's `memory_scope` values mean; then decide between a
-   project-level setting and a per-send flag. No code before that reading.
+   instructions of the sandbox project once in the recorded window.
+2. Memory isolation (M4). Project settings offers "Default memory" or
+   "Project-only memory" (read 2026-09-20), so the lever is project-level.
+   Capture by switching the sandbox project once, then verify that a chat
+   created inside it no longer reports `memory_scope: global_enabled`.
+3. Pin and unpin, unarchive (M2). Capture by pinning one sandbox chat.
 Exit criterion: each command has a dry run, a test over a fake session, and
 its endpoint recorded in `references/endpoint-discovery.md`.
 
-## Stage 3: the send path, through the repository
+## Stage 3: the send path, in the skill's own client
 
-Goal: the orchestrator chooses model, search and attachments per step the
-way it already chooses effort.
+Goal: a send can choose model, search and attachments the way it already
+chooses effort, through the skill's own entry point `send_prompt.py`
+(`--project`, `--effort`, `--model`, `--search`, `--attach`); the
+orchestrator is not modified.
 
 1. Model preset per step (B1): extend `with_effort` to `with_model`; verify
    by opening a composer with the cookie set and reading the label, no send.
 2. Web search per step (B2): capture the send body with and without the
    composer's Web search item, then reproduce the difference.
-3. Deep research (B3) and file attachments (B4): measure on one real paper
-   before designing anything, because both change the shape and the timing
-   of what comes back.
+3. File attachments (B4), then Deep research (B3): measure each on one real
+   paper before designing anything, because both change the shape and the
+   timing of what comes back. Attachments come first because they feed the
+   existing analysis steps; Deep research is a new kind of step.
 
-Exit criterion: `TASK_EFFORT` gains sibling tables for model and search, and
-the tests in the repository cover them.
+Exit criterion: `send_prompt.py` exposes the four choices, the client's
+tests cover them offline, and one measured send per feature is recorded in
+`references/failure-atlas.md`.
 
 ## Not planned
 

@@ -1,7 +1,12 @@
 # Vendored modules
 
-This skill imports nothing from a repository checkout. The modules below are
-copies; when the origin changes, diff and re-copy rather than editing both.
+This skill imports nothing from a repository checkout. The modules below
+started as copies.
+
+**Since 2026-09-20 they are owned here.** The user decided that the
+research-pipeline repository is not modified any more, so these files change
+in this directory and are tested here; the repository's copies are history,
+not an origin. The table records where each file came from.
 
 | File | Origin | Taken | sha256 of the origin file |
 |------|--------|-------|---------------------------|
@@ -19,10 +24,10 @@ copies; when the origin changes, diff and re-copy rather than editing both.
 - `chatgpt_session.py`, `chatgpt_cookies.py`: byte-identical.
 - `round_state.py`: the listed functions, byte-identical, in origin order.
 
-## Re-syncing
+## Provenance check
 
-Diff against the origin file and expect exactly the hunks listed above;
-anything else is drift on one side or the other.
+To see how far the repository's copy has drifted from this one, for
+information only, nothing is synced:
 
 ```bash
 diff <research-pipeline checkout>/.github/scripts/chatgpt_client.py scripts/chatgpt_client.py
@@ -31,5 +36,4 @@ cmp  <binnacle checkout>/.claude/skills/chatgpt-mcp-dev/scripts/chatgpt_cookies.
 ```
 
 For `round_state.py`, compare each listed function with its definition in
-`chatgpt_research.py`. The tests in `tests/` exercise the commands over fakes;
-run them after a re-sync with `.venv/bin/python -m pytest tests -q`.
+`chatgpt_research.py`.

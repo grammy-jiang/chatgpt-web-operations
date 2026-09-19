@@ -26,7 +26,9 @@ account or in this directory; nothing is assumed.
   the `HELPERS` and `PW_PYTHON` defaults changed), `chatgpt_session.py` and
   `chatgpt_cookies.py` (from binnacle, byte-identical), `round_state.py`
   (eight helpers extracted verbatim from `chatgpt_research.py`). Rule: change
-  the origin, then re-vendor by diff; never edit both sides.
+  the origin, then re-vendor by diff; never edit both sides. (Superseded
+  2026-09-20: the copies are owned here and the repository is not modified
+  any more; see `ROADMAP.md`, "Decisions of 2026-09-20".)
 - `.venv` is built by `bootstrap.sh` with `--system-site-packages` because
   the cookie decryptor needs the apt package `python3-dbus`, which pip cannot
   build cleanly. Playwright 1.62.0, cryptography and pytest are installed in
