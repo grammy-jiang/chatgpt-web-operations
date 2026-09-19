@@ -1,0 +1,6 @@
+# Installed into .venv by bootstrap.sh.
+# dbus-python is deliberately absent: it comes from the system python3-dbus
+# package through --system-site-packages, because pip cannot build it cleanly.
+playwright==1.62.0
+cryptography>=43
+pytest>=8

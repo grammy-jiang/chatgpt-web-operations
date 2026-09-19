@@ -1,0 +1,20 @@
+# Same rules as the research-pipeline repository this skill came from, so the
+# commands stay lintable on their own: `uvx ruff check .` / `uvx ruff format .`
+line-length = 88
+target-version = "py312"
+exclude = [".venv"]
+
+[lint]
+select = ["A", "B", "C4", "E", "F", "I", "PT", "RUF", "SIM", "UP", "W"]
+ignore = ["B008", "RUF001", "RUF002", "RUF003", "RUF012", "RUF059"]
+
+[lint.per-file-ignores]
+"tests/**/*.py" = ["PT011", "PT015", "PT018", "RUF043"]
+# Vendored byte-for-byte; lint them at the origin, not here.
+"scripts/chatgpt_client.py" = ["ALL"]
+"scripts/chatgpt_session.py" = ["ALL"]
+"scripts/chatgpt_cookies.py" = ["ALL"]
+
+[format]
+docstring-code-format = true
+exclude = ["scripts/chatgpt_client.py", "scripts/chatgpt_session.py", "scripts/chatgpt_cookies.py"]
