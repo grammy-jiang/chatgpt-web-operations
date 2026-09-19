@@ -1079,6 +1079,10 @@ class BrowserSender:
     # ROADMAP.md, Stage 3 item 2): the only POST worth recording for
     # ``record_send_body``, and the only one ``_rewrite_send_route`` ever
     # rewrites.
+    # An upload that never shows a busy indicator within this window is
+    # taken as instant; one that does must clear it within UPLOAD_MAX_MS.
+    UPLOAD_QUIET_MS = 15_000
+    UPLOAD_MAX_MS = 180_000
     RECORD_ENDPOINT = "/backend-api/f/conversation"
 
     # This host is memory-tight and swaps under load. One scripted page for a
@@ -1580,12 +1584,26 @@ class BrowserSender:
             file_input = page.locator('input[type="file"]:not([accept*="image"])')
         file_input.first.wait_for(state="attached", timeout=30_000)
         file_input.first.set_input_files(paths[0] if len(paths) == 1 else list(paths))
-        for _ in range(120):
-            if not page.locator(
-                '[aria-label*="Uploading" i], [aria-busy="true"]'
-            ).count():
+        # Measured 2026-09-20 on a 60-byte file: the chip appears at once,
+        # the busy indicator only ~2.5 s later, and the backend's
+        # process_upload_stream finishes ~10 s after the input was set. A
+        # wait that only checks "not busy right now" returns before the
+        # upload has even started, and a send clicked then is ignored
+        # ("message was not posted"). So: wait for busy to appear and then
+        # clear; if it never appears within UPLOAD_QUIET_MS, assume the
+        # upload was instant.
+        busy = page.locator(
+            '[aria-label*="Uploading" i], [aria-busy="true"], [role="progressbar"]'
+        )
+        seen_busy = False
+        waited = 0
+        while waited < self.UPLOAD_MAX_MS:
+            if busy.count():
+                seen_busy = True
+            elif seen_busy or waited >= self.UPLOAD_QUIET_MS:
                 break
-            page.wait_for_timeout(1_000)
+            page.wait_for_timeout(500)
+            waited += 500
         page.wait_for_timeout(1_500)
 
     def _attach_prompt(self, page: Any, text: str, name: str) -> None:

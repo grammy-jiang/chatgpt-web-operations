@@ -71,7 +71,7 @@ def test_creating_and_deleting_a_throwaway_project_round_trips(
         assert after["name"] == name
 
         conv_status, conv_body = live_session.call(
-            f"/backend-api/gizmos/{new_id}/conversations?cursor=0&limit=100"
+            f"/backend-api/gizmos/{new_id}/conversations?cursor=0&limit=50"
         )
         assert conv_status == 200, f"gizmos/{new_id}/conversations: HTTP {conv_status}"
         assert delete_project.chat_count(conv_body) == 0, (

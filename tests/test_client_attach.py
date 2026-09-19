@@ -36,7 +36,9 @@ REAL_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 REAL_URL = f"https://chatgpt.com/c/{REAL_ID}"
 
 USER_TURN_SELECTOR = '[data-message-author-role="user"]'
-UPLOADING_SELECTOR = '[aria-label*="Uploading" i], [aria-busy="true"]'
+UPLOADING_SELECTOR = (
+    '[aria-label*="Uploading" i], [aria-busy="true"], [role="progressbar"]'
+)
 UPLOAD_INPUT = "input#upload-files"
 
 
@@ -252,6 +254,39 @@ def test_upload_files_polls_until_the_uploading_indicator_clears(make_sender) ->
 
     waits = _page_calls(page, "wait_for_timeout")
     assert len(waits) == 3
+
+
+def test_upload_files_waits_the_quiet_window_when_no_busy_indicator_appears(
+    make_sender,
+) -> None:
+    """Measured 2026-09-20: the busy indicator appears only ~2.5 s after the
+    input is set. A wait that returned on the first "not busy" poll let a
+    send go out mid-upload and the message was never posted. With no
+    indicator at all, the whole quiet window is waited out: 30 polls of
+    500 ms, then the settle pause."""
+    sender = make_sender()
+    page = fp.Page()
+    page.set_locator(UPLOAD_INPUT, count=1)
+    page.set_locator(UPLOADING_SELECTOR, count=0)
+
+    sender._upload_files(page, ["/tmp/solo.pdf"])
+
+    waits = _page_calls(page, "wait_for_timeout")
+    assert len(waits) == sender.UPLOAD_QUIET_MS // 500 + 1
+
+
+def test_upload_files_waits_for_a_late_busy_indicator_to_clear(make_sender) -> None:
+    """Busy shows up on the third poll and clears on the fifth: two idle
+    polls, two busy polls, then the break and the settle pause."""
+    sender = make_sender()
+    page = fp.Page()
+    page.set_locator(UPLOAD_INPUT, count=1)
+    page.set_locator(UPLOADING_SELECTOR, count=fp.sequence(0, 0, 1, 1, 0))
+
+    sender._upload_files(page, ["/tmp/solo.pdf"])
+
+    waits = _page_calls(page, "wait_for_timeout")
+    assert len(waits) == 5
 
 
 def test_upload_files_waits_for_the_input_to_be_attached_first(make_sender) -> None:

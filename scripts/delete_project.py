@@ -38,7 +38,7 @@ from _common import ensure_venv, open_session
 from list_projects import project_of
 
 GIZMO = "/backend-api/gizmos/{id}"
-CONVERSATIONS = "/backend-api/gizmos/{id}/conversations?cursor=0&limit=100"
+CONVERSATIONS = "/backend-api/gizmos/{id}/conversations?cursor=0&limit=50"
 
 
 def refusal(project: dict[str, Any], expect_name: str, force: bool) -> str | None:
