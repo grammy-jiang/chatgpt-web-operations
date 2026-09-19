@@ -123,12 +123,18 @@ with a dry run before every change.
 
 1. Project instructions set or update (M3). Captured 2026-09-20 on the
    sandbox project and reproduced over HTTP (`references/endpoint-discovery.md`,
-   "Captured 2026-09-20"); the command is next.
+   "Captured 2026-09-20"). **Done 2026-09-20**: `project_settings.py
+   g-p-<id> [--instructions FILE | --instructions-text TEXT |
+   --clear-instructions] [--memory project-only|default] [--apply]`,
+   combined with M4 since both are one PATCH; 30 T0 tests, 100% coverage;
+   `tests/live/test_write_project_settings.py` (T2) round-trips the sandbox.
 2. Memory isolation (M4). Project settings offers "Default memory" or
    "Project-only memory", and both directions were captured 2026-09-20 in
    the same PATCH (`memory_scope` `project_v2` / `global`). The sandbox now
-   runs project-only. Still to verify: what a chat created inside such a
-   project reports as its own `memory_scope`.
+   runs project-only. **Done 2026-09-20** with M3 above: `--memory` maps to
+   `memory_scope` and the read-back checks the derived `memory_enabled` too.
+   Still to verify: what a chat created inside such a project reports as its
+   own `memory_scope`.
 3. Pin and unpin, unarchive (M2). Capture by pinning one sandbox chat.
 Exit criterion: each command has a dry run, a test over a fake session, and
 its endpoint recorded in `references/endpoint-discovery.md`.
@@ -142,6 +148,16 @@ orchestrator is not modified.
 
 1. Model preset per step (B1): extend `with_effort` to `with_model`; verify
    by opening a composer with the cookie set and reading the label, no send.
+   **Done 2026-09-20** (offline part): `with_model(cookies, model)` mirrors
+   `with_effort`; `BrowserSender(model=...)` applies both in `_open`;
+   `__exit__` guards its context close. `send_prompt.py` is the skill's own
+   send entry point (`--project`, `--effort`, `--model`, `--chat`,
+   `--title`, `--no-wait`, `--timeout`, `--json`, `--attach` recorded only):
+   a new chat's provisional id is resolved under `new_chat_lock` with
+   `resolve_new_conversation` (known-ids snapshot plus a pre-send epoch),
+   then the reply is awaited. 28 T0 tests, both modules at 100%. Still to
+   verify live: the composer's label with `--model` set (T3), one real send
+   (T4).
 2. Web search per step (B2): capture the send body with and without the
    composer's Web search item, then reproduce the difference.
 3. File attachments (B4), then Deep research (B3): measure each on one real

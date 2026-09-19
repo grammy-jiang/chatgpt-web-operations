@@ -45,8 +45,9 @@ skill does not import it.
 
 ## The commands
 
-Each does one kind of interaction. Two change something: `clean_chats.py`
-needs `--apply`, and `create_project.py` creates a project.
+Each does one kind of interaction. Four change something: `clean_chats.py`
+and `project_settings.py` need `--apply`, `create_project.py` creates a
+project, and `send_prompt.py` posts a message.
 
 | Command | Purpose | Exit code means |
 |---------|---------|-----------------|
@@ -58,6 +59,8 @@ needs `--apply`, and `create_project.py` creates a project.
 | `list_chats.py` | Recent conversations by title substring; `--pinned`, `--archived`, `--no-project-chats`; flags project / pinned / archived. | 0 always |
 | `list_projects.py` | Every project (paged), one project's full instructions and files, and the chats inside one. | 0 found, 1 no such `--id` |
 | `create_project.py` | Create a project by driving the UI, and report the call that did it. | 0 created |
+| `project_settings.py` | Set a project's instructions and memory scope (`--memory project-only` keeps its chats out of your memory). Dry run unless `--apply`. | 0 dry run or verified, 1 apply failed, 2 refused |
+| `send_prompt.py` | Send a prompt: a new chat (in a project with `--project`) or a continuing one with `--chat`; `--effort` and `--model` pin the composer's cookie, `--title` renames once the id resolves, `--json` records the send; waits for the reply unless `--no-wait`. `--attach` is recorded, not uploaded yet. | 0 sent and replied, 1 send, resolve or wait failed, 2 bad arguments |
 | `read_chat.py` | One conversation: is the turn finished, and what did it say? | 0 turn finished |
 | `clean_chats.py` | Archive or delete worker chats. Dry run unless `--apply`. | 0 always |
 | `round_status.py` | A research round: admitted, read, written off, unread. | 0 nothing unread |

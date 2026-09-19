@@ -394,6 +394,41 @@ def with_effort(cookies: list[dict], effort: str) -> list[dict]:
     return out
 
 
+def with_model(cookies: list[dict], model: str) -> list[dict]:
+    """Return the jar with the composer's default model pinned, or unchanged if blank.
+
+    Mirrors ``with_effort``: ``oai-last-model-config`` carries both ``model``
+    and ``effort``, and each of the two setters changes only its own field.
+    The cookie's existing effort, if it had one, rides along unchanged, and
+    nothing else in the jar is touched.
+    """
+    if not model:
+        return cookies
+    out = [c for c in cookies if c.get("name") != EFFORT_COOKIE]
+    effort = ""
+    for cookie in cookies:
+        if cookie.get("name") == EFFORT_COOKIE:
+            with contextlib.suppress(Exception):
+                effort = json.loads(unquote(str(cookie.get("value", "")))).get(
+                    "effort", ""
+                )
+    payload = json.dumps(
+        {"model": model, "effort": effort} if effort else {"model": model}
+    )
+    out.append(
+        {
+            "name": EFFORT_COOKIE,
+            "value": quote(payload, safe=""),
+            "domain": "chatgpt.com",
+            "path": "/",
+            "secure": True,
+            "httpOnly": False,
+            "sameSite": "Lax",
+        }
+    )
+    return out
+
+
 # Requests the send page makes that a scripted send never needs. Blocking
 # them is not an optimisation for us: it is load we should not be putting on
 # ChatGPT at all. The sidebar's conversation history is the big one, fetched
@@ -1078,6 +1113,7 @@ class BrowserSender:
         screenshot_dir: str = "/tmp",
         project: str = "",
         effort: str = "",
+        model: str = "",
     ):
         self.browser = browser
         self.visible = visible
@@ -1088,6 +1124,9 @@ class BrowserSender:
         # Reasoning effort for this send. Empty inherits the profile's own
         # setting, which is how every run before 2026-09-16 got its level.
         self.effort = effort.strip()
+        # Model slug for this send, pinned the same way as effort. Empty
+        # inherits the profile's own model.
+        self.model = model.strip()
         self._stack = contextlib.ExitStack()
         self.page: Any = None
         # Playwright's sync objects may only be used from the thread that
@@ -1139,7 +1178,14 @@ class BrowserSender:
 
     def __exit__(self, *exc: object) -> None:
         try:
-            self._owner.submit(self._stack.close).result()
+            # A window the watchdog already killed can raise while this
+            # closes it (the context is already gone). Letting that escape
+            # would replace whatever exception the with-block body raised --
+            # or invent one where the body raised nothing -- so a failure to
+            # close an already-dead context is swallowed rather than masking
+            # the real outcome of the send.
+            with contextlib.suppress(Exception):
+                self._owner.submit(self._stack.close).result()
         finally:
             self._closed.set()
             self._owner.shutdown(wait=True)
@@ -1154,8 +1200,11 @@ class BrowserSender:
         import chatgpt_cookies  # type: ignore[import-not-found]
 
         _patch_cookie_export(cs, chatgpt_cookies)
-        cookies = with_effort(
-            chatgpt_cookies.export(cs.pick_browser(self.browser)), self.effort
+        cookies = with_model(
+            with_effort(
+                chatgpt_cookies.export(cs.pick_browser(self.browser)), self.effort
+            ),
+            self.model,
         )
         self._stack.enter_context(virtual_display(self.visible))
         pw = self._stack.enter_context(sync_playwright())

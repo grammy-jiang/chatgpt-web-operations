@@ -76,7 +76,8 @@ which fails on the first module under its threshold and prints all of them.
 the venv switch and are exercised by the subprocess CLI tests, which
 coverage cannot see without process tracking. `make test` runs T0 and the
 gate, `make lint` runs ruff, and `make live-read`, `make live-write`,
-`make live-browser`, `make live-send` set the variable and the marker.
+`make live-browser`, `make live-send` set the variable and the marker;
+`make fmt` formats with ruff and `make all` runs lint then test.
 
 ## 4. Baseline, measured 2026-09-20
 

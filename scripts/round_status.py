@@ -10,6 +10,7 @@ interrupt, and before trusting a round's report.
 Exit 0 when the round has read everything it admitted, 1 when it has not.
 """
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -17,6 +18,14 @@ from pathlib import Path
 import chatgpt_client as cc
 import round_state as cr
 from _common import ensure_venv, open_session
+
+
+def parse_args(argv: list[str] | None = None) -> Path:
+    """The one positional argument every invocation needs: the workdir."""
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("workdir", help="a research topic's working directory")
+    args = ap.parse_args(argv)
+    return Path(args.workdir).expanduser().resolve()
 
 
 def main(workdir: Path) -> int:
@@ -75,7 +84,4 @@ def main(workdir: Path) -> int:
 
 if __name__ == "__main__":
     ensure_venv()
-    if len(sys.argv) != 2:
-        print(__doc__)
-        raise SystemExit(2)
-    raise SystemExit(main(Path(sys.argv[1]).expanduser().resolve()))
+    raise SystemExit(main(parse_args(sys.argv[1:])))
