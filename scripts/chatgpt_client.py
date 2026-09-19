@@ -54,7 +54,6 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, unquote
 
 # Vendored into the chatgpt-web-operations skill (see VENDORED.md). The
 # cookie helpers are siblings of this file and the Playwright interpreter is
@@ -349,84 +348,16 @@ def transcript(conv: dict) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+# The reasoning-effort levels a send may pin; send_prompt.py --effort
+# validates against this. Effort, model and search reach a send only by
+# rewriting the outgoing f/conversation POST body in flight
+# (rewrite_send_body, applied through BrowserSender._rewrite_send_route,
+# below). An earlier version pinned effort and model by rewriting the
+# oai-last-model-config cookie instead (with_effort / with_model); measured
+# 2026-09-20, that cookie steers neither what a send carries nor the
+# composer's own label (SKILL.md, "Reasoning effort"), so that path and its
+# cookie constant are gone.
 EFFORTS = ("min", "standard", "extended", "max")
-EFFORT_COOKIE = "oai-last-model-config"
-
-
-def with_effort(cookies: list[dict], effort: str) -> list[dict]:
-    """Return the jar with ``thinking_effort`` pinned, or unchanged if blank.
-
-    The level rides in the send body as ``thinking_effort``, and the page
-    takes it from this cookie. Setting the cookie is far steadier than
-    driving the composer's slider: no hover, no forced click, and it is
-    already set before the first paint.
-
-    Leaving ``effort`` empty inherits the profile's own setting, which is
-    what every run did until 2026-09-16 — accidentally at ``max``, and
-    silently following whatever the user last picked in the web UI.
-    """
-    if not effort:
-        return cookies
-    if effort not in EFFORTS:
-        raise ValueError(f"unknown thinking effort {effort!r}; expected {EFFORTS}")
-    out = [c for c in cookies if c.get("name") != EFFORT_COOKIE]
-    model = ""
-    for cookie in cookies:
-        if cookie.get("name") == EFFORT_COOKIE:
-            with contextlib.suppress(Exception):
-                model = json.loads(unquote(str(cookie.get("value", "")))).get(
-                    "model", ""
-                )
-    payload = json.dumps(
-        {"model": model, "effort": effort} if model else {"effort": effort}
-    )
-    out.append(
-        {
-            "name": EFFORT_COOKIE,
-            "value": quote(payload, safe=""),
-            "domain": "chatgpt.com",
-            "path": "/",
-            "secure": True,
-            "httpOnly": False,
-            "sameSite": "Lax",
-        }
-    )
-    return out
-
-
-def with_model(cookies: list[dict], model: str) -> list[dict]:
-    """Return the jar with the composer's default model pinned, or unchanged if blank.
-
-    Mirrors ``with_effort``: ``oai-last-model-config`` carries both ``model``
-    and ``effort``, and each of the two setters changes only its own field.
-    The cookie's existing effort, if it had one, rides along unchanged, and
-    nothing else in the jar is touched.
-    """
-    if not model:
-        return cookies
-    out = [c for c in cookies if c.get("name") != EFFORT_COOKIE]
-    effort = ""
-    for cookie in cookies:
-        if cookie.get("name") == EFFORT_COOKIE:
-            with contextlib.suppress(Exception):
-                effort = json.loads(unquote(str(cookie.get("value", "")))).get(
-                    "effort", ""
-                )
-    payload = json.dumps(
-        {"model": model, "effort": effort} if effort else {"model": model}
-    )
-    out.append(
-        {
-            "name": EFFORT_COOKIE,
-            "value": quote(payload, safe=""),
-            "domain": "chatgpt.com",
-            "path": "/",
-            "secure": True,
-            "httpOnly": False,
-            "sameSite": "Lax",
-        }
-    )
-    return out
 
 
 # Requests the send page makes that a scripted send never needs. Blocking
@@ -1127,6 +1058,14 @@ class BrowserSender:
 
     Use as a context manager. ``send(text)`` opens a new conversation and
     returns its id; ``send(text, chat=<id>)`` continues a conversation.
+
+    ``effort``, ``model`` and ``search`` pin what this send uses. None of
+    the three touches a cookie: measured 2026-09-20, the composer's own
+    ``oai-last-model-config`` cookie steers neither what a send carries nor
+    the composer's label (SKILL.md, "Reasoning effort"). Instead ``_open``
+    registers a route, only when one of the three is set, that rewrites the
+    outgoing ``f/conversation`` POST body in flight
+    (``rewrite_send_body`` / ``_rewrite_send_route``).
     """
 
     SEND_BUTTONS = (
@@ -1182,15 +1121,18 @@ class BrowserSender:
         # A ChatGPT project (a "snorlax gizmo", g-p-… id or short_url slug).
         # New conversations are composed on its page, so they belong to it.
         self.project = project.strip()
-        # Reasoning effort for this send. Empty inherits the profile's own
-        # setting, which is how every run before 2026-09-16 got its level.
+        # Reasoning effort for this send. Empty inherits whatever the
+        # account's own settings/user record last used (model_settings.py
+        # prints it); pinned by rewriting the send body in flight, in
+        # _open, never a cookie (rewrite_send_body).
         self.effort = effort.strip()
         # Model slug for this send, pinned the same way as effort. Empty
-        # inherits the profile's own model.
+        # inherits the account's own model.
         self.model = model.strip()
-        # Web search on for this send, through the composer's "+" menu
-        # (ROADMAP.md, Stage 3 item 2 / B2). Off by default, like every
-        # other opt-in choice here.
+        # Web search on for this send (ROADMAP.md, Stage 3 item 2 / B2),
+        # pinned the same way as effort: rewrite_send_body appends
+        # "search" to the send body's system_hints. Off by default, like
+        # every other opt-in choice here.
         self.search = bool(search)
         # File path: when set, the f/conversation POST body (method, url,
         # post_data) is recorded there, so one real send can document what
@@ -1275,12 +1217,13 @@ class BrowserSender:
         import chatgpt_cookies  # type: ignore[import-not-found]
 
         _patch_cookie_export(cs, chatgpt_cookies)
-        cookies = with_model(
-            with_effort(
-                chatgpt_cookies.export(cs.pick_browser(self.browser)), self.effort
-            ),
-            self.model,
-        )
+        # The exported jar reaches the context unchanged: effort, model and
+        # search never touch a cookie here (measured 2026-09-20: rewriting
+        # oai-last-model-config pinned neither the send nor the composer's
+        # own label). What pins them is the route registered below, only
+        # when one of the three is set, which rewrites the f/conversation
+        # POST body in flight (rewrite_send_body / _rewrite_send_route).
+        cookies = chatgpt_cookies.export(cs.pick_browser(self.browser))
         self._stack.enter_context(virtual_display(self.visible))
         pw = self._stack.enter_context(sync_playwright())
         # Note which scripted browsers existed before, so the watchdog can
@@ -1580,39 +1523,6 @@ class BrowserSender:
             ) from None
         return composer
 
-    # The popup PLUS_BUTTON opens carries no role="menu": its sections are
-    # div[role="group"] and each item is a div[tabindex="0"] with no role and
-    # no data-testid (references/endpoint-discovery.md, "Seen on
-    # 2026-09-20"). Its items are found by their exact visible text instead.
-    PLUS_BUTTON = "button#composer-plus-btn"
-    SEARCH_ITEM_TEXT = "Web search"
-
-    def _enable_search(self, page: Any) -> None:
-        """Turn Web search on for this send, through the composer's "+" menu.
-
-        Measured 2026-09-20: the first click right after a page load twice
-        left the popup shut, so opening is retried once before giving up.
-        Raises ``RuntimeError`` naming the step when the popup, or its "Web
-        search" item, never appears -- the caller's existing exception
-        handling (``send``) turns that into a failed send like any other
-        browser failure.
-        """
-        plus = page.locator(self.PLUS_BUTTON)
-        item = None
-        for _attempt in range(2):
-            plus.click(timeout=15_000)
-            page.wait_for_timeout(500)
-            item = page.get_by_text(self.SEARCH_ITEM_TEXT, exact=True)
-            if item.count() and item.first.is_visible():
-                break
-        else:
-            raise RuntimeError(
-                "_enable_search: the composer's '+' menu never opened "
-                f"(no {self.SEARCH_ITEM_TEXT!r} item after 2 clicks)"
-            )
-        item.first.click(timeout=15_000)
-        page.wait_for_timeout(500)
-
     # Uploading the prompt instead of pasting it looked like the answer to slow
     # ProseMirror rendering, and the upload itself works: the file arrives and
     # the covering message types fine. Submission is what does not happen —
@@ -1733,9 +1643,6 @@ class BrowserSender:
         # belongs.
         page.goto(url, wait_until="domcontentloaded", timeout=PAGE_LOAD_MS)
         composer = self._composer()
-        if self.search:
-            self._focus_composer(composer)
-            self._enable_search(page)
         # Chat surface only: leave the surface toggle alone when absent.
         chat_toggle = page.get_by_role("radio", name=re.compile(r"^Chat$", re.I))
         if chat_toggle.count() and chat_toggle.first.is_visible():

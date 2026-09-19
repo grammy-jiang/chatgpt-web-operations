@@ -162,9 +162,10 @@ orchestrator is not modified.
    `--title`, `--no-wait`, `--timeout`, `--json`, `--attach` recorded only):
    a new chat's provisional id is resolved under `new_chat_lock` with
    `resolve_new_conversation` (known-ids snapshot plus a pre-send epoch),
-   then the reply is awaited. 28 T0 tests, both modules at 100%. Still to
-   verify live: the composer's label with `--model` set (T3), one real send
-   (T4).
+   then the reply is awaited. 28 T0 tests, both modules at 100%.
+   **Cookie path removed 2026-09-20**: `with_effort`, `with_model` and the
+   T3 label test are gone; `_open` exports the cookies unchanged and
+   `--effort` / `--model` pin only through `rewrite_send_body`.
 2. Web search per step (B2): capture the send body with and without the
    composer's Web search item, then reproduce the difference.
    **Done 2026-09-20 (offline part)**: `BrowserSender(search=True)` drives
@@ -187,8 +188,9 @@ orchestrator is not modified.
    recorded send with `--effort standard --search` produced a reply whose
    metadata says `thinking_effort: standard`, `search_result_groups`
    filled, and a cited answer (`read_chat.py --effort`). 27 T0 tests in
-   `tests/test_client_rewrite.py`. Left to remove: the inert cookie
-   rewrite, the "+" menu click and the T3 label test they justified.
+   `tests/test_client_rewrite.py`. **Removed 2026-09-20**: the cookie
+   rewrite, the "+" menu click (`_enable_search`) and the T3 label test;
+   `rewrite_send_body` is the only mechanism.
 3. File attachments (B4), then Deep research (B3): measure each on one real
    paper before designing anything, because both change the shape and the
    timing of what comes back. Attachments come first because they feed the

@@ -132,29 +132,36 @@ def test_no_effort_level_anywhere_is_called_ultra() -> None:
 
 
 # ---------------------------------------------------------------------------
-# settings_user.json + models.json -> profile_context.model_of
+# settings_user.json + models.json -> model_settings.server_config,
+# profile_context.model_of
 # ---------------------------------------------------------------------------
 
 
-def _web_cookie() -> dict[str, str]:
-    """The cookie a browser on this profile would carry, from the server's
-    own record of the last web send (settings_user.json)."""
+def _web_config() -> dict[str, str]:
+    """The (model, effort) pair the server remembers for the web surface,
+    read directly from the recorded fixture (settings_user.json)."""
     last = SETTINGS_USER["settings"]["last_used_model_config"]
     slug = last["slugs"]["web"]
     effort = last["juices"]["web"][slug]
     return {"model": slug, "effort": effort}
 
 
-def test_model_of_agrees_between_server_and_cookie_for_the_recorded_web_slug() -> None:
-    doc = profile_context.model_of(MODELS, SETTINGS_USER, _web_cookie())
+def test_server_config_reads_the_recorded_web_slug_from_the_real_shape() -> None:
+    assert model_settings.server_config(SETTINGS_USER) == _web_config()
+
+
+def test_model_of_reports_the_recorded_web_slug_from_the_server_record() -> None:
+    doc = profile_context.model_of(MODELS, SETTINGS_USER)
     assert doc["server"]["surface"] == "web"
-    assert doc["server"]["preset"] == doc["cookie"]["preset"]
+    expected = _web_config()
+    assert doc["server"]["model"] == expected["model"]
+    assert doc["server"]["effort"] == expected["effort"]
     assert isinstance(doc["ultra_effort_enabled"], bool)
 
 
-def test_model_of_reports_no_cookie_when_given_an_empty_dict() -> None:
-    doc = profile_context.model_of(MODELS, SETTINGS_USER, {})
-    assert doc["cookie"] is None
+def test_model_of_server_placement_is_none_when_the_record_is_absent() -> None:
+    doc = profile_context.model_of(MODELS, {"settings": {}})
+    assert doc["server"]["preset"] is None
 
 
 # ---------------------------------------------------------------------------

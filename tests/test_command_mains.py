@@ -359,58 +359,6 @@ def test_presets_of_is_empty_when_the_version_is_not_in_the_payload() -> None:
 
 
 # ---------------------------------------------------------------------------
-# model_settings.profile_config -- the cookie a send without --effort inherits
-# ---------------------------------------------------------------------------
-
-_CONFIG_COOKIE_RAW = (
-    "%7B%22model%22%3A%22gpt-5-6-thinking%22%2C%22effort%22%3A%22max%22%7D"
-)
-
-
-def test_profile_config_is_empty_when_there_is_no_cookie_database(
-    tmp_path: Path,
-) -> None:
-    cc = _FakeCookieClient(tmp_path / "nope" / "Cookies", decrypt=str)
-    assert model_settings.profile_config(cc, "chrome") == {}
-
-
-def test_profile_config_resolves_a_readable_matching_cookie(tmp_path: Path) -> None:
-    db = _cookie_db(
-        tmp_path / "Cookies",
-        [(model_settings.CONFIG_COOKIE, "chatgpt.com", b"enc")],
-    )
-    cc = _FakeCookieClient(db, decrypt=lambda _enc: _CONFIG_COOKIE_RAW)
-    assert model_settings.profile_config(cc, "chrome") == {
-        "model": "gpt-5-6-thinking",
-        "effort": "max",
-    }
-
-
-def test_profile_config_is_empty_when_decrypting_the_cookie_raises(
-    tmp_path: Path,
-) -> None:
-    """An unreadable model-config cookie must read as "unknown", not crash."""
-    db = _cookie_db(
-        tmp_path / "Cookies",
-        [(model_settings.CONFIG_COOKIE, "chatgpt.com", b"enc")],
-    )
-
-    def boom(_enc: bytes) -> str:
-        raise ValueError("bad padding")
-
-    cc = _FakeCookieClient(db, decrypt=boom)
-    assert model_settings.profile_config(cc, "chrome") == {}
-
-
-def test_profile_config_is_empty_when_the_cookie_is_absent_from_the_jar(
-    tmp_path: Path,
-) -> None:
-    db = _cookie_db(tmp_path / "Cookies", [("_dd_s", "chatgpt.com", b"enc")])
-    cc = _FakeCookieClient(db, decrypt=lambda _enc: "irrelevant")
-    assert model_settings.profile_config(cc, "chrome") == {}
-
-
-# ---------------------------------------------------------------------------
 # model_settings.main
 # ---------------------------------------------------------------------------
 
@@ -439,57 +387,75 @@ _MODELS_PAYLOAD = {
 }
 
 
+def _settings_payload(model: str, effort: str) -> dict:
+    """A minimal settings/user payload with one web (model, effort) pair."""
+    return {
+        "settings": {
+            "last_used_model_config": {
+                "slugs": {"web": model},
+                "juices": {"web": {model: effort} if effort else {}},
+            }
+        }
+    }
+
+
 class _FakeModelsBackend:
-    def __init__(self, payload: dict) -> None:
-        self.payload = payload
+    """``session.session.call`` over two payloads, matched by path prefix."""
+
+    def __init__(self, models: dict, settings: dict) -> None:
+        self.models = models
+        self.settings = settings
 
     def call(self, path: str) -> tuple[int, dict]:
-        return 200, self.payload
+        if path.startswith("/backend-api/settings/user"):
+            return 200, self.settings
+        return 200, self.models
 
 
 class _FakeModelsSession:
-    def __init__(self, payload: dict) -> None:
-        self.session = _FakeModelsBackend(payload)
+    def __init__(self, models: dict, settings: dict) -> None:
+        self.session = _FakeModelsBackend(models, settings)
 
 
 class _FakeModelsClient:
     EFFORTS = ("min", "standard", "extended", "max")
 
 
-def _wire_model_settings(monkeypatch, *, config: dict[str, str]) -> None:
+def _wire_model_settings(monkeypatch, *, settings: dict) -> None:
     monkeypatch.setattr(model_settings, "load_client", lambda: _FakeModelsClient())
     monkeypatch.setattr(
         model_settings,
         "open_session",
-        lambda *a, **k: _FakeModelsSession(_MODELS_PAYLOAD),
+        lambda *a, **k: _FakeModelsSession(_MODELS_PAYLOAD, settings),
     )
-    monkeypatch.setattr(model_settings, "profile_config", lambda cc, browser: config)
 
 
-def test_main_exits_0_and_names_the_preset_when_the_cookie_resolves(
+def test_main_exits_0_and_names_the_preset_when_the_server_record_resolves(
     monkeypatch, capsys
 ) -> None:
     _wire_model_settings(
-        monkeypatch, config={"model": "gpt-5-6-thinking", "effort": "max"}
+        monkeypatch, settings=_settings_payload("gpt-5-6-thinking", "max")
     )
     assert model_settings.main([]) == 0
     out = capsys.readouterr().out
     assert "preset 'Extra High'" in out
-    assert "inherits exactly this" in out
+    assert "send_prompt.py --effort/--model rewrite it in flight" in out
 
 
-def test_main_exits_1_when_the_profile_cookie_is_absent(monkeypatch, capsys) -> None:
-    _wire_model_settings(monkeypatch, config={})
+def test_main_exits_1_when_the_server_has_no_last_used_model_config(
+    monkeypatch, capsys
+) -> None:
+    _wire_model_settings(monkeypatch, settings={"settings": {}})
     assert model_settings.main([]) == 1
-    assert "unreadable or absent" in capsys.readouterr().out
+    assert "no last_used_model_config" in capsys.readouterr().out
 
 
-def test_main_exits_1_when_the_cookie_matches_no_known_preset(
+def test_main_exits_1_when_the_server_record_matches_no_known_preset(
     monkeypatch, capsys
 ) -> None:
     """A model/effort pair the slider does not offer must be reported, not guessed."""
     _wire_model_settings(
-        monkeypatch, config={"model": "gpt-5-6-thinking", "effort": "ultra"}
+        monkeypatch, settings=_settings_payload("gpt-5-6-thinking", "ultra")
     )
     assert model_settings.main([]) == 1
     assert "matches no preset" in capsys.readouterr().out

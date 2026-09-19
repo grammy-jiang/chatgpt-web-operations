@@ -516,11 +516,11 @@ def test_record_send_body_sent_equals_original_when_the_body_was_not_rewritten(
 def test_record_send_body_keeps_the_old_shape_when_nothing_is_pinned(
     enter_env, fake_pw, tmp_path
 ) -> None:
-    """Backward compatibility: tests/test_client_search.py's own recorder
-    test constructs a sender with no effort/model/search and asserts the
-    file equals exactly {"method", "url", "post_data"}; this pins that
-    contract from this file's side too, so it cannot be widened by
-    accident for a sender that pins nothing."""
+    """Backward compatibility: a sender with no effort/model/search must
+    still write exactly {"method", "url", "post_data"}, the shape
+    ``_record_request`` wrote before any rewrite hook existed, so it cannot
+    be widened by accident for a sender that pins nothing. Pinned by the
+    section below too, moved here from the old tests/test_client_search.py."""
     target = tmp_path / "body.json"
     sender = cc.BrowserSender(record_send_body=str(target))
     try:
@@ -529,6 +529,87 @@ def test_record_send_body_keeps_the_old_shape_when_nothing_is_pinned(
         doc = json.loads(target.read_text(encoding="utf-8"))
         assert set(doc) == {"method", "url", "post_data"}
         assert doc["post_data"] == '{"a": 1}'
+    finally:
+        sender._stack.close()
+        sender._owner.shutdown(wait=True)
+
+
+# ---------------------------------------------------------------------------
+# record_send_body -- the request listener attached in _open, moved from
+# tests/test_client_search.py (ROADMAP.md, Stage 3 item 2 / B2): that file's
+# other tests covered the composer's "+" menu, which no longer exists --
+# search reaches a send only through rewrite_send_body now, tested above --
+# so only its recorder tests survive, here
+# ---------------------------------------------------------------------------
+
+
+def test_record_send_body_writes_the_f_conversation_post_body(
+    enter_env, fake_pw, tmp_path
+) -> None:
+    # A nested, not-yet-existing directory: _record_request must create it.
+    target = tmp_path / "sub" / "body.json"
+    sender = cc.BrowserSender(record_send_body=str(target))
+    try:
+        sender._open()
+        sender.page.emit_request(
+            "https://chatgpt.com/backend-api/f/conversation",
+            method="POST",
+            post_data='{"system_hints": ["search"]}',
+        )
+
+        doc = json.loads(target.read_text(encoding="utf-8"))
+        assert doc == {
+            "method": "POST",
+            "url": "https://chatgpt.com/backend-api/f/conversation",
+            "post_data": '{"system_hints": ["search"]}',
+        }
+    finally:
+        sender._stack.close()
+        sender._owner.shutdown(wait=True)
+
+
+def test_record_send_body_ignores_the_prepare_handshake(
+    enter_env, fake_pw, tmp_path
+) -> None:
+    target = tmp_path / "body.json"
+    sender = cc.BrowserSender(record_send_body=str(target))
+    try:
+        sender._open()
+        sender.page.emit_request(
+            "https://chatgpt.com/backend-api/f/conversation/prepare",
+            method="POST",
+            post_data="irrelevant",
+        )
+
+        assert not target.exists()
+    finally:
+        sender._stack.close()
+        sender._owner.shutdown(wait=True)
+
+
+def test_record_send_body_ignores_gets(enter_env, fake_pw, tmp_path) -> None:
+    target = tmp_path / "body.json"
+    sender = cc.BrowserSender(record_send_body=str(target))
+    try:
+        sender._open()
+        sender.page.emit_request(
+            "https://chatgpt.com/backend-api/f/conversation", method="GET"
+        )
+
+        assert not target.exists()
+    finally:
+        sender._stack.close()
+        sender._owner.shutdown(wait=True)
+
+
+def test_record_send_body_off_by_default_attaches_no_listener(
+    enter_env, fake_pw
+) -> None:
+    sender = cc.BrowserSender()  # record_send_body=""
+    try:
+        sender._open()
+
+        assert sender.page._event_handlers.get("request", []) == []
     finally:
         sender._stack.close()
         sender._owner.shutdown(wait=True)

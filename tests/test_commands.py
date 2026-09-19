@@ -909,7 +909,7 @@ def test_only_models_with_a_choice_list_their_levels() -> None:
     assert levels == {"gpt-5-6-thinking": ["min", "standard", "extended", "max"]}
 
 
-def test_the_cookie_resolves_to_the_preset_with_the_same_model_and_effort() -> None:
+def test_a_model_and_effort_pair_resolves_to_the_matching_preset() -> None:
     """Extra High on the slider is max on the API; the two must agree."""
     presets = model_settings.presets_of(MODELS_PAYLOAD)
     found = model_settings.resolve_preset(presets, "gpt-5-6-thinking", "max")
@@ -927,17 +927,51 @@ def test_an_unknown_pair_resolves_to_nothing_rather_than_a_guess() -> None:
     assert model_settings.resolve_preset(presets, "gpt-5-6-thinking", "ultra") is None
 
 
-def test_the_cookie_value_is_url_encoded_json() -> None:
-    raw = "%7B%22model%22%3A%22gpt-5-6-thinking%22%2C%22effort%22%3A%22max%22%7D"
-    assert model_settings.parse_config(raw) == {
+SETTINGS_PAYLOAD_FOR_MODEL_SETTINGS = {
+    "settings": {
+        "last_used_model_config": {
+            "slugs": {"web": "gpt-5-6-thinking", "ios_app": "gpt-6-pro"},
+            "juices": {
+                "web": {"gpt-5-6-thinking": "max", "gpt-6-pro": "standard"},
+                "ios_app": {"gpt-6-pro": "standard"},
+            },
+        }
+    }
+}
+
+
+def test_server_config_reads_the_web_surface_slug_and_its_own_effort() -> None:
+    """slugs[web] names the model; juices[web][<that model>] its effort --
+    never juices[web] read as a whole, and never another surface."""
+    assert model_settings.server_config(SETTINGS_PAYLOAD_FOR_MODEL_SETTINGS) == {
         "model": "gpt-5-6-thinking",
         "effort": "max",
     }
 
 
-def test_a_broken_cookie_value_is_empty_not_an_exception() -> None:
-    assert model_settings.parse_config("not json") == {}
-    assert model_settings.parse_config("%5B1%2C2%5D") == {}
+def test_server_config_is_empty_when_last_used_model_config_is_absent() -> None:
+    assert model_settings.server_config({"settings": {}}) == {
+        "model": "",
+        "effort": "",
+    }
+    assert model_settings.server_config({}) == {"model": "", "effort": ""}
+
+
+def test_server_config_effort_is_empty_when_the_web_slug_has_none_remembered() -> None:
+    """The slug is known but juices[web] has no entry for it (e.g. Instant,
+    which carries no effort of its own): effort reads as "", not KeyError."""
+    settings = {
+        "settings": {
+            "last_used_model_config": {
+                "slugs": {"web": "gpt-5-6-instant"},
+                "juices": {"web": {}},
+            }
+        }
+    }
+    assert model_settings.server_config(settings) == {
+        "model": "gpt-5-6-instant",
+        "effort": "",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -1065,14 +1099,10 @@ def test_unread_memory_entries_are_none_not_zero() -> None:
     assert mem["tokens_used"] == 2407
 
 
-def test_the_server_record_and_the_cookie_land_on_the_same_preset() -> None:
-    """Two records of one setting; a drift between them must be visible."""
-    model = profile_context.model_of(
-        MODELS_PAYLOAD,
-        SETTINGS_PAYLOAD,
-        {"model": "gpt-5-6-thinking", "effort": "max"},
-    )
-    assert model["cookie"]["preset"] == "Extra High"
+def test_the_server_record_resolves_to_its_preset() -> None:
+    """settings/user's last_used_model_config is what a send without
+    --effort/--model inherits (the composer's own cookie is inert)."""
+    model = profile_context.model_of(MODELS_PAYLOAD, SETTINGS_PAYLOAD)
     assert model["server"]["preset"] == "Extra High"
     assert model["server"]["surface"] == "web"
     assert model["server"]["efforts_by_model"]["gpt-6-pro"] == "standard"
@@ -1087,9 +1117,9 @@ def test_a_model_only_preset_matches_whatever_effort_the_server_remembers() -> N
 
 
 def test_ultra_is_reported_as_a_setting_and_never_as_an_effort_level() -> None:
-    model = profile_context.model_of(MODELS_PAYLOAD, SETTINGS_PAYLOAD, {})
+    model = profile_context.model_of(MODELS_PAYLOAD, SETTINGS_PAYLOAD)
     assert model["ultra_effort_enabled"] is True
-    assert model["cookie"] is None
+    assert "cookie" not in model  # the inert cookie is not reported any more
     assert "ultra" not in {e for levels in model["api_levels"].values() for e in levels}
 
 
@@ -1130,16 +1160,10 @@ _READS = {
 
 
 def _wire(monkeypatch, reads: dict) -> None:
-    monkeypatch.setattr(profile_context, "load_client", lambda: None)
     monkeypatch.setattr(
         profile_context,
         "open_session",
         lambda *a, **k: _ProfileSession(_Backend(reads)),
-    )
-    monkeypatch.setattr(
-        profile_context,
-        "profile_config",
-        lambda cc, browser: {"model": "gpt-5-6-thinking", "effort": "max"},
     )
 
 

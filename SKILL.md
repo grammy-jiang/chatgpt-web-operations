@@ -168,34 +168,36 @@ Re-check with `probe_send_gates.py` rather than trusting this paragraph.
 
 ## Reasoning effort is a setting; know which one a send will use
 
-Every send carries a `thinking_effort`. The orchestrator pins it per step
-(`TASK_EFFORT` in `chatgpt_research.py`) by rewriting the cookie before each
-send. Anything that sends without an `effort` inherits whatever the browser
-profile last used, which happened to be `max` during Topics 01-04 by luck:
-change it in the web UI and every such send silently follows, with nothing in
-the archive recording what was used.
+Every send carries a `thinking_effort` and a `model` in its
+`POST /backend-api/f/conversation` body. Where they come from, measured on
+2026-09-20 with recorded sends:
 
-**Where it lives.** A top-level field in the send body, and one cookie:
-
-```
-POST /backend-api/f/conversation
-{"model": "gpt-5-6-thinking", "thinking_effort": "max", …}
-
-oai-last-model-config   {"model": "gpt-5-6-thinking", "effort": "max"}
-```
-
-`oai-last-model-config` is what the chat composer reads and what
-`with_effort` rewrites. The neighbouring `oai-tpp-model-settings` cookie
-belongs to a different surface: its `*-wm` model slugs never appear in the
-chat composer, so do not read a run's setting from it.
-
-The server keeps its own record in `GET /backend-api/settings/user`, under
-`settings.last_used_model_config`: `slugs` is the last model per surface
-(`web`, `ios_app`, `windows_app`) and `juices` the last effort per model per
-surface (2026-09-20: `web` had `gpt-5-6-thinking: max`, the same as the
-cookie). Whether the composer restores from it when the cookie is absent was
-not tested, so `with_effort` keeps rewriting the cookie. `profile_context.py`
-prints both records, so a drift between browser and server is visible.
+- **A send inherits the server's record**: `GET /backend-api/settings/user`
+  → `settings.last_used_model_config`, `slugs` for the last model per surface
+  and `juices` for the last effort per model per surface; the send path
+  uses the `web` surface. `model_settings.py` and `profile_context.py` print
+  it resolved to a preset. Change it in the web UI and every send without an
+  explicit choice silently follows.
+- **The `oai-last-model-config` cookie is not what a send carries.**
+  Rewriting it pinned neither the body nor the composer's label. The
+  mechanism the orchestrator relied on from 2026-09-16 (`with_effort` in the
+  repository's client, `TASK_EFFORT`) therefore never worked: every run used
+  the profile's setting, `max` at the time. The neighbouring
+  `oai-tpp-model-settings` cookie belongs to another surface.
+- **What pins it now**: the client rewrites the body in flight, inside the
+  skill's own window, before it leaves the browser (`rewrite_send_body`, a
+  route that `BrowserSender._open` registers only when effort, model or
+  search is set): `thinking_effort`, `model` and `system_hints` (`"search"`
+  for Web search). No account setting is touched, so the user's own default
+  stays as it is. `send_prompt.py --effort standard --search` produced a
+  reply whose metadata says `thinking_effort: standard`,
+  `search_result_groups` filled and a cited answer, where two sends before
+  it had posted `max` and no search.
+- **A transcript records what was used**: each assistant message's
+  `metadata` carries `thinking_effort`, `model_slug`, `resolved_model_slug`,
+  `search_result_groups` and `citations`; `read_chat.py --effort` prints
+  them per turn. `send_prompt.py --record-send-body PATH` keeps `original`
+  (what the page built) and `sent` (what left the browser).
 
 **The UI control** (checked 2026-09-19) is the **Power** slider in the
 composer's model menu. Its five positions are the `intelligence_presets` of
@@ -221,7 +223,8 @@ the selected version in `GET /backend-api/models`, not five effort levels:
 
 `min` is accepted by the API and by `--effort` although the slider skips it.
 Pro models start at `standard` and offer fewer levels. Position 5 changes
-the *model*, which `with_effort` never does: a run cannot select Pro today.
+the *model*; `--model gpt-6-pro` selects it the same way as an effort, and
+stays opt-in per run (`ROADMAP.md`, rule 4).
 
 **"Ultra" is not an effort level.** Settings → General has "Enable Ultra
 effort", stored as `model_picker_persists_ultra_effort` in
@@ -229,30 +232,6 @@ effort", stored as `model_picker_persists_ultra_effort` in
 and no Ultra preset, so do not add it to `EFFORTS`. What the picker sends
 with Ultra engaged is unknown until a send is captured with
 `discover_endpoints.py --bodies`.
-
-**Check what a send will use** with `model_settings.py`: it prints the
-presets, the API levels per model, and the profile's cookie resolved to a
-preset. **Measured 2026-09-20: the cookie does not pin the effort.** Two
-sends made with the cookie rewritten to `standard` carried
-`thinking_effort: max` in their `POST /backend-api/f/conversation` body,
-the account's server-side `last_used_model_config`; the composer's label
-did not move either (T3). Every run before that day used the profile's
-setting, whatever `TASK_EFFORT` asked for. A transcript does record what
-was used: each assistant message's `metadata` carries `thinking_effort`,
-`model_slug`, `resolved_model_slug`, `search_result_groups` and
-`citations` (`read_chat.py --effort`).
-
-**What pins it now (verified 2026-09-20).** The client rewrites the
-`f/conversation` POST body itself, in flight, before it leaves the skill's
-own window (`chatgpt_client.rewrite_send_body`, a route that
-`BrowserSender._open` registers only when effort, model or search is set):
-`thinking_effort`, `model` and `system_hints` (`"search"` for Web search).
-One recorded send with `--effort standard --search` came back with
-`metadata.thinking_effort: standard`, `search_result_groups` filled and a
-cited reply, where the two sends before it had posted `max` and no search.
-No account setting is touched, so the user's own default stays as it is.
-`--record-send-body PATH` keeps `original` (what the page built) and
-`sent` (what left the browser) for every such send.
 
 **Which level each research step should use** is decided in the
 research-pipeline repository's `docs/chatgpt-research-effort-levels.md`:

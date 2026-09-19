@@ -1,8 +1,8 @@
 """Tests for the pure, data-only half of chatgpt_client.py.
 
-Reply parsing, conversation-mapping helpers, the effort cookie rewrite, and
-the send-page request filter: everything that decides an outcome over data
-with no session, no browser, and no filesystem. ``ChatGPTSession``,
+Reply parsing, conversation-mapping helpers, and the send-page request
+filter: everything that decides an outcome over data with no session, no
+browser, and no filesystem. ``ChatGPTSession``,
 ``wait_for_reply``, the cookie-decrypt machinery, the browser slot/lock, and
 the display helpers live in ``test_client_session.py`` instead, because they
 need a fake clock, a fake filesystem or a fake ``cs`` module. ``BrowserSender``
@@ -700,77 +700,14 @@ def test_transcript_model_is_none_for_a_user_turn() -> None:
 
 
 # ---------------------------------------------------------------------------
-# EFFORTS / EFFORT_COOKIE / with_effort -- pinning the reasoning effort cookie
+# EFFORTS -- the reasoning-effort levels send_prompt.py validates --effort
+# against; pinning a send no longer touches a cookie (test_client_rewrite.py
+# covers rewrite_send_body, the mechanism that replaced it)
 # ---------------------------------------------------------------------------
 
 
 def test_the_documented_effort_levels_are_exactly_these_four() -> None:
     assert cc.EFFORTS == ("min", "standard", "extended", "max")
-
-
-def test_the_cookie_name_matches_what_the_composer_reads() -> None:
-    assert cc.EFFORT_COOKIE == "oai-last-model-config"
-
-
-def test_a_blank_effort_returns_the_same_list_unchanged() -> None:
-    """Inheriting the profile's own setting must not rewrite anything."""
-    cookies = [{"name": "a", "value": "1"}]
-    assert cc.with_effort(cookies, "") is cookies
-
-
-def test_an_unknown_effort_is_refused() -> None:
-    with pytest.raises(ValueError, match="unknown thinking effort"):
-        cc.with_effort([], "ultra")
-
-
-def _decoded_effort_cookie(cookies: list[dict]) -> dict:
-    import json
-    from urllib.parse import unquote
-
-    (cookie,) = [c for c in cookies if c["name"] == cc.EFFORT_COOKIE]
-    return json.loads(unquote(cookie["value"]))
-
-
-def test_a_missing_effort_cookie_is_added() -> None:
-    out = cc.with_effort([{"name": "other", "value": "x"}], "max")
-    assert _decoded_effort_cookie(out) == {"effort": "max"}
-    assert {"name": "other", "value": "x"} in out
-
-
-def test_an_existing_effort_cookie_is_replaced_and_keeps_the_model() -> None:
-    import json
-    from urllib.parse import quote
-
-    existing = {
-        "name": cc.EFFORT_COOKIE,
-        "value": quote(json.dumps({"model": "gpt-5-6-thinking", "effort": "standard"})),
-    }
-    out = cc.with_effort([existing, {"name": "other", "value": "x"}], "max")
-    assert len([c for c in out if c["name"] == cc.EFFORT_COOKIE]) == 1
-    assert _decoded_effort_cookie(out) == {"model": "gpt-5-6-thinking", "effort": "max"}
-
-
-def test_other_cookies_are_left_untouched() -> None:
-    other = {"name": "__Secure-next-auth.session-token.0", "value": "sess"}
-    out = cc.with_effort([other], "max")
-    assert other in out
-
-
-def test_a_malformed_existing_cookie_value_is_tolerated_not_raised() -> None:
-    """A cookie the browser has not written yet must not break every send."""
-    broken = {"name": cc.EFFORT_COOKIE, "value": "not%20valid%20json"}
-    out = cc.with_effort([broken], "max")
-    assert _decoded_effort_cookie(out) == {"effort": "max"}
-
-
-def test_the_new_cookie_carries_the_documented_attributes() -> None:
-    out = cc.with_effort([], "min")
-    (cookie,) = out
-    assert cookie["domain"] == "chatgpt.com"
-    assert cookie["path"] == "/"
-    assert cookie["secure"] is True
-    assert cookie["httpOnly"] is False
-    assert cookie["sameSite"] == "Lax"
 
 
 # ---------------------------------------------------------------------------

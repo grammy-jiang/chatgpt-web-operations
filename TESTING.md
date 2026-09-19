@@ -60,7 +60,7 @@ Enforcement, not promises:
 | robustness | T0 | every parser survives `{}`, `None` fields, wrong types and half-written messages | parametrized |
 | smoke | T1 | each read command exits as documented against the real account; assertions on shape, never on the user's data | `profile_context.py` exits 0; the slider has 5 positions |
 | round trip | T2 | each write command: act, read back, revert; the cleanup is verified by a read | set instructions on the sandbox, read `gizmos/<id>`, restore |
-| browser dry run | T3 | selectors and cookies still work: composer found, model label matches the cookie, attachment control found; never sends | the `with_model` verification |
+| browser dry run | T3 | the send path opens: window, cookies, composer found; never sends | none written yet; the model-label check was removed 2026-09-20 because the cookie steers neither the send nor the label |
 | measured send | T4 | the send path end to end, one message per feature, timings recorded in `failure-atlas.md` | search on and off, one attachment, one deep research |
 
 ## 3. Coverage gate
@@ -165,8 +165,8 @@ handful each.
 | 2.1 project instructions (M3) | a dry run never calls; `--apply` sends the captured body shape, a fixture from the recording; an id that is not `g-p-` is refused | T2: set on the sandbox, read back, restore |
 | 2.2 project-only memory (M4) | the same pattern | T2: switch the sandbox, read `memory_scope`, switch back |
 | 2.3 pin, unpin, unarchive (M2) | the same pattern | T2: pin one sandbox chat, `pins` lists it, unpin |
-| 3.1 `with_model` (B1) | the cookie rewrite keeps the other cookies; an unknown model is refused | T3: the label matches the cookie, no send |
-| 3.2 search per send (B2) | fake page: the "+" item is clicked before the fill, and only when asked | T4: one send with, one without; the body difference recorded |
+| 3.1 effort and model per send (B1) | `rewrite_send_body` over fake routes: only the pinned fields change, other requests fall through | T4: one recorded send, the reply's `metadata.thinking_effort` checked (done 2026-09-20) |
+| 3.2 search per send (B2) | the rewrite adds `"search"` to `system_hints` and keeps other hints | T4: one recorded send, `search_result_groups` filled (done 2026-09-20) |
 | 3.3 attachments (B4) | the fake file chooser receives the path | T4: one PDF, the reply checked for the paper's title |
 | 3.4 deep research (B3) | reply collection handles the new shape, a fixture from the measurement | T4: one measured run, timings recorded |
 | `send_prompt.py`, the skill's own send entry point | a fake sender: effort, model, search, attachment, project routing | T4 shares its sends |

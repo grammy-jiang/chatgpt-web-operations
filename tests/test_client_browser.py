@@ -21,7 +21,7 @@ import tempfile
 import threading
 import types
 from pathlib import Path
-from urllib.parse import quote, unquote
+from urllib.parse import quote
 
 import pytest
 
@@ -188,6 +188,24 @@ def _never_dismissed(page: fp.Page) -> bool:
 def _upload_chip_key(name: str) -> str:
     stem = f"rp-prompt-{name}"[:24]
     return fp.key_for_text(re.compile(re.escape(stem), re.I))
+
+
+# ---------------------------------------------------------------------------
+# __init__ -- string arguments are stripped (moved from the old
+# tests/test_client_model.py, which covered model specifically)
+# ---------------------------------------------------------------------------
+
+
+def test_the_model_argument_is_stripped_like_effort_and_project() -> None:
+    sender = cc.BrowserSender(
+        project="  g-p-x  ", effort="  max  ", model="  gpt-6-pro  "
+    )
+    try:
+        assert sender.project == "g-p-x"
+        assert sender.effort == "max"
+        assert sender.model == "gpt-6-pro"
+    finally:
+        sender._owner.shutdown(wait=True)
 
 
 # ---------------------------------------------------------------------------
@@ -358,20 +376,35 @@ def test_launch_uses_a_fresh_browser_when_no_profile_dir_is_configured(
 
 
 # ---------------------------------------------------------------------------
-# _open -- cookie export, with_effort, the new page, blocked routes
+# _open -- cookie export (unchanged), the new page, blocked routes
 # ---------------------------------------------------------------------------
 
 
-def test_open_applies_the_pinned_effort_to_the_exported_cookie_jar(
+def test_open_exports_the_cookie_jar_unchanged_with_nothing_pinned(
     enter_env, fake_pw
 ) -> None:
-    """--effort must reach the browser's cookie jar via with_effort; every
-    send before 2026-09-16 silently inherited whatever the profile last
-    used because nothing pinned it (SKILL.md, "Reasoning effort")."""
+    sender = cc.BrowserSender()  # effort="" model="" search=False
+    try:
+        sender._open()
+        ctx = fake_pw.chromium.launch_persistent_context_result
+        assert ctx.cookies == enter_env.cookies.canned
+    finally:
+        sender._stack.close()
+        sender._owner.shutdown(wait=True)
+
+
+def test_open_exports_the_cookie_jar_unchanged_even_with_everything_pinned(
+    enter_env, fake_pw
+) -> None:
+    """Measured 2026-09-20: rewriting oai-last-model-config pinned neither
+    the send nor the composer's own label (SKILL.md, "Reasoning effort").
+    _open must hand the context exactly the jar chatgpt_cookies.export()
+    returned, whatever effort/model/search are set to; pinning them is
+    entirely the job of the send-body rewrite (test_client_rewrite.py)."""
     enter_env.cookies.canned = [
         _session_cookie(),
         {
-            "name": cc.EFFORT_COOKIE,
+            "name": "oai-last-model-config",
             "value": quote(
                 '{"model": "gpt-5-6-thinking", "effort": "standard"}', safe=""
             ),
@@ -382,25 +415,7 @@ def test_open_applies_the_pinned_effort_to_the_exported_cookie_jar(
             "sameSite": "Lax",
         },
     ]
-    sender = cc.BrowserSender(effort="max")
-    try:
-        sender._open()
-        ctx = fake_pw.chromium.launch_persistent_context_result
-        assert ctx.cookies == cc.with_effort(enter_env.cookies.canned, "max")
-        effort_cookie = next(c for c in ctx.cookies if c["name"] == cc.EFFORT_COOKIE)
-        parsed = __import__("json").loads(unquote(effort_cookie["value"]))
-        assert parsed == {"model": "gpt-5-6-thinking", "effort": "max"}
-    finally:
-        sender._stack.close()
-        sender._owner.shutdown(wait=True)
-
-
-def test_open_leaves_the_cookie_jar_unchanged_without_a_pinned_effort(
-    enter_env, fake_pw
-) -> None:
-    """Blank effort means "inherit the profile's own setting"; with_effort
-    must be a no-op so the exported jar reaches the browser untouched."""
-    sender = cc.BrowserSender()  # effort=""
+    sender = cc.BrowserSender(effort="max", model="gpt-6-pro", search=True)
     try:
         sender._open()
         ctx = fake_pw.chromium.launch_persistent_context_result
@@ -559,6 +574,50 @@ def test_exit_completes_its_teardown_after_a_lifetime_ceiling_kill(
     assert ctx.closed
     assert sender.page is None
     assert sender._closed.is_set()
+
+
+def test_exit_does_not_mask_a_body_exception_when_closing_the_stack_fails(
+    enter_env, fake_pw
+) -> None:
+    """A window the watchdog already killed can raise while __exit__ closes
+    it; that failure must not replace the exception the with-block body
+    raised (chatgpt_client.py, the BrowserSender.__exit__ guard)."""
+    sender = cc.BrowserSender()
+    sender._stack.close = _raise_with(RuntimeError("already dead"))
+
+    def _crash_inside_the_with_block() -> None:
+        with sender:
+            raise ValueError("boom")
+
+    with pytest.raises(ValueError, match="boom"):
+        _crash_inside_the_with_block()
+
+
+def test_exit_swallows_a_close_failure_when_the_body_did_not_raise(
+    enter_env, fake_pw
+) -> None:
+    """The window can die on its own (killed by the watchdog) between the
+    send finishing and __exit__ running; closing an already-dead context
+    must not turn a successful send into a crash."""
+    sender = cc.BrowserSender()
+    sender._stack.close = _raise_with(RuntimeError("already dead"))
+
+    with sender:
+        pass
+
+    assert sender.page is None
+    assert sender._closed.is_set()
+
+
+def test_exit_still_closes_cleanly_when_nothing_is_wrong(enter_env, fake_pw) -> None:
+    """The guard must not swallow anything when there is nothing to swallow:
+    a normal close still closes the launched context."""
+    sender = cc.BrowserSender()
+    with sender:
+        ctx = fake_pw.chromium.launch_persistent_context_result
+        assert not ctx.closed
+    assert ctx.closed
+    assert sender.page is None
 
 
 # ---------------------------------------------------------------------------

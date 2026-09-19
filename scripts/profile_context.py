@@ -4,12 +4,12 @@
     profile_context.py [--project g-p-<id>] [--json PATH]
 
 A worker conversation inherits more than its prompt: the account's custom
-instructions, its memory, the model and effort the composer last used and,
-inside a project, that project's instructions and files. A transcript records
-none of it. This command reads all of it over plain HTTP and prints a summary
-of lengths and counts; ``--json PATH`` writes the full text and numbers so a
-run can keep them next to ``chatgpt/conversations.json`` (``-`` prints the
-document instead of the summary).
+instructions, its memory, the model and effort the account's own settings
+last used and, inside a project, that project's instructions and files. A
+transcript records none of it. This command reads all of it over plain HTTP
+and prints a summary of lengths and counts; ``--json PATH`` writes the full
+text and numbers so a run can keep them next to ``chatgpt/conversations.json``
+(``-`` prints the document instead of the summary).
 
 Read-only. Memory entries are counted, never kept: their content goes
 neither to the document nor to the terminal.
@@ -27,26 +27,23 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from _common import ensure_venv, load_client, open_session
+from _common import ensure_venv, open_session
 from list_projects import project_of
 from model_settings import (
-    CONFIG_COOKIE,
     MODELS,
+    SETTINGS,
+    SURFACE,
     effort_levels_of,
     presets_of,
-    profile_config,
     resolve_preset,
+    server_config,
 )
 
 USER_SYSTEM_MESSAGES = "/backend-api/user_system_messages"
 MEMORY_SUMMARY = "/backend-api/memories?include_memory_entries=false"
 MEMORY_ENTRIES = "/backend-api/memories?include_memory_entries=true"
-SETTINGS = "/backend-api/settings/user"
 GIZMO = "/backend-api/gizmos/{id}"
 
-# The send path drives the web composer, so that is the surface whose
-# server-side record matters. settings/user also keeps ios_app and windows_app.
-SURFACE = "web"
 # The account-wide "Enable memory" switch lives here and nowhere the reads
 # above expose (checked 2026-09-20); the command reports usage instead.
 PERSONALIZATION_PAGE = "https://chatgpt.com/#settings/Personalization"
@@ -117,33 +114,31 @@ def _placed(presets: list[dict[str, Any]], model: str, effort: str) -> dict[str,
     }
 
 
-def model_of(
-    models: dict[str, Any], settings: dict[str, Any], cookie: dict[str, str]
-) -> dict[str, Any]:
-    """What a send without an explicit effort would use, from both records.
+def model_of(models: dict[str, Any], settings: dict[str, Any]) -> dict[str, Any]:
+    """What a send without an explicit effort or model would use.
 
-    The browser's ``oai-last-model-config`` cookie is what the composer reads;
-    ``settings/user`` keeps the server's copy per surface in
+    ``settings/user`` keeps the server's own record per surface, in
     ``last_used_model_config`` (``slugs`` for the model, ``juices`` for the
-    effort per model). Both are reported so a drift between them is visible.
+    effort per model): ``model_settings.server_config`` resolves the pair
+    for ``SURFACE``. The composer's ``oai-last-model-config`` cookie is not
+    reported here any more -- measured 2026-09-20, it steers neither what a
+    send carries nor the composer's own label (SKILL.md, "Reasoning
+    effort") -- so the server record is the only one a run can trust;
+    ``send_prompt.py --effort``/``--model`` pin a send by rewriting its POST
+    body in flight, never by touching this record.
     """
     presets = presets_of(models)
     prefs = settings.get("settings") or {}
     last = prefs.get("last_used_model_config") or {}
-    slug = str((last.get("slugs") or {}).get(SURFACE) or "")
     juices = (last.get("juices") or {}).get(SURFACE) or {}
     default = prefs.get("default_model_config") or {}
+    config = server_config(settings)
     return {
         "presets": presets,
         "api_levels": effort_levels_of(models),
-        "cookie": (
-            _placed(presets, cookie.get("model", ""), cookie.get("effort", ""))
-            if cookie
-            else None
-        ),
         "server": {
             "surface": SURFACE,
-            **_placed(presets, slug, str(juices.get(slug) or "")),
+            **_placed(presets, config["model"], config["effort"]),
             "efforts_by_model": {str(k): str(v) for k, v in juices.items()},
             "default_model_slug": default.get("default_model_slug"),
             "sticky_for_new_chats": bool(prefs.get("model_sticky_for_new_chats")),
@@ -152,9 +147,7 @@ def model_of(
     }
 
 
-def collect(
-    session: Any, cc: Any, browser: str, project_id: str = ""
-) -> dict[str, Any]:
+def collect(session: Any, project_id: str = "") -> dict[str, Any]:
     """Every read, in one document; a failed read is recorded, not raised."""
     errors: list[str] = []
 
@@ -169,7 +162,7 @@ def collect(
         "captured_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "custom_instructions": custom_instructions_of(read(USER_SYSTEM_MESSAGES)),
         "memory": memory_of(read(MEMORY_SUMMARY), read(MEMORY_ENTRIES)),
-        "model": model_of(read(MODELS), read(SETTINGS), profile_config(cc, browser)),
+        "model": model_of(read(MODELS), read(SETTINGS)),
         "project": (
             project_of(read(GIZMO.format(id=project_id))) if project_id else None
         ),
@@ -217,12 +210,7 @@ def render(doc: dict[str, Any]) -> str:
     )
     lines.append(f"  the 'Enable memory' switch shows only at {PERSONALIZATION_PAGE}")
 
-    lines.append(f"model ({MODELS.split('?')[0]}, {SETTINGS}, cookie):")
-    cookie = model["cookie"]
-    lines.append(
-        f"  cookie {CONFIG_COOKIE}: "
-        + (_placement(cookie, total) if cookie else "unreadable or absent")
-    )
+    lines.append(f"model ({MODELS.split('?')[0]}, {SETTINGS}):")
     server = model["server"]
     lines.append(
         f"  server last_used_model_config[{server['surface']}]: "
@@ -273,9 +261,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--browser", default="chrome")
     args = ap.parse_args(argv)
 
-    cc = load_client()
     session = open_session(args.browser)
-    doc = collect(session, cc, args.browser, args.project)
+    doc = collect(session, args.project)
     text = json.dumps(doc, indent=2, ensure_ascii=False)
 
     if args.json == "-":

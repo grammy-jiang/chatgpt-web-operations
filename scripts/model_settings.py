@@ -6,30 +6,36 @@
 The composer's "Power" slider is not five effort levels: its positions are the
 ``intelligence_presets`` of the selected version in ``/backend-api/models``,
 and one of them changes the model rather than the effort. This prints those
-presets, the API's ``thinking_efforts`` per model, and the profile's
-``oai-last-model-config`` cookie resolved to a preset, which is what a send
-without an explicit ``effort`` will inherit.
+presets, the API's ``thinking_efforts`` per model, and the account's own
+record of the last web send: ``GET /backend-api/settings/user`` ->
+``settings.last_used_model_config``, resolved to a preset. That record --
+never the composer's ``oai-last-model-config`` cookie, which measured
+2026-09-20 does not steer either the send or the composer's own label
+(SKILL.md, "Reasoning effort") -- is what a send without an explicit
+``--effort``/``--model`` inherits; ``send_prompt.py --effort``/``--model``
+pin a send by rewriting its POST body in flight, never by touching this
+record or that cookie.
 
-Exit 0 when the cookie resolves to a known preset, 1 when it does not.
+Exit 0 when the server record resolves to a known preset, 1 when it does not.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import sys
-from pathlib import Path
 from typing import Any
-from urllib.parse import unquote
 
 from _common import ensure_venv, load_client, open_session, table
-from probe_cookies import read_jar
 
 MODELS = (
     "/backend-api/models?iim=false&is_gizmo=false"
     "&supports_model_picker_upgrade_presets=true"
 )
-CONFIG_COOKIE = "oai-last-model-config"
+SETTINGS = "/backend-api/settings/user"
+# The send path drives the web composer, so that is the surface whose
+# server-side record matters. settings/user also keeps ios_app and
+# windows_app.
+SURFACE = "web"
 
 
 def presets_of(models: dict[str, Any], version: str = "latest") -> list[dict[str, Any]]:
@@ -69,34 +75,21 @@ def resolve_preset(
     return None
 
 
-def parse_config(raw: str) -> dict[str, str]:
-    """``{"model": ..., "effort": ...}`` out of the cookie's value."""
-    try:
-        data = json.loads(unquote(raw))
-    except (ValueError, TypeError):
-        return {}
-    if not isinstance(data, dict):
-        return {}
-    return {
-        "model": str(data.get("model") or ""),
-        "effort": str(data.get("effort") or ""),
-    }
+def server_config(settings: dict[str, Any]) -> dict[str, str]:
+    """The (model, effort) pair ``settings/user`` remembers for the web surface.
 
-
-def profile_config(cc: Any, browser: str) -> dict[str, str]:
-    """The profile's current cookie, decrypted; empty when unreadable."""
-    cs = cc._helpers()
-    db, app = cs.BROWSERS[browser]
-    if not Path(db).exists():
-        return {}
-    decrypt = cc._tolerant_decryptor(cs, app)
-    for name, _host, enc in read_jar(Path(db)):
-        if name == CONFIG_COOKIE:
-            try:
-                return parse_config(decrypt(enc))
-            except Exception:
-                return {}
-    return {}
+    ``last_used_model_config.slugs[SURFACE]`` is the model the composer last
+    sent with; ``last_used_model_config.juices[SURFACE][<that slug>]`` is the
+    effort remembered for it (shape: ``tests/fixtures/settings_user.json``).
+    Empty strings when the record, or the surface inside it, is absent --
+    never an exception, so a changed field name degrades to "no record"
+    rather than a crash.
+    """
+    prefs = settings.get("settings") or {}
+    last = prefs.get("last_used_model_config") or {}
+    slug = str((last.get("slugs") or {}).get(SURFACE) or "")
+    juices = (last.get("juices") or {}).get(SURFACE) or {}
+    return {"model": slug, "effort": str(juices.get(slug) or "")}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -133,23 +126,30 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"\nthe client accepts --effort: {', '.join(cc.EFFORTS)}")
 
-    config = profile_config(cc, args.browser)
-    if not config:
-        print(f"\nprofile cookie {CONFIG_COOKIE}: unreadable or absent")
+    _status, settings = session.session.call(SETTINGS)
+    settings = settings if isinstance(settings, dict) else {}
+    config = server_config(settings)
+    if not config["model"]:
+        print(
+            f"\nserver record ({SETTINGS}): no last_used_model_config for {SURFACE!r}"
+        )
         return 1
     preset = resolve_preset(presets, config["model"], config["effort"])
     print(
-        f"\nprofile cookie: model={config['model'] or '-'} "
-        f"effort={config['effort'] or '-'}"
+        f"\nserver record (last_used_model_config[{SURFACE!r}]): "
+        f"model={config['model'] or '-'} effort={config['effort'] or '-'}"
     )
     if preset is None:
-        print("  -> matches no preset; a send without --effort uses this anyway")
+        print("  -> matches no preset")
         return 1
     print(
         f"  -> preset {preset['title']!r}, "
         f"position {preset['position']} of {len(presets)}"
     )
-    print("  A send without --effort inherits exactly this.")
+    print(
+        "  A send without --effort inherits this; send_prompt.py "
+        "--effort/--model rewrite it in flight."
+    )
     return 0
 
 

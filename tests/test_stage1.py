@@ -292,9 +292,8 @@ def test_profile_context_project_document_is_unchanged_by_the_move(monkeypatch) 
             },
         ),
     }
-    monkeypatch.setattr(profile_context, "profile_config", lambda cc, browser: {})
     session = _FakeSession(_Routed(reads))
-    doc = profile_context.collect(session, None, "chrome", "g-p-moved")
+    doc = profile_context.collect(session, "g-p-moved")
     assert doc["errors"] == []
     assert doc["project"]["instructions"] == "still here"
     assert doc["project"]["memory_scope"] == "global"

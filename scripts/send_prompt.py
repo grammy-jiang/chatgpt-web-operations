@@ -19,24 +19,21 @@ concurrent new-chat sends cannot claim each other's conversation.
 (so it refuses ``--project``, which only targets a new one).
 
 ``--effort`` and ``--model`` pin the reasoning effort and the model this
-send actually uses. Two recorded sends on 2026-09-20 proved the composer's
-``oai-last-model-config`` cookie (``with_effort`` / ``with_model``) does
-not by itself pin either: the page takes both from the account's
-server-side ``last_used_model_config``, not from that cookie, so both
-sends carried ``thinking_effort: "max"`` regardless of what the cookie
-said. What a send actually uses is set by rewriting the ``f/conversation``
-POST body in flight, inside this window, before it leaves the browser
-(``chatgpt_client.rewrite_send_body``, applied through a route registered
-in ``BrowserSender._open``); the cookie is kept only because it still
-steers the composer's own label. Blank inherits whatever the account's own
-settings last used. ``--title`` renames the conversation once its id is
-final -- how the sandbox tests mark their chats ``rp-test ...``.
+send actually uses; ``--search`` turns Web search on. All three are pinned
+by rewriting the ``f/conversation`` POST body in flight, inside this
+window, before it leaves the browser (``chatgpt_client.rewrite_send_body``,
+applied through a route registered in ``BrowserSender._open`` whenever
+effort, model or search is set) -- the only mechanism proven to work; two
+other approaches were measured and abandoned, and why is recorded in
+SKILL.md, "Reasoning effort". Blank inherits whatever the account's own
+settings last used (``model_settings.py`` prints that record). ``--title``
+renames the conversation once its id is final -- how the sandbox tests
+mark their chats ``rp-test ...``.
 
-``--search`` turns Web search on for this send through the composer's "+"
-menu (``BrowserSender._enable_search``); absent leaves it off.
 ``--record-send-body PATH`` writes the ``f/conversation`` POST's method,
-url and body to PATH, so one real send can document what the page sends
-with and without search (ROADMAP.md, Stage 3 item 2).
+url and body to PATH (``original``/``sent`` when effort, model or search
+rewrote it, else plain ``post_data``), so one real send can document what
+actually left the browser (ROADMAP.md, Stage 3 items 1-2).
 
 ``--attach`` is accepted and recorded in ``--json``, but is **not**
 uploaded. Attaching arbitrary files is ROADMAP.md's B4, a separate Stage 3
@@ -88,18 +85,19 @@ def main(argv: list[str] | None = None) -> int:
         "--effort",
         default="",
         metavar="LEVEL",
-        help="min|standard|extended|max; blank inherits the profile's own",
+        help="min|standard|extended|max; blank inherits the account's own",
     )
     ap.add_argument(
         "--model",
         default="",
         metavar="SLUG",
-        help="model slug pinned via the cookie; blank inherits the profile's own",
+        help="model slug, pinned by rewriting the send body; blank inherits "
+        "the account's own",
     )
     ap.add_argument(
         "--search",
         action="store_true",
-        help="turn on Web search for this send via the composer's '+' menu",
+        help="turn on Web search for this send (rewrites the send body)",
     )
     ap.add_argument(
         "--record-send-body",
