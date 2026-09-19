@@ -117,7 +117,7 @@ say gizmo and nothing says project:
 
 | Endpoint | Use |
 |----------|-----|
-| `GET /backend-api/gizmos/snorlax/sidebar` | every project, with instructions and files |
+| `GET /backend-api/gizmos/snorlax/sidebar?owned_only=true&limit=50` | projects, pinned first, with instructions and files. **Paged**: without `limit` it returns 5 and a `cursor`, and `list_projects.py` still reads only that first page (Stage 1 item 2) |
 | `GET /backend-api/gizmos/<g-p-id>/conversations` | the chats inside one |
 
 A project's `short_url` gives its page: `https://chatgpt.com/g/<short_url>/project`.
@@ -248,6 +248,10 @@ in a transcript says whether it did. What the reads expose (2026-09-20):
   entries themselves. `profile_context.py` counts them and keeps no content.
 - Each project carries `memory_enabled` and `memory_scope`, both in the
   sidebar and in `gizmos/<g-p-id>`; every project read `global` that day.
+- Project settings (the project's "…" menu) offers "Default memory" or
+  "Project-only memory": with the second, the project's chats use only their
+  own memory and it stays hidden from outside chats. That is the lever for
+  isolating worker chats; the PATCH behind it is not captured yet.
 - The account-wide switch is **Enable memory** at `#settings/Personalization`
   (the older "Reference saved memories / chat history" pair is gone). Its
   state is not carried by `memories` or by any named key in `settings/user`,

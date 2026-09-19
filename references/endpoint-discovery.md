@@ -161,6 +161,34 @@ Two things about the method:
   query-string data; a search that returns fetched script text is blocked.
   Read DOM state (`aria-checked`, `aria-labelledby`) instead, which worked.
 
+Later the same day, while planning the next stages. All reads; nothing was
+changed.
+
+| Endpoint | What it carries |
+|----------|-----------------|
+| `GET /backend-api/gizmos/snorlax/sidebar` | **paged**: without parameters it returns 5 items and a `cursor`; the page asks for `?owned_only=true&conversations_per_gizmo=5&limit=20`; `?owned_only=true&limit=50` returned all 32 projects, pinned ones first. `list_projects.py` still reads the first page only (Stage 1 item 2). With `conversations_per_gizmo` the items are shaped differently, not inspected |
+| `GET /backend-api/pins` | a list of `{"item_type": "feature" / "conversation" / "project", "item": {…}, "pinned_at": …}` |
+| `GET /backend-api/system_hints?mode=basic` | the composer's "+" items: `search` (Search, category `source`, persists between messages, allowed in temporary chats), `picture_v2`, `tasks`, `tatertot` (Study), `canvas`, `sketch` |
+| `GET /backend-api/system_hints?mode=plugins&suggestions=true` | `plugin:connector_openai_deep_research` (Deep research: persists between messages, `requires_personalization`, not allowed in temporary chats) and one entry per installed connector. Whether a send carries `system_hints` in its body is not captured yet (Stage 3, B2 and B3) |
+| `GET /backend-api/wham/usage` | `plan_type`, `rate_limit.primary_window` (`used_percent`, `limit_window_seconds` = 604800, `reset_at`), `credits` (`balance`, `has_credits`, `approx_local_messages`, `approx_cloud_messages`), `rate_limit_reset_credits.available_count`, `model_usage`; `wham/rate-limit-reset-credits` lists the credits with `reset_type: codex_rate_limits`. None of it is about chat sends |
+| `GET /backend-api/conversations?…` items | `memory_scope` was `global_enabled` on all 100 most recent conversations, two of them inside projects; `is_do_not_remember` was `false` or absent. No other value has been observed yet |
+
+The project page (`/g/<short_url>/project`) calls `gizmos/<id>`,
+`gizmos/<id>/conversations?cursor=0`, `conversation/init` (POST) and the
+sentinel `prepare` / `finalize` pair on load, plus one `gizmos/<id>` per
+project shown in the sidebar.
+
+**Project settings**, read from the dialog on 2026-09-20 without changing
+anything: Project name, Instructions (a textarea), Memory as a two-way
+choice, "Default memory" ("This project can access memory from outside
+chats, and vice versa") or "Project-only memory" ("This project can only
+access its own memory. Its memory is hidden from outside chats. Work mode
+isn't available for this type of project"), and Delete project. The PATCH
+behind each field is not captured yet.
+
+A `?query` appended to a project URL gives an error page in Chrome; navigate
+to the canonical URL.
+
 Not captured yet, so not implemented: pinning, starring, moving a chat
 into a project, editing project instructions, creating or pausing a
 scheduled task. Each needs one real action recorded
