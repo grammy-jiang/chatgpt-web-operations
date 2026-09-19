@@ -216,14 +216,16 @@ orchestrator is not modified.
    part)**: 28 T0 tests, both modules at 100%.
    **Deep research measured 2026-09-20**: one send with `--system-hint
    plugin:connector_openai_deep_research` (the hint id the models payload
-   lists) was accepted but did not start a research run: the reply came
-   back in seconds as an ordinary answer, metadata `model
-   gpt-5-6-instant`, no `search_result_groups`, no citations. The
-   page's own Deep research send therefore carries something else, not
-   yet captured; capturing it needs the composer's "+" item driven in the
-   skill's own window, which proved unreliable today. B3 stays open, with
-   that capture as its first step; the send body of a hand-made Deep
-   research message would settle it.
+   lists) **does start a research run**, and the output shape is the
+   point: the first reply arrives in seconds from `gpt-5-6-instant` and
+   says only "Deep Research has started working on your query and will
+   update you with the report"; the report is appended later,
+   asynchronously (the conversation carries `async_status`). So
+   `wait_for_reply` returns on the acknowledgement, not the report: a
+   Deep research step needs its own collector that polls until a later
+   assistant turn with `search_result_groups` / citations appears, with a
+   budget of tens of minutes. The first reading of this send (an "ordinary
+   answer") was wrong because only the metadata was read, not the text.
 
 Exit criterion: `send_prompt.py` exposes the four choices, the client's
 tests cover them offline, and one measured send per feature is recorded in

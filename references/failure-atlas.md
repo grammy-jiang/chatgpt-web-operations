@@ -57,6 +57,13 @@ by the page ("message was not posted") because the upload wait checked
 appears ~2.5 s later. A wait that can return before the thing it waits for
 has started is not a wait. Poll for the indicator to appear and then clear.
 
+And the last one of the day, self-inflicted: the Deep research probe was
+declared "not started" from the reply's metadata (`gpt-5-6-instant`, no
+search, no citations) before its text was read. The text said "Deep
+Research has started working on your query and will update you with the
+report". Read the reply before judging it; metadata describes the turn
+that exists, not the one still coming.
+
 ## Measurements worth keeping
 
 Composer fill, the real 89 kB review prompt, on an idle host:
