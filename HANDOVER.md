@@ -7,6 +7,64 @@ session that ran in `~/Projects/research-pipeline-chatgpt` on 2026-09-19 and
 `VENDORED.md`. Everything below was measured on the user's live ChatGPT Pro
 account or in this directory; nothing is assumed.
 
+## 0. Update, 2026-09-20, second session
+
+Read this section, then `ROADMAP.md` ("Decisions of 2026-09-20" and the
+stage notes), `TESTING.md` and `SKILL.md`; the sections below are the
+first session's handover and are kept as history.
+
+**State.** This directory is a git repository (`main`); every change since
+the handover is a commit with a message that says what was measured. The
+user's decisions: all work stays in this skill (the research-pipeline
+repository is not modified any more); the agent performs every recorded
+action itself; live tests run only against the sandbox project; test
+conversations are deleted afterwards; **everything that can be plain HTTP
+is plain HTTP, the browser only for the gated send** (three gates,
+re-probed the same day: proof-of-work, Turnstile, the behavioural `so`; no
+solver, ever).
+
+**Commands and transport now.** HTTP: `probe_account.py`,
+`probe_cookies.py` (local), `probe_send_gates.py`, `model_settings.py`,
+`profile_context.py`, `list_chats.py`, `list_projects.py`,
+`create_project.py`, `project_settings.py`, `delete_project.py`,
+`pin_chat.py`, `read_chat.py`, `clean_chats.py`, `round_status.py`,
+`review_topic.py` (offline). Browser: `send_prompt.py` (the send),
+`measure_window.py` and `discover_endpoints.py` (measuring).
+
+**Findings that changed the code.** The `oai-last-model-config` cookie
+never pinned a send's effort: two recorded sends posted `thinking_effort:
+max` with the cookie at `standard`; the page follows the account's
+`last_used_model_config`. The fix rewrites the `f/conversation` POST body
+in flight (`rewrite_send_body`: `thinking_effort`, `model`,
+`system_hints`), verified by the reply's metadata, which records
+`thinking_effort`, `search_result_groups` and `citations`
+(`read_chat.py --effort`). The composer's "+" click never reached the
+body either; `system_hints: ["search"]` does. Attachments ride in
+`messages[0].metadata.attachments`; the upload must be waited for (busy
+indicator appears ~2.5 s after the input is set). Captured and reproduced
+over HTTP: project instructions and memory scope (`PATCH
+/backend-api/projects/<id>`), pin / unpin / archive / unarchive (`PATCH
+/backend-api/conversation/<id>`), project create (`POST
+/backend-api/projects`) and delete (`DELETE /backend-api/gizmos/<id>`).
+A chat inside a project-only project reports `memory_scope: project_v2`.
+
+**Sandbox.** `rp-test-sandbox` = `g-p-6aaea9da2bc881918d6f9eb5177cf904`
+(`tests/live/sandbox.json`), project-only memory, kept empty; the live
+tiers (`CHATGPT_LIVE=read|write|browser|send`, `tests/live/guard.py`) can
+write only there, create only `rp-test` projects and delete only the ones
+they created; a session-end sweep deletes `rp-test` chats.
+
+**Tests.** `make test` runs the offline suite and the per-module coverage
+gate (95% core, 90% other); `make lint`; `make live-read` /
+`live-write` / `live-browser` / `live-send` for the opt-in tiers.
+
+**Chrome facts that cost time.** The first click after a page load is
+often swallowed (click again); the extension's network log never shows a
+request body (use a `fetch` hook and read `input.clone().text()`, the page
+passes bodies inside `Request` objects); Project settings saves only on
+its Save button; the Archived chats dialog lists your own archived chats
+too, so target by exact title.
+
 ## 1. What was done
 
 **The skill moved here and became self-contained.**
