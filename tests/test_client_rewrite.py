@@ -148,6 +148,90 @@ def test_empty_settings_return_an_equal_body() -> None:
 
 
 # ---------------------------------------------------------------------------
+# rewrite_send_body -- hints, the generic form of --search (ROADMAP.md,
+# Stage 3 item 4: "Deep research: --system-hint
+# plugin:connector_openai_deep_research")
+# ---------------------------------------------------------------------------
+
+
+def test_hints_alone_create_the_key_and_touch_nothing_else() -> None:
+    body = _body()
+    del body["system_hints"]
+    out = cc.rewrite_send_body(
+        body,
+        effort="",
+        model="",
+        search=False,
+        hints=("plugin:connector_openai_deep_research",),
+    )
+    assert out["system_hints"] == ["plugin:connector_openai_deep_research"]
+    assert out["thinking_effort"] == "max"
+    assert out["model"] == "gpt-5-6-thinking"
+
+
+def test_hints_alone_are_appended_after_any_existing_hints_in_order() -> None:
+    out = cc.rewrite_send_body(
+        _body(system_hints=["existing"]),
+        effort="",
+        model="",
+        search=False,
+        hints=("first", "second"),
+    )
+    assert out["system_hints"] == ["existing", "first", "second"]
+
+
+def test_hints_alone_is_not_the_identity_case_a_copy_is_made() -> None:
+    """Unlike blank everything, a non-empty hints alone is something to
+    rewrite: the returned body must not be the same object."""
+    body = _body()
+    out = cc.rewrite_send_body(
+        body, effort="", model="", search=False, hints=("tasks",)
+    )
+    assert out is not body
+    assert body["system_hints"] == []  # the original is untouched
+
+
+def test_hints_plus_search_do_not_duplicate_the_search_hint() -> None:
+    """search=True and "search" repeated in hints: only one "search" ends
+    up in system_hints, in the position the search flag put it."""
+    out = cc.rewrite_send_body(
+        _body(), effort="", model="", search=True, hints=("search", "extra")
+    )
+    assert out["system_hints"] == ["search", "extra"]
+
+
+def test_duplicate_hints_collapse_to_one_occurrence_each() -> None:
+    out = cc.rewrite_send_body(
+        _body(), effort="", model="", search=False, hints=("a", "a", "b", "a")
+    )
+    assert out["system_hints"] == ["a", "b"]
+
+
+def test_a_hint_already_on_the_body_is_not_duplicated() -> None:
+    out = cc.rewrite_send_body(
+        _body(system_hints=["plugin:connector_openai_deep_research"]),
+        effort="",
+        model="",
+        search=False,
+        hints=("plugin:connector_openai_deep_research",),
+    )
+    assert out["system_hints"] == ["plugin:connector_openai_deep_research"]
+
+
+def test_hints_effort_model_and_search_all_together() -> None:
+    out = cc.rewrite_send_body(
+        _body(),
+        effort="extended",
+        model="gpt-6-pro",
+        search=True,
+        hints=("plugin:connector_openai_deep_research",),
+    )
+    assert out["thinking_effort"] == "extended"
+    assert out["model"] == "gpt-6-pro"
+    assert out["system_hints"] == ["search", "plugin:connector_openai_deep_research"]
+
+
+# ---------------------------------------------------------------------------
 # BrowserSender._rewrite_send_route -- direct, over hand-built
 # fake_playwright.Request/Route (no context, no dispatch)
 # ---------------------------------------------------------------------------
@@ -190,6 +274,25 @@ def test_route_rewrites_a_post_to_the_send_endpoint(make_sender) -> None:
         "thinking_effort": "max",
         "model": "gpt-6-pro",
         "system_hints": ["search"],
+    }
+
+
+def test_route_rewrites_a_post_using_hints_alone(make_sender) -> None:
+    """A hint set with no effort/model/search still rewrites the body
+    (ROADMAP.md, Stage 3 item 4)."""
+    sender = make_sender(hints=("plugin:connector_openai_deep_research",))
+    route = _route(
+        SEND_URL,
+        post_data=json.dumps({"thinking_effort": "max", "system_hints": []}),
+    )
+
+    handled = sender._rewrite_send_route(route)
+
+    assert handled is True
+    assert route.continued is True
+    assert json.loads(sender._last_sent_body) == {
+        "thinking_effort": "max",
+        "system_hints": ["plugin:connector_openai_deep_research"],
     }
 
 
@@ -426,6 +529,39 @@ def test_open_rewrites_the_send_body_through_the_registered_route(
             "thinking_effort": "max",
             "model": "gpt-6-pro",
             "system_hints": ["search"],
+        }
+    finally:
+        sender._stack.close()
+        sender._owner.shutdown(wait=True)
+
+
+def test_open_registers_the_rewrite_route_for_a_hint_set_alone(
+    enter_env, fake_pw
+) -> None:
+    """No effort, model or search -- only a system hint: the route must
+    still register (ROADMAP.md, Stage 3 item 4), the same contract as
+    ``test_open_rewrites_the_send_body_through_the_registered_route`` above,
+    proven with ``hints`` as the only thing pinned."""
+    sender = cc.BrowserSender(hints=("plugin:connector_openai_deep_research",))
+    try:
+        sender._open()
+        ctx = fake_pw.chromium.launch_persistent_context_result
+        assert [pattern for pattern, _ in ctx.routes] == [
+            "**/backend-api/**",
+            "**/ces/v1/**",
+        ]
+
+        route = ctx.trigger_route(
+            SEND_URL,
+            method="POST",
+            post_data=json.dumps({"thinking_effort": "max", "system_hints": []}),
+        )
+
+        assert route.continued is True
+        sent = json.loads(sender._last_sent_body)
+        assert sent == {
+            "thinking_effort": "max",
+            "system_hints": ["plugin:connector_openai_deep_research"],
         }
     finally:
         sender._stack.close()

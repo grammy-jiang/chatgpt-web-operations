@@ -207,6 +207,15 @@ orchestrator is not modified.
    upload wait now follows the busy indicator. Not yet measured: a real
    paper PDF (size, processing time, whether retrieval truncates).
 
+4. Generic system hints, the mechanism Deep research (B3) needs:
+   `rewrite_send_body` gained `hints`, appended to `system_hints` like
+   `search`; `BrowserSender(hints=...)` registers the rewrite route for a
+   hint set alone; `send_prompt.py --system-hint HINT` threads it through.
+   Several PROMPT_FILEs now share one window (the window is the expensive
+   part) and are waited on after it closes. **Done 2026-09-20 (offline
+   part)**: 28 T0 tests, both modules at 100%. Deep research: one measured
+   send with `--system-hint plugin:connector_openai_deep_research` next.
+
 Exit criterion: `send_prompt.py` exposes the four choices, the client's
 tests cover them offline, and one measured send per feature is recorded in
 `references/failure-atlas.md`.

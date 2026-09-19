@@ -49,7 +49,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -381,8 +381,14 @@ UNUSED_ON_SEND = (
 )
 
 
-def rewrite_send_body(body: dict, effort: str, model: str, search: bool) -> dict:
-    """The ``f/conversation`` POST body, with effort/model/search pinned.
+def rewrite_send_body(
+    body: dict,
+    effort: str,
+    model: str,
+    search: bool,
+    hints: Iterable[str] = (),
+) -> dict:
+    """The ``f/conversation`` POST body, with effort/model/search/hints pinned.
 
     Two recorded sends on 2026-09-20 proved ``with_effort``/``with_model``
     do not, by themselves, pin what a send uses: the page takes
@@ -395,22 +401,32 @@ def rewrite_send_body(body: dict, effort: str, model: str, search: bool) -> dict
 
     ``search`` appends ``"search"`` to ``system_hints`` rather than
     replacing it, so a hint the page itself set survives; a hint already
-    present is not duplicated. Returns ``body`` itself, unchanged, when
-    ``effort``, ``model`` and ``search`` are all blank/false: nothing to
+    present is not duplicated. ``hints`` is the general form (ROADMAP.md,
+    Stage 3 item 4): every id in it is appended the same way, in order,
+    skipping one already present -- whether it was already on the body, put
+    there by ``search``, or repeated within ``hints`` itself. The composer's
+    "+" menu items are system hints too (``references/endpoint-discovery.md``,
+    the ``system_hints`` rows), e.g. ``plugin:connector_openai_deep_research``
+    for Deep research. Returns ``body`` itself, unchanged, when ``effort``,
+    ``model``, ``search`` and ``hints`` are all blank/false/empty: nothing to
     rewrite, so nothing is copied.
     """
-    if not effort and not model and not search:
+    hint_list = list(hints)
+    if not effort and not model and not search and not hint_list:
         return body
     out = dict(body)
     if effort:
         out["thinking_effort"] = effort
     if model:
         out["model"] = model
-    if search:
-        hints = list(out.get("system_hints") or [])
-        if "search" not in hints:
-            hints.append("search")
-        out["system_hints"] = hints
+    if search or hint_list:
+        current = list(out.get("system_hints") or [])
+        if search and "search" not in current:
+            current.append("search")
+        for hint in hint_list:
+            if hint not in current:
+                current.append(hint)
+        out["system_hints"] = current
     return out
 
 
@@ -1059,11 +1075,11 @@ class BrowserSender:
     Use as a context manager. ``send(text)`` opens a new conversation and
     returns its id; ``send(text, chat=<id>)`` continues a conversation.
 
-    ``effort``, ``model`` and ``search`` pin what this send uses. None of
-    the three touches a cookie: measured 2026-09-20, the composer's own
+    ``effort``, ``model``, ``search`` and ``hints`` pin what this send uses.
+    None of them touches a cookie: measured 2026-09-20, the composer's own
     ``oai-last-model-config`` cookie steers neither what a send carries nor
     the composer's label (SKILL.md, "Reasoning effort"). Instead ``_open``
-    registers a route, only when one of the three is set, that rewrites the
+    registers a route, only when one of the four is set, that rewrites the
     outgoing ``f/conversation`` POST body in flight
     (``rewrite_send_body`` / ``_rewrite_send_route``).
     """
@@ -1117,6 +1133,7 @@ class BrowserSender:
         effort: str = "",
         model: str = "",
         search: bool = False,
+        hints: tuple[str, ...] = (),
         record_send_body: str = "",
         attachments: list[str] | tuple[str, ...] = (),
     ):
@@ -1139,6 +1156,14 @@ class BrowserSender:
         # "search" to the send body's system_hints. Off by default, like
         # every other opt-in choice here.
         self.search = bool(search)
+        # Generic system hints for this send (ROADMAP.md, Stage 3 item 4),
+        # pinned the same way as search: rewrite_send_body appends each one
+        # to the send body's system_hints that is not already present, in
+        # order. The composer's "+" menu items are system hints too
+        # (references/endpoint-discovery.md); e.g.
+        # "plugin:connector_openai_deep_research" for Deep research. Empty
+        # by default, like every other opt-in choice here.
+        self.hints = tuple(h.strip() for h in hints if str(h).strip())
         # File path: when set, the f/conversation POST body (method, url,
         # post_data) is recorded there, so one real send can document what
         # the page actually sends with and without search.
@@ -1254,7 +1279,7 @@ class BrowserSender:
         # rewrite_send_body only has work to do when one of these is set;
         # block_unused must not be handed a hook otherwise, or every send
         # (even one pinning nothing) would pay the extra JSON round trip.
-        rewrites = bool(self.effort or self.model or self.search)
+        rewrites = bool(self.effort or self.model or self.search or self.hints)
         block_unused(
             ctx,
             allow_project=bool(self.project),
@@ -1345,7 +1370,9 @@ class BrowserSender:
         if not isinstance(body, dict):
             return False
         sent = json.dumps(
-            rewrite_send_body(body, self.effort, self.model, self.search)
+            rewrite_send_body(
+                body, self.effort, self.model, self.search, self.hints
+            )
         )
         self._last_sent_body = sent
         # The page's ``request`` event fires before any route runs, so the
@@ -1393,7 +1420,7 @@ class BrowserSender:
         (ROADMAP.md, Stage 3 item 2). Never raises: a recording failure
         must not fail the send it is only there to document.
 
-        When this send pins effort, model or search, this writes a
+        When this send pins effort, model, search or a hint, this writes a
         provisional record with ``"sent"`` equal to ``"original"``, and
         ``_rewrite_send_route`` overwrites it with the real ``"sent"`` once
         it has rewritten the body: the ``request`` event fires before any
@@ -1409,7 +1436,7 @@ class BrowserSender:
         path = req.url.split("?", 1)[0].split("#", 1)[0]
         if not path.endswith(self.RECORD_ENDPOINT):
             return
-        if self.effort or self.model or self.search:
+        if self.effort or self.model or self.search or self.hints:
             doc: dict[str, Any] = {
                 "method": req.method,
                 "url": req.url,
