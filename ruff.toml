@@ -10,11 +10,6 @@ ignore = ["B008", "RUF001", "RUF002", "RUF003", "RUF012", "RUF059"]
 
 [lint.per-file-ignores]
 "tests/**/*.py" = ["PT011", "PT015", "PT018", "RUF043"]
-# Vendored byte-for-byte; lint them at the origin, not here.
-"scripts/chatgpt_client.py" = ["ALL"]
-"scripts/chatgpt_session.py" = ["ALL"]
-"scripts/chatgpt_cookies.py" = ["ALL"]
 
 [format]
 docstring-code-format = true
-exclude = ["scripts/chatgpt_client.py", "scripts/chatgpt_session.py", "scripts/chatgpt_cookies.py"]

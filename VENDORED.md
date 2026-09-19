@@ -17,11 +17,9 @@ not an origin. The table records where each file came from.
 
 ## Local changes
 
-- `chatgpt_client.py`: only the `HELPERS` and `PW_PYTHON` defaults differ. They
-  point at this directory and its `.venv` instead of the binnacle checkout and
-  the shared `pwvenv`; the `CHATGPT_HELPERS_DIR` / `CHATGPT_SEND_PYTHON`
-  overrides still work. One docstring word changed ("binnacle's" to "bundled").
-- `chatgpt_session.py`, `chatgpt_cookies.py`: byte-identical.
+- `chatgpt_client.py`, `chatgpt_session.py`, `chatgpt_cookies.py`: linted and
+  formatted with this repository's ruff rules since 2026-09-20, so a diff
+  against their origins is larger than the listed hunks.
 - `round_state.py`: the listed functions, byte-identical, in origin order.
 
 ## Provenance check

@@ -1370,9 +1370,7 @@ class BrowserSender:
         if not isinstance(body, dict):
             return False
         sent = json.dumps(
-            rewrite_send_body(
-                body, self.effort, self.model, self.search, self.hints
-            )
+            rewrite_send_body(body, self.effort, self.model, self.search, self.hints)
         )
         self._last_sent_body = sent
         # The page's ``request`` event fires before any route runs, so the
