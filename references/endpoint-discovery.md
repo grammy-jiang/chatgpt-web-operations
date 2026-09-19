@@ -331,7 +331,12 @@ that file), and the send body then carries the file in
 ```
 
 The reply quoted the file's third line exactly, so the content reached the
-model. Timing that matters: the composer's busy indicator appears only
+model. A real paper the same day (arXiv 1706.03762, 2.2 MB, 15 pages):
+`size 2215244`, `mime_type application/pdf`, the same
+`library_persistence_result: "temporary"`; the reply gave the exact title,
+the abstract's first sentence and the page count with file citations, in
+3 min 28 s end to end including the reply wait. Timing that matters: the
+composer's busy indicator appears only
 ~2.5 s after the input is set; a send clicked before the upload finished
 was silently ignored ("message was not posted"), so `_upload_files` waits
 for busy to appear and clear.

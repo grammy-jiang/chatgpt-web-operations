@@ -204,8 +204,12 @@ orchestrator is not modified.
    carries the file in `messages[0].metadata.attachments`
    (`references/endpoint-discovery.md`, "Attachments"). The first try was
    ignored because the send went out before the upload finished; the
-   upload wait now follows the busy indicator. Not yet measured: a real
-   paper PDF (size, processing time, whether retrieval truncates).
+   upload wait now follows the busy indicator. **A real paper measured
+   the same day**: arXiv 1706.03762 (2.2 MB, 15 pages) uploaded and was
+   read correctly (exact title, first sentence of the abstract, page count,
+   file citations) in 3 min 28 s including the reply; no truncation seen
+   at that size. Larger papers and several files per send are not
+   measured.
 
 4. Generic system hints, the mechanism Deep research (B3) needs:
    `rewrite_send_body` gained `hints`, appended to `system_hints` like
