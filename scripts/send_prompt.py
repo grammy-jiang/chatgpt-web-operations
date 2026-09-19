@@ -2,7 +2,8 @@
 """Send a prompt to chatgpt.com, and by default wait for the reply.
 
     send_prompt.py PROMPT_FILE [--project g-p-<id>] [--effort LEVEL]
-                    [--model SLUG] [--chat ID] [--attach FILE ...]
+                    [--model SLUG] [--search] [--record-send-body PATH]
+                    [--chat ID] [--attach FILE ...]
                     [--title TEXT] [--no-wait] [--timeout SECONDS]
                     [--json PATH] [--browser chrome] [--visible]
 
@@ -21,6 +22,12 @@ concurrent new-chat sends cannot claim each other's conversation.
 composer uses, through ``with_effort`` / ``with_model``; blank inherits
 whatever the profile last used. ``--title`` renames the conversation once
 its id is final -- how the sandbox tests mark their chats ``rp-test ...``.
+
+``--search`` turns Web search on for this send through the composer's "+"
+menu (``BrowserSender._enable_search``); absent leaves it off.
+``--record-send-body PATH`` writes the ``f/conversation`` POST's method,
+url and body to PATH, so one real send can document what the page sends
+with and without search (ROADMAP.md, Stage 3 item 2).
 
 ``--attach`` is accepted and recorded in ``--json``, but is **not**
 uploaded. Attaching arbitrary files is ROADMAP.md's B4, a separate Stage 3
@@ -79,6 +86,17 @@ def main(argv: list[str] | None = None) -> int:
         default="",
         metavar="SLUG",
         help="model slug pinned via the cookie; blank inherits the profile's own",
+    )
+    ap.add_argument(
+        "--search",
+        action="store_true",
+        help="turn on Web search for this send via the composer's '+' menu",
+    )
+    ap.add_argument(
+        "--record-send-body",
+        default="",
+        metavar="PATH",
+        help="write the f/conversation POST's method, url and body to PATH",
     )
     ap.add_argument(
         "--chat",
@@ -168,6 +186,8 @@ def main(argv: list[str] | None = None) -> int:
                 effort=args.effort,
                 model=args.model,
                 visible=args.visible,
+                search=args.search,
+                record_send_body=args.record_send_body,
             ) as sender:
                 conversation_id = sender.send(
                     text, chat=args.chat, name=prompt_path.stem
@@ -184,6 +204,8 @@ def main(argv: list[str] | None = None) -> int:
                     effort=args.effort,
                     model=args.model,
                     visible=args.visible,
+                    search=args.search,
+                    record_send_body=args.record_send_body,
                 ) as sender:
                     conversation_id = sender.send(text, name=prompt_path.stem)
                 step += 1
@@ -219,6 +241,8 @@ def main(argv: list[str] | None = None) -> int:
         "model": args.model,
         "effort": args.effort,
         "project": args.project,
+        "search": args.search,
+        "send_body_file": args.record_send_body or None,
         "sent_at": sent_at,
         "resolved": not cc.is_provisional(conversation_id),
         "attachments": attachments,

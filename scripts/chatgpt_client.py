@@ -1083,6 +1083,12 @@ class BrowserSender:
         'form button[type="submit"]',
     )
 
+    # The message itself, never its sentinel .../f/conversation/prepare
+    # handshake sibling nor any GET (SKILL.md, "The transport split";
+    # ROADMAP.md, Stage 3 item 2): the only POST worth recording for
+    # ``record_send_body``.
+    RECORD_ENDPOINT = "/backend-api/f/conversation"
+
     # This host is memory-tight and swaps under load. One scripted page for a
     # send cost about 1.65 GB with the first four flags alone, measured on the
     # Pi against a loaded composer; the rest bring that down by roughly 470 MB
@@ -1114,6 +1120,8 @@ class BrowserSender:
         project: str = "",
         effort: str = "",
         model: str = "",
+        search: bool = False,
+        record_send_body: str = "",
     ):
         self.browser = browser
         self.visible = visible
@@ -1127,6 +1135,14 @@ class BrowserSender:
         # Model slug for this send, pinned the same way as effort. Empty
         # inherits the profile's own model.
         self.model = model.strip()
+        # Web search on for this send, through the composer's "+" menu
+        # (ROADMAP.md, Stage 3 item 2 / B2). Off by default, like every
+        # other opt-in choice here.
+        self.search = bool(search)
+        # File path: when set, the f/conversation POST body (method, url,
+        # post_data) is recorded there, so one real send can document what
+        # the page actually sends with and without search.
+        self.record_send_body = record_send_body.strip()
         self._stack = contextlib.ExitStack()
         self.page: Any = None
         # Playwright's sync objects may only be used from the thread that
@@ -1216,6 +1232,8 @@ class BrowserSender:
         ctx.add_cookies(cookies)
         block_unused(ctx, allow_project=bool(self.project))
         self.page = ctx.new_page()
+        if self.record_send_body:
+            self.page.on("request", self._record_request)
 
     def _launch(self, pw: Any) -> Any:
         """A browser context that keeps its HTTP cache between sends.
@@ -1267,6 +1285,34 @@ class BrowserSender:
         return browser.new_context(
             viewport={"width": self.WIDTH, "height": self.HEIGHT}
         )
+
+    def _record_request(self, req: Any) -> None:
+        """Write one f/conversation POST's body to ``record_send_body``.
+
+        Ignores every GET and the sentinel's own
+        ``.../f/conversation/prepare`` handshake, so only the message
+        itself documents what the composer actually sent -- with or
+        without Web search -- for the lead's one real verification send
+        (ROADMAP.md, Stage 3 item 2). Never raises: a recording failure
+        must not fail the send it is only there to document.
+        """
+        if req.method != "POST":
+            return
+        path = req.url.split("?", 1)[0].split("#", 1)[0]
+        if not path.endswith(self.RECORD_ENDPOINT):
+            return
+        with contextlib.suppress(Exception):
+            target = Path(self.record_send_body)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(
+                json.dumps(
+                    {"method": req.method, "url": req.url, "post_data": req.post_data},
+                    indent=2,
+                    ensure_ascii=False,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
 
     RATE_LIMIT_TEXT = "too many requests"
     RATE_LIMIT_MODAL = '[data-testid="modal-conversation-history-rate-limit"]'
@@ -1399,6 +1445,39 @@ class BrowserSender:
             ) from None
         return composer
 
+    # The popup PLUS_BUTTON opens carries no role="menu": its sections are
+    # div[role="group"] and each item is a div[tabindex="0"] with no role and
+    # no data-testid (references/endpoint-discovery.md, "Seen on
+    # 2026-09-20"). Its items are found by their exact visible text instead.
+    PLUS_BUTTON = "button#composer-plus-btn"
+    SEARCH_ITEM_TEXT = "Web search"
+
+    def _enable_search(self, page: Any) -> None:
+        """Turn Web search on for this send, through the composer's "+" menu.
+
+        Measured 2026-09-20: the first click right after a page load twice
+        left the popup shut, so opening is retried once before giving up.
+        Raises ``RuntimeError`` naming the step when the popup, or its "Web
+        search" item, never appears -- the caller's existing exception
+        handling (``send``) turns that into a failed send like any other
+        browser failure.
+        """
+        plus = page.locator(self.PLUS_BUTTON)
+        item = None
+        for _attempt in range(2):
+            plus.click(timeout=15_000)
+            page.wait_for_timeout(500)
+            item = page.get_by_text(self.SEARCH_ITEM_TEXT, exact=True)
+            if item.count() and item.first.is_visible():
+                break
+        else:
+            raise RuntimeError(
+                "_enable_search: the composer's '+' menu never opened "
+                f"(no {self.SEARCH_ITEM_TEXT!r} item after 2 clicks)"
+            )
+        item.first.click(timeout=15_000)
+        page.wait_for_timeout(500)
+
     # Uploading the prompt instead of pasting it looked like the answer to slow
     # ProseMirror rendering, and the upload itself works: the file arrives and
     # the covering message types fine. Submission is what does not happen —
@@ -1519,6 +1598,9 @@ class BrowserSender:
         # belongs.
         page.goto(url, wait_until="domcontentloaded", timeout=PAGE_LOAD_MS)
         composer = self._composer()
+        if self.search:
+            self._focus_composer(composer)
+            self._enable_search(page)
         # Chat surface only: leave the surface toggle alone when absent.
         chat_toggle = page.get_by_role("radio", name=re.compile(r"^Chat$", re.I))
         if chat_toggle.count() and chat_toggle.first.is_visible():

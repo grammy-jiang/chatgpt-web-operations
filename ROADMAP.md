@@ -136,8 +136,13 @@ with a dry run before every change.
    Verified 2026-09-20: a chat created inside such a project reports
    `memory_scope: project_v2` itself.
 3. Pin and unpin, unarchive (M2). Captured 2026-09-20 on the sandbox chat
-   (`references/endpoint-discovery.md`, "Captured 2026-09-20, later"); the
-   command is next.
+   (`references/endpoint-discovery.md`, "Captured 2026-09-20, later").
+   **Done 2026-09-20**: `pin_chat.py <chat-id-or-url> [--unpin] [--apply]`
+   (dry run by default, read-back verified, a `/c/` URL accepted) and
+   `clean_chats.py --unarchive`, a third action that selects from the
+   archived listing and PATCHes `is_archived: false` per match. 28 T0
+   tests, both modules at 100%; `tests/live/test_write_chat_flags.py` (T2)
+   round-trips pin and archive on the sandbox chat.
 Exit criterion: each command has a dry run, a test over a fake session, and
 its endpoint recorded in `references/endpoint-discovery.md`.
 
@@ -162,6 +167,15 @@ orchestrator is not modified.
    (T4).
 2. Web search per step (B2): capture the send body with and without the
    composer's Web search item, then reproduce the difference.
+   **Done 2026-09-20 (offline part)**: `BrowserSender(search=True)` drives
+   the composer's "+" menu (`button#composer-plus-btn`) through
+   `_enable_search`, locating "Web search" by its exact visible text (the
+   popup carries no `role="menu"`), with one retry when the first click
+   leaves it shut and a clear error after two; `record_send_body=PATH`
+   writes the `f/conversation` POST's method, url and body (not the
+   `/prepare` sibling, no GETs). `send_prompt.py` gained `--search` and
+   `--record-send-body`. 12 T0 tests. Still to verify live: one send with
+   `--search` and one without, recorded, to read what the body carries.
 3. File attachments (B4), then Deep research (B3): measure each on one real
    paper before designing anything, because both change the shape and the
    timing of what comes back. Attachments come first because they feed the

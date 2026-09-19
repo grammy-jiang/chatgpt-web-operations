@@ -45,9 +45,9 @@ skill does not import it.
 
 ## The commands
 
-Each does one kind of interaction. Four change something: `clean_chats.py`
-and `project_settings.py` need `--apply`, `create_project.py` creates a
-project, and `send_prompt.py` posts a message.
+Each does one kind of interaction. Five change something: `clean_chats.py`,
+`project_settings.py` and `pin_chat.py` need `--apply`, `create_project.py`
+creates a project, and `send_prompt.py` posts a message.
 
 | Command | Purpose | Exit code means |
 |---------|---------|-----------------|
@@ -60,9 +60,10 @@ project, and `send_prompt.py` posts a message.
 | `list_projects.py` | Every project (paged), one project's full instructions and files, and the chats inside one. | 0 found, 1 no such `--id` |
 | `create_project.py` | Create a project by driving the UI, and report the call that did it. | 0 created |
 | `project_settings.py` | Set a project's instructions and memory scope (`--memory project-only` keeps its chats out of your memory). Dry run unless `--apply`. | 0 dry run or verified, 1 apply failed, 2 refused |
-| `send_prompt.py` | Send a prompt: a new chat (in a project with `--project`) or a continuing one with `--chat`; `--effort` and `--model` pin the composer's cookie, `--title` renames once the id resolves, `--json` records the send; waits for the reply unless `--no-wait`. `--attach` is recorded, not uploaded yet. | 0 sent and replied, 1 send, resolve or wait failed, 2 bad arguments |
+| `send_prompt.py` | Send a prompt: a new chat (in a project with `--project`) or a continuing one with `--chat`; `--effort` and `--model` pin the composer's cookie, `--search` turns on Web search through the composer's "+" menu, `--record-send-body PATH` records the `f/conversation` POST body, `--title` renames once the reply arrived, `--json` records the send; waits for the reply unless `--no-wait`. `--attach` is recorded, not uploaded yet. | 0 sent and replied, 1 send, resolve or wait failed, 2 bad arguments |
 | `read_chat.py` | One conversation: is the turn finished, and what did it say? | 0 turn finished |
-| `clean_chats.py` | Archive or delete worker chats. Dry run unless `--apply`. | 0 always |
+| `pin_chat.py` | Pin or unpin a chat (`is_starred`). Dry run unless `--apply`. | 0 dry run or verified, 1 apply failed, 2 bad id |
+| `clean_chats.py` | Archive, delete or unarchive worker chats. Dry run unless `--apply`. | 0 always |
 | `round_status.py` | A research round: admitted, read, written off, unread. | 0 nothing unread |
 | `review_topic.py` | A finished topic, offline: six integrity invariants per round, review verdicts, gaps, cost. | 0 nothing wrong |
 | `measure_window.py` | What a send window costs in memory and fill time. | 0 always |

@@ -1,14 +1,21 @@
 #!/usr/bin/env python3
-"""Archive or delete worker conversations a run left behind.
+"""Archive, delete or unarchive worker conversations a run left behind.
 
-    clean_chats.py --match TEXT [--delete] [--archive] [--apply]
+    clean_chats.py --match TEXT [--delete] [--archive] [--unarchive] [--apply]
 
 Nothing happens without ``--apply``: the default is a dry run that prints
 exactly what would be touched. The user's own conversations share the account
 with the run's workers, so selecting the wrong ones is the failure mode this
-guards against, and a title substring is a blunt selector.
+guards against, and a title substring is a blunt selector. Exactly one of
+--delete / --archive / --unarchive is required.
 
 Deleting is ``PATCH {"is_visible": false}``, the same thing the web UI does.
+Archiving is ``PATCH {"is_archived": true}``. --unarchive is the same
+conversation PATCH with ``{"is_archived": false}`` -- captured 2026-09-20
+alongside pin and unpin (references/endpoint-discovery.md, "Captured
+2026-09-20, later") -- and it selects from the ARCHIVED listing
+(``list_chats.query_for(limit, archived=True)``) rather than the default
+one, since an archived chat is absent from the default listing.
 """
 
 from __future__ import annotations
@@ -18,6 +25,9 @@ import sys
 from typing import Any
 
 from _common import ensure_venv, open_session, shorten, table
+from list_chats import query_for
+
+CONVERSATION = "/backend-api/conversation/{id}"
 
 
 def select(chats: list[dict[str, Any]], match: str) -> list[dict[str, Any]]:
@@ -38,16 +48,24 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--limit", type=int, default=50, help="how many to consider")
     ap.add_argument("--delete", action="store_true")
     ap.add_argument("--archive", action="store_true")
+    ap.add_argument("--unarchive", action="store_true")
     ap.add_argument("--apply", action="store_true", help="without it, dry run")
     args = ap.parse_args(argv)
 
-    if args.delete == args.archive:
-        print("choose exactly one of --delete or --archive")
+    if sum((args.delete, args.archive, args.unarchive)) != 1:
+        print("choose exactly one of --delete, --archive or --unarchive")
         return 2
 
     session = open_session()
-    chosen = select(session.list_conversations(limit=args.limit), args.match)
-    action = "delete" if args.delete else "archive"
+    if args.unarchive:
+        action = "unarchive"
+        _status, body = session.session.call(query_for(args.limit, archived=True))
+        chats = list(body.get("items") or []) if isinstance(body, dict) else []
+    else:
+        action = "delete" if args.delete else "archive"
+        chats = session.list_conversations(limit=args.limit)
+    chosen = select(chats, args.match)
+
     print(
         table(
             [(str(c["id"])[:36], shorten(c.get("title") or "", 56)) for c in chosen],
@@ -63,7 +81,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     for chat in chosen:
-        (session.delete if args.delete else session.archive)(str(chat["id"]))
+        if args.unarchive:
+            session.session.call(
+                CONVERSATION.format(id=str(chat["id"])),
+                method="PATCH",
+                payload={"is_archived": False},
+            )
+        else:
+            (session.delete if args.delete else session.archive)(str(chat["id"]))
         print(f"{action}d {chat['id']}")
     print(f"\n{len(chosen)} conversation(s) {action}d")
     return 0

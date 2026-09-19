@@ -60,13 +60,25 @@ class FakeSender:
         self.init_kwargs: dict | None = None
         self.calls: list[dict] = []
 
-    def __call__(self, browser, *, project="", effort="", model="", visible=False):
+    def __call__(
+        self,
+        browser,
+        *,
+        project="",
+        effort="",
+        model="",
+        visible=False,
+        search=False,
+        record_send_body="",
+    ):
         self.init_kwargs = {
             "browser": browser,
             "project": project,
             "effort": effort,
             "model": model,
             "visible": visible,
+            "search": search,
+            "record_send_body": record_send_body,
         }
         return self
 
@@ -399,4 +411,66 @@ def test_effort_model_and_visible_reach_the_sender(monkeypatch, tmp_path) -> Non
         "effort": "max",
         "model": "gpt-6-pro",
         "visible": True,
+        "search": False,
+        "record_send_body": "",
     }
+
+
+# ---------------------------------------------------------------------------
+# --search / --record-send-body -- reach the sender and the --json document
+# ---------------------------------------------------------------------------
+
+
+def test_search_and_record_send_body_reach_the_sender_and_the_json_document(
+    monkeypatch, tmp_path
+) -> None:
+    fake_sender = FakeSender(result=REAL_ID)
+    monkeypatch.setattr(cc, "BrowserSender", fake_sender)
+    monkeypatch.setattr(cc, "ChatGPTSession", lambda browser: FakeSession())
+    monkeypatch.setattr(cc, "wait_for_reply", lambda *a, **kw: "ok")
+
+    body_path = tmp_path / "send-body.json"
+    out_json = tmp_path / "out.json"
+    rc = send_prompt.main(
+        [
+            str(_prompt(tmp_path)),
+            "--chat",
+            REAL_ID,
+            "--search",
+            "--record-send-body",
+            str(body_path),
+            "--json",
+            str(out_json),
+        ]
+    )
+
+    assert rc == 0
+    assert fake_sender.init_kwargs["search"] is True
+    assert fake_sender.init_kwargs["record_send_body"] == str(body_path)
+    doc = json.loads(out_json.read_text())
+    assert doc["search"] is True
+    assert doc["send_body_file"] == str(body_path)
+
+
+def test_search_and_record_send_body_default_off_in_the_json_document(
+    monkeypatch, tmp_path
+) -> None:
+    """Neither flag given: search is False and send_body_file is null, not
+    an empty string -- so a reader can tell "not recorded" from "recorded
+    at an empty path"."""
+    fake_sender = FakeSender(result=REAL_ID)
+    monkeypatch.setattr(cc, "BrowserSender", fake_sender)
+    monkeypatch.setattr(cc, "ChatGPTSession", lambda browser: FakeSession())
+    monkeypatch.setattr(cc, "wait_for_reply", lambda *a, **kw: "ok")
+
+    out_json = tmp_path / "out.json"
+    rc = send_prompt.main(
+        [str(_prompt(tmp_path)), "--chat", REAL_ID, "--json", str(out_json)]
+    )
+
+    assert rc == 0
+    assert fake_sender.init_kwargs["search"] is False
+    assert fake_sender.init_kwargs["record_send_body"] == ""
+    doc = json.loads(out_json.read_text())
+    assert doc["search"] is False
+    assert doc["send_body_file"] is None
