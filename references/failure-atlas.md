@@ -33,6 +33,16 @@ renamed the chat before waiting for the reply, and ChatGPT's own title
 finds test chats by their `rp-test` title, so a lost rename is a chat that
 never gets cleaned up. The rename now happens after the wait.
 
+And the largest one, found the same evening by recording a real send: the
+`oai-last-model-config` cookie rewrite, which `with_effort` and the
+orchestrator's `TASK_EFFORT` relied on since 2026-09-16, never changed the
+effort a send carried. Two sends made with the cookie set to `standard`
+posted `thinking_effort: max`, the account's server-side
+`last_used_model_config`. Nothing had verified the mechanism: the docs said
+a transcript does not record the effort, and it does (assistant message
+`metadata.thinking_effort`). Record the wire body and read the reply's
+metadata; a setting that is "far steadier" but unmeasured is a guess.
+
 ## Measurements worth keeping
 
 Composer fill, the real 89 kB review prompt, on an idle host:

@@ -174,8 +174,17 @@ orchestrator is not modified.
    leaves it shut and a clear error after two; `record_send_body=PATH`
    writes the `f/conversation` POST's method, url and body (not the
    `/prepare` sibling, no GETs). `send_prompt.py` gained `--search` and
-   `--record-send-body`. 12 T0 tests. Still to verify live: one send with
-   `--search` and one without, recorded, to read what the body carries.
+   `--record-send-body`. 12 T0 tests.
+   **Measured 2026-09-20**: two recorded sends with the cookie set to
+   `standard` carried `thinking_effort: max` and, with `--search`,
+   `system_hints: []`: neither the cookie (B1) nor the "+" menu click (B2)
+   reached the wire; the page takes both from the account's server-side
+   state. Next: rewrite the body in flight (`page.route` on
+   `f/conversation`: `thinking_effort`, `model`, `system_hints`), then one
+   recorded send verified through the reply's `metadata.thinking_effort`
+   and `search_result_groups`. Changing the account's
+   `last_used_model_config` instead would change the user's own default,
+   so it is not the plan.
 3. File attachments (B4), then Deep research (B3): measure each on one real
    paper before designing anything, because both change the shape and the
    timing of what comes back. Attachments come first because they feed the

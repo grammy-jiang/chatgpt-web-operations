@@ -285,6 +285,23 @@ read `global_enabled`), and ChatGPT titles a new chat by itself once the
 first reply lands, which overwrote a rename done before the wait
 (`send_prompt.py` now renames after the reply).
 
+**The send body, recorded 2026-09-20** with `send_prompt.py
+--record-send-body` from the skill's own window (`POST
+/backend-api/f/conversation`, `application/json`): top-level `action`,
+`client_contextual_info`, `client_prepare_state`, `conversation_mode`
+(`{"kind": "gizmo_interaction", "gizmo_id": …}` inside a project),
+`enable_message_followups`, `force_parallel_switch`, `local_function_names`,
+`messages` (`messages[0].metadata.selected_sources: []`, `submission_mode:
+"manual_send"`), `model`, `model_response_contracts`,
+`paragen_cot_summary_display_override`, `parent_message_id`,
+`supported_encodings`, `supports_buffering`, `system_hints` (`[]`),
+`thinking_effort`, `timezone`, `timezone_offset_min`. The value of
+`thinking_effort` came from the account's `last_used_model_config`, not
+from the cookie. The reply's assistant messages carry
+`metadata.thinking_effort`, `model_slug`, `resolved_model_slug`,
+`search_result_groups`, `citations`, `reasoning_start_time` and
+`reasoning_end_time`.
+
 ## Re-run this when
 
 - a send starts failing in a way `probe_account.py` says is not the account

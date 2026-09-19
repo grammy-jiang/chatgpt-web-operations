@@ -232,8 +232,16 @@ with Ultra engaged is unknown until a send is captured with
 
 **Check what a send will use** with `model_settings.py`: it prints the
 presets, the API levels per model, and the profile's cookie resolved to a
-preset. A transcript records the model slug but not the effort, so the
-effort is only knowable at send time unless it is logged.
+preset. **Measured 2026-09-20: the cookie does not pin the effort.** Two
+sends made with the cookie rewritten to `standard` carried
+`thinking_effort: max` in their `POST /backend-api/f/conversation` body,
+the account's server-side `last_used_model_config`; the composer's label
+did not move either (T3). Every run before that day used the profile's
+setting, whatever `TASK_EFFORT` asked for. A transcript does record what
+was used: each assistant message's `metadata` carries `thinking_effort`,
+`model_slug`, `resolved_model_slug`, `search_result_groups` and
+`citations` (`read_chat.py --effort`). The fix under test rewrites the send
+body in flight inside the skill's own window; see `ROADMAP.md`, Stage 3.
 
 **Which level each research step should use** is decided in the
 research-pipeline repository's `docs/chatgpt-research-effort-levels.md`:
