@@ -118,6 +118,14 @@ Lesson from the merge: a T0 test must never reach the real `cc._helpers()`,
 because it patches the `chatgpt_session` module in place and every later
 cookie test then runs against the patched functions.
 
+End of the same day: 795 T0 tests, every module at or above its bar
+(`make test` green), `make lint` clean; live tiers exercised by hand:
+`make live-read` 4 passed, `make live-write` 3 passed plus the project
+lifecycle round trip, and six measured sends (T4) through
+`send_prompt.py` inside the sandbox, all deleted afterwards. The browser
+part of a send is about 18 s when the reply is not awaited; the earlier
+2.5-minute figures were mostly the reply wait.
+
 ## 5. Reaching the bar on what exists
 
 Ordered so the safety net exists before any live tier runs.

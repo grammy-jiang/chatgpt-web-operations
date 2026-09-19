@@ -213,8 +213,17 @@ orchestrator is not modified.
    hint set alone; `send_prompt.py --system-hint HINT` threads it through.
    Several PROMPT_FILEs now share one window (the window is the expensive
    part) and are waited on after it closes. **Done 2026-09-20 (offline
-   part)**: 28 T0 tests, both modules at 100%. Deep research: one measured
-   send with `--system-hint plugin:connector_openai_deep_research` next.
+   part)**: 28 T0 tests, both modules at 100%.
+   **Deep research measured 2026-09-20**: one send with `--system-hint
+   plugin:connector_openai_deep_research` (the hint id the models payload
+   lists) was accepted but did not start a research run: the reply came
+   back in seconds as an ordinary answer, metadata `model
+   gpt-5-6-instant`, no `search_result_groups`, no citations. The
+   page's own Deep research send therefore carries something else, not
+   yet captured; capturing it needs the composer's "+" item driven in the
+   skill's own window, which proved unreliable today. B3 stays open, with
+   that capture as its first step; the send body of a hand-made Deep
+   research message would settle it.
 
 Exit criterion: `send_prompt.py` exposes the four choices, the client's
 tests cover them offline, and one measured send per feature is recorded in
