@@ -35,23 +35,18 @@ url and body to PATH (``original``/``sent`` when effort, model or search
 rewrote it, else plain ``post_data``), so one real send can document what
 actually left the browser (ROADMAP.md, Stage 3 items 1-2).
 
-``--attach`` is accepted and recorded in ``--json``, but is **not**
-uploaded. Attaching arbitrary files is ROADMAP.md's B4, a separate Stage 3
-item that still needs one measured send on a real account before it is
-designed; this repository's file-ownership rule for this change also does
-not list a client addition for it. The only existing upload mechanism,
-``BrowserSender._attach_prompt``, is reachable solely from inside
-``_send``'s own page load (it uploads the prompt text itself as a file when
-that text is too large to paste), not after a send has already completed,
-so there is no seam to attach an arbitrary file through today without
-either changing the client beyond what is authorised here or re-implementing
-the fragile send flow outside it. Say so rather than guess at either.
+``--attach`` uploads each file through the composer's file input before
+the prompt is filled (``BrowserSender.attachments`` / ``_upload_files``,
+the same mechanism ``_attach_prompt`` already used to upload the prompt
+text itself as a file). A missing attachment exits 2 before any session or
+browser window opens, the same as a missing ``PROMPT_FILE``; ``--json``
+keeps the resolved absolute paths under ``"attachments"``.
 
 Exit 0 when the send resolved to a real conversation id (and, if waited,
 the reply arrived); 1 when the send, the resolve, the rename or the wait
 failed (one line naming the failure, no traceback); 2 for a bad argument
-(no such prompt file, an unknown effort level, or ``--chat`` together with
-``--project``).
+(no such prompt file, no such attachment file, an unknown effort level, or
+``--chat`` together with ``--project``).
 """
 
 from __future__ import annotations
@@ -116,7 +111,8 @@ def main(argv: list[str] | None = None) -> int:
         nargs="+",
         default=[],
         metavar="FILE",
-        help="recorded in --json; not yet uploaded (ROADMAP.md, Stage 3, B4)",
+        help="upload through the composer before the prompt is sent; "
+        "recorded in --json as absolute paths",
     )
     ap.add_argument(
         "--title",
@@ -161,12 +157,18 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     text = prompt_path.read_text(encoding="utf-8")
-    attachments = list(args.attach)
-    if attachments:
-        print(
-            f"note: {len(attachments)} attachment(s) recorded in --json but not "
-            "uploaded (ROADMAP.md, Stage 3, B4 is not implemented yet)"
-        )
+
+    # Resolved before any session or browser window opens (open_session is
+    # below, inside the try:), so a typo here is a quick exit 2, the same
+    # contract as a missing PROMPT_FILE, instead of a browser window that
+    # can never attach anything.
+    attachments: list[str] = []
+    for raw in args.attach:
+        attach_path = Path(raw).expanduser()
+        if not attach_path.is_file():
+            print(f"no such attachment file: {attach_path}")
+            return 2
+        attachments.append(str(attach_path.resolve()))
 
     steps = ["send"]
     if not args.chat:
@@ -195,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
                 visible=args.visible,
                 search=args.search,
                 record_send_body=args.record_send_body,
+                attachments=attachments,
             ) as sender:
                 conversation_id = sender.send(
                     text, chat=args.chat, name=prompt_path.stem
@@ -213,6 +216,7 @@ def main(argv: list[str] | None = None) -> int:
                     visible=args.visible,
                     search=args.search,
                     record_send_body=args.record_send_body,
+                    attachments=attachments,
                 ) as sender:
                     conversation_id = sender.send(text, name=prompt_path.stem)
                 step += 1

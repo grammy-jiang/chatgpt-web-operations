@@ -315,6 +315,106 @@ def test_every_non_read_tier_follows_the_same_sandbox_rule(tier: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# live/guard.py -- POST /backend-api/projects and DELETE gizmos/<id>, the
+# two rules that let a T2 test create and delete its own throwaway project
+# (tests/live/test_write_project_lifecycle.py) without ever being able to
+# reach the sandbox that way
+# ---------------------------------------------------------------------------
+
+
+class _FakeProjectInner:
+    """Like ``_FakeInner``, but a POST to /backend-api/projects answers with
+    the captured response shape, carrying a fixed new project id."""
+
+    def __init__(self, new_id: str = "g-p-newproject") -> None:
+        self.new_id = new_id
+        self.calls: list[tuple[str, str]] = []
+
+    def call(self, path, method="GET", payload=None, raw=False, retries=3):
+        self.calls.append((method, path))
+        if method == "POST" and path == "/backend-api/projects":
+            return 200, {
+                "resource": {"gizmo": {"id": self.new_id}},
+                "error": None,
+                "sharing_targets": [],
+            }
+        return 200, {}
+
+
+@pytest.mark.parametrize("tier", ["write", "browser", "send"])
+def test_post_projects_is_allowed_when_the_name_starts_with_rp_test(
+    tier: str,
+) -> None:
+    inner = _FakeProjectInner()
+    guarded = live_guard.GuardedSession(inner, tier, sandbox_id="g-p-sand")
+    status, _body = guarded.call(
+        "/backend-api/projects", method="POST", payload={"name": "rp-test lifecycle"}
+    )
+    assert status == 200
+    assert inner.calls == [("POST", "/backend-api/projects")]
+
+
+def test_post_projects_is_refused_when_the_name_does_not_start_with_rp_test() -> None:
+    """A throwaway project made through the guard must be nameable as one,
+    or the sandbox sweep in tests/live/conftest.py would never find it."""
+    inner = _FakeProjectInner()
+    guarded = live_guard.GuardedSession(inner, "write", sandbox_id="g-p-sand")
+    with pytest.raises(live_guard.GuardViolation):
+        guarded.call(
+            "/backend-api/projects", method="POST", payload={"name": "my real idea"}
+        )
+    assert inner.calls == []
+
+
+def test_post_projects_with_no_payload_is_refused_not_crashed_on() -> None:
+    """A missing body must read as "no name", not raise its own AttributeError."""
+    inner = _FakeProjectInner()
+    guarded = live_guard.GuardedSession(inner, "write", sandbox_id="g-p-sand")
+    with pytest.raises(live_guard.GuardViolation):
+        guarded.call("/backend-api/projects", method="POST", payload=None)
+
+
+def test_a_successful_project_create_is_remembered_in_created() -> None:
+    inner = _FakeProjectInner(new_id="g-p-newproject")
+    guarded = live_guard.GuardedSession(inner, "write", sandbox_id="g-p-sand")
+    guarded.call(
+        "/backend-api/projects", method="POST", payload={"name": "rp-test lifecycle"}
+    )
+    assert guarded.created == {"g-p-newproject"}
+
+
+def test_delete_gizmo_is_allowed_for_an_id_the_guard_created() -> None:
+    inner = _FakeProjectInner(new_id="g-p-newproject")
+    guarded = live_guard.GuardedSession(inner, "write", sandbox_id="g-p-sand")
+    guarded.call(
+        "/backend-api/projects", method="POST", payload={"name": "rp-test lifecycle"}
+    )
+    status, _body = guarded.call("/backend-api/gizmos/g-p-newproject", method="DELETE")
+    assert status == 200
+    assert ("DELETE", "/backend-api/gizmos/g-p-newproject") in inner.calls
+
+
+def test_delete_gizmo_is_refused_for_an_id_the_guard_never_created() -> None:
+    """A guessed or hard-coded id must not be deletable just by asking."""
+    inner = _FakeInner()
+    guarded = live_guard.GuardedSession(inner, "write", sandbox_id="g-p-sand")
+    with pytest.raises(live_guard.GuardViolation):
+        guarded.call("/backend-api/gizmos/g-p-unknown", method="DELETE")
+    assert inner.calls == []
+
+
+def test_delete_gizmo_is_refused_for_the_sandbox_id_even_if_marked_created() -> None:
+    """The one id that must never be deletable through the guard, even if
+    it ended up in self.created some other way."""
+    inner = _FakeInner()
+    guarded = live_guard.GuardedSession(inner, "write", sandbox_id="g-p-sand")
+    guarded.created.add("g-p-sand")
+    with pytest.raises(live_guard.GuardViolation):
+        guarded.call("/backend-api/gizmos/g-p-sand", method="DELETE")
+    assert inner.calls == []
+
+
+# ---------------------------------------------------------------------------
 # record_fixture.sanitize -- nothing identifying may survive it
 # ---------------------------------------------------------------------------
 

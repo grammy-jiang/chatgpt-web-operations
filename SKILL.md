@@ -45,9 +45,11 @@ skill does not import it.
 
 ## The commands
 
-Each does one kind of interaction. Five change something: `clean_chats.py`,
-`project_settings.py` and `pin_chat.py` need `--apply`, `create_project.py`
-creates a project, and `send_prompt.py` posts a message.
+Each does one kind of interaction. Six change something: `clean_chats.py`,
+`project_settings.py`, `pin_chat.py` and `delete_project.py` need `--apply`,
+`create_project.py` creates a project, and `send_prompt.py` posts a message.
+Only `send_prompt.py` (and the two measuring commands, `measure_window.py`
+and `discover_endpoints.py`) open a browser; everything else is plain HTTP.
 
 | Command | Purpose | Exit code means |
 |---------|---------|-----------------|
@@ -58,9 +60,10 @@ creates a project, and `send_prompt.py` posts a message.
 | `profile_context.py` | The hidden inputs of a run: custom instructions, memory usage, model and effort from cookie and server, one project's instructions and files. `--json` keeps them beside a run. | 0 every read answered |
 | `list_chats.py` | Recent conversations by title substring; `--pinned`, `--archived`, `--no-project-chats`; flags project / pinned / archived. | 0 always |
 | `list_projects.py` | Every project (paged), one project's full instructions and files, and the chats inside one. | 0 found, 1 no such `--id` |
-| `create_project.py` | Create a project by driving the UI, and report the call that did it. | 0 created |
+| `create_project.py` | Create a project over HTTP; `--memory project-only` from the start; `--dry-run` prints the body and sends nothing. | 0 created and read back, 1 create or read-back failed, 2 refused |
+| `delete_project.py` | Delete a project and every chat in it over HTTP, after refusing a name mismatch or a non-`rp-test` name without `--force`. Dry run unless `--apply`. | 0 dry run or deleted and verified, 1 read or verify failed, 2 refused |
 | `project_settings.py` | Set a project's instructions and memory scope (`--memory project-only` keeps its chats out of your memory). Dry run unless `--apply`. | 0 dry run or verified, 1 apply failed, 2 refused |
-| `send_prompt.py` | Send a prompt: a new chat (in a project with `--project`) or a continuing one with `--chat`; `--effort` and `--model` pin the composer's cookie, `--search` turns on Web search through the composer's "+" menu, `--record-send-body PATH` records the `f/conversation` POST body, `--title` renames once the reply arrived, `--json` records the send; waits for the reply unless `--no-wait`. `--attach` is recorded, not uploaded yet. | 0 sent and replied, 1 send, resolve or wait failed, 2 bad arguments |
+| `send_prompt.py` | Send a prompt: a new chat (in a project with `--project`) or a continuing one with `--chat`; `--effort` and `--model` pin the composer's cookie, `--search` turns on Web search through the composer's "+" menu, `--record-send-body PATH` records the `f/conversation` POST body, `--attach FILE ...` uploads through the composer before the prompt is filled, `--title` renames once the reply arrived, `--json` records the send; waits for the reply unless `--no-wait`. | 0 sent and replied, 1 send, resolve or wait failed, 2 bad arguments |
 | `read_chat.py` | One conversation: is the turn finished, and what did it say? | 0 turn finished |
 | `pin_chat.py` | Pin or unpin a chat (`is_starred`). Dry run unless `--apply`. | 0 dry run or verified, 1 apply failed, 2 bad id |
 | `clean_chats.py` | Archive, delete or unarchive worker chats. Dry run unless `--apply`. | 0 always |
@@ -132,16 +135,18 @@ path needs only to navigate to that URL instead of the home page. The
 ignored, so do not filter that way; use the gizmo endpoint.
 
 ```bash
-python3 $S/create_project.py "msgloom research workers"   # --dry-run to rehearse
+python3 $S/create_project.py "msgloom research workers" --memory project-only   # --dry-run to rehearse
 ```
 
-`create_project.py` drives the same control a person would
-(`button[aria-label="New project"]`) and reports the call that returned the
-new `g-p-…` id, so the endpoint is recorded from evidence rather than
-guessed. It takes a browser slot, so it cannot open a second window beside a
-run's send, and it **refuses to act while the rate-limit modal is up**: that
-modal is `[data-testid="modal-conversation-history-rate-limit"]`, it blocks
-every click underneath it, and clicking past it earns a longer limit.
+`create_project.py` posts `POST /backend-api/projects` directly (body
+captured 2026-09-20) and reads `gizmos/<new-id>` back to confirm the
+instructions and memory scope took: no browser, no browser slot, no Xvfb.
+Until 2026-09-20 it drove the sidebar's `button[aria-label="New project"]`
+in a Playwright window, which is how the endpoint was found.
+`delete_project.py g-p-<id> --expect-name NAME` deletes one the same way
+(`DELETE /backend-api/gizmos/<id>`), refusing a name mismatch or a
+non-`rp-test` name without `--force`; `--apply` sends it and requires a 404
+back. Deleting a project deletes every chat in it and cannot be undone.
 
 Moving an existing chat into a project is deliberately not implemented. It is
 not a normal need here, since a worker created in the project is already

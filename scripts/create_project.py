@@ -1,185 +1,181 @@
 #!/usr/bin/env python3
-"""Create a ChatGPT project, and report the API call that did it.
+"""Create a ChatGPT project over HTTP, and read back what it became.
 
-    create_project.py "msgloom research workers" [--visible] [--dry-run]
+    create_project.py NAME [--instructions FILE | --instructions-text TEXT]
+        [--memory project-only|default] [--dry-run]
 
-A project keeps a run's worker conversations out of the user's main chat
-list. There is no documented endpoint for creating one, so this drives the
-same control a person would and records what the page sent: the captured
-request is evidence, where a hand-written POST body would be a guess.
+The browser flow captured the endpoint on 2026-09-16, driving the sidebar's
+"New project" dialog and recording the call it made. The request body itself
+was captured 2026-09-20 on a throwaway project, `rp-test-sandbox-2`
+(references/endpoint-discovery.md, "Captured 2026-09-20, project create and
+delete"): `POST /backend-api/projects` with `instructions`, `name` and
+`memory_scope`. With the body known, this command creates over plain HTTP
+and never imports a browser: no Playwright, no browser slot, no Xvfb.
 
-It takes a browser slot, so it can never open a second window beside a run's
-send. It refuses to act while ChatGPT's rate-limit modal is up, because that
-modal means stop and clicking past it is what earns a longer limit.
+The Create dialog offers the same two-way memory choice `project_settings.py`
+writes later: "project-only" -> `memory_scope: "project_v2"`, "default" ->
+`"global"`. Omitting --memory sends what the dialog itself sends by default,
+`"unset"`.
 
-``--dry-run`` opens the flow and reports what it found without creating
-anything.
+Default: create it. Prints the POST body, sends it, then reads
+`gizmos/<new-id>` back and checks that the instructions and memory scope it
+reports match what was asked. --dry-run prints the same body and sends
+nothing.
+
+Exit 0 on --dry-run, and on a real run when the create answered 200 with a
+`g-p-...` id and the read-back matched what was asked. Exit 1 when the
+create does not answer 200 with such an id, the read-back cannot be
+fetched, or it disagrees with what was asked. Exit 2 when NAME is empty, or
+both --instructions and --instructions-text were given.
 """
 
 from __future__ import annotations
 
 import argparse
-import contextlib
 import json
 import sys
+from pathlib import Path
 from typing import Any
 
-from _common import ensure_venv, load_client
+from _common import ensure_venv, open_session
+from list_projects import project_of
 
-RATE_LIMIT_MODAL = '[data-testid="modal-conversation-history-rate-limit"]'
-NEW_PROJECT = 'button[aria-label="New project"]'
-# The dialog has no role; its name field is the only visible text input.
-NAME_FIELD = 'input[type="text"]:visible, input:not([type]):visible'
-SUBMIT_LABELS = ("Create project", "Create", "Confirm", "Done")
+PROJECTS = "/backend-api/projects"
+GIZMO = "/backend-api/gizmos/{id}"
+
+# The Create dialog's two-way memory choice, the same values
+# project_settings.py writes later (references/endpoint-discovery.md,
+# "Captured 2026-09-20"). Its own default, sent when nothing was chosen, is
+# "unset".
+MEMORY_SCOPES = {"project-only": "project_v2", "default": "global"}
+DEFAULT_MEMORY_SCOPE = "unset"
 
 
-def mutations(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """The non-GET backend-api calls, which is where a creation shows up."""
-    return [c for c in calls if c["method"] != "GET" and "backend-api" in c["url"]]
+def create_body(name: str, instructions: str, memory_scope: str) -> dict[str, Any]:
+    """The POST body the Create dialog sends (Captured 2026-09-20)."""
+    return {"instructions": instructions, "name": name, "memory_scope": memory_scope}
 
 
-def created_project(calls: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """The call that returned a new ``g-p-…`` id, if one did."""
-    for call in mutations(calls):
-        body = call.get("response") or ""
-        if "g-p-" in body and call.get("status") in (200, 201):
-            return call
-    return None
+def created_id(resp: Any) -> str:
+    """The new project's ``g-p-...`` id from a create response, or "" if none.
+
+    Shaped like the capture: ``{"resource": {"gizmo": {"id": "g-p-...",
+    ...}}, "error": None, "sharing_targets": [...]}``.
+    """
+    if not isinstance(resp, dict):
+        return ""
+    gizmo = (resp.get("resource") or {}).get("gizmo") or {}
+    new_id = str(gizmo.get("id") or "")
+    return new_id if new_id.startswith("g-p-") else ""
+
+
+def verify(after: dict[str, Any], wanted: dict[str, Any]) -> list[str]:
+    """Mismatches between what creation asked for and the gizmos/<id> read-back."""
+    return [
+        f"{field}: wanted {expected!r}, read back {after.get(field)!r}"
+        for field, expected in wanted.items()
+        if after.get(field) != expected
+    ]
+
+
+def render_created(project: dict[str, Any]) -> str:
+    """The id, URL, memory scope and instructions length of a new project."""
+    return (
+        f"{project['id']}\n"
+        f"open at: {project['url']}\n"
+        f"memory scope: {project['memory_scope'] or '-'}\n"
+        f"instructions: {len(project['instructions'])} chars"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("name", help="the project's name")
-    ap.add_argument("--visible", action="store_true")
-    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("name", help="the new project's name")
+    ap.add_argument(
+        "--instructions",
+        default=None,
+        metavar="FILE",
+        help="read the new project's instructions from this file",
+    )
+    ap.add_argument(
+        "--instructions-text",
+        default=None,
+        metavar="TEXT",
+        help="the new project's instructions, given directly",
+    )
+    ap.add_argument(
+        "--memory",
+        choices=sorted(MEMORY_SCOPES),
+        default=None,
+        help="project-only or default memory; omitted sends the dialog's own default",
+    )
+    ap.add_argument(
+        "--dry-run", action="store_true", help="print the body, send nothing"
+    )
     args = ap.parse_args(argv)
 
-    cc = load_client()
-    cs = cc._helpers()
-    sys.path.insert(0, str(cc.HELPERS))
-    import chatgpt_cookies  # type: ignore[import-not-found]
-    from playwright.sync_api import sync_playwright  # type: ignore[import-not-found]
+    if not args.name.strip():
+        print("refusing to create a project with an empty name")
+        return 2
 
-    cc._patch_cookie_export(cs, chatgpt_cookies)
-    cookies = chatgpt_cookies.export(cs.pick_browser("chrome"))
-    calls: list[dict[str, Any]] = []
-
-    def on_request(req: Any) -> None:
-        if "backend-api" not in req.url:
-            return
-        body = None
-        if req.method in ("POST", "PATCH", "PUT"):
-            try:
-                body = req.post_data
-            except Exception:
-                body = None
-        calls.append(
-            {"method": req.method, "url": req.url, "body": body, "status": None}
+    given = [
+        flag
+        for flag, present in (
+            ("--instructions", args.instructions is not None),
+            ("--instructions-text", args.instructions_text is not None),
         )
+        if present
+    ]
+    if len(given) > 1:
+        print(f"choose only one of {' / '.join(given)}")
+        return 2
 
-    def on_response(res: Any) -> None:
-        for call in reversed(calls):
-            if call["url"] == res.url and call["status"] is None:
-                call["status"] = res.status
-                try:
-                    if "json" in (res.headers.get("content-type") or ""):
-                        call["response"] = json.dumps(res.json())[:800]
-                except Exception:
-                    pass
-                return
-
-    created: str = ""
-    with cc.browser_slot(), cc.virtual_display(args.visible), sync_playwright() as pw:
-        browser = pw.chromium.launch(
-            channel="chrome", headless=False, args=list(cc.BrowserSender.LAUNCH_ARGS)
-        )
-        ctx = browser.new_context(viewport={"width": 1280, "height": 1000})
-        ctx.add_cookies(cookies)
-        page = ctx.new_page()
-        page.on("request", on_request)
-        page.on("response", on_response)
-        page.goto(
-            "https://chatgpt.com/", wait_until="domcontentloaded", timeout=120_000
-        )
-        page.wait_for_timeout(8_000)
-
-        if page.locator(RATE_LIMIT_MODAL).count():
-            browser.close()
-            print(
-                "ChatGPT's rate-limit modal is up. That modal means stop, and\n"
-                "clicking past it earns a longer limit. Try again in a few minutes."
-            )
+    if args.instructions is not None:
+        try:
+            instructions = Path(args.instructions).read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"could not read {args.instructions}: {exc}")
             return 2
-
-        opener = page.locator(NEW_PROJECT)
-        # The sidebar renders after its own API calls, and on a loaded host
-        # that takes longer than any fixed pause: at load average 6 the
-        # control was absent after 8 s and the report read as "the sidebar
-        # wording changed". Wait for the control itself.
-        with contextlib.suppress(Exception):
-            opener.first.wait_for(state="attached", timeout=60_000)
-        if not opener.count():
-            browser.close()
-            print(f"no control matching {NEW_PROJECT}; the sidebar wording changed")
-            return 1
-        # The control is a trailing button on the sidebar's Projects header,
-        # carrying can-hover:opacity-0. A plain click is intercepted and the
-        # app never sees it, which looks exactly like a changed flow; a forced
-        # click opens the dialog. Hover first so the button is painted.
-        with contextlib.suppress(Exception):
-            opener.first.hover(timeout=10_000)
-            page.wait_for_timeout(400)
-        opener.first.click(timeout=30_000, force=True)
-        page.wait_for_timeout(4_000)
-
-        # The modal carries no role="dialog"; looking for one finds nothing
-        # and reads as "the flow changed". Target the name field directly: it
-        # is the only visible text input, the composer being a textarea and
-        # the upload controls being type=file.
-        box = page.locator(NAME_FIELD).first
-        if not box.count():
-            with contextlib.suppress(Exception):
-                page.screenshot(path="/tmp/create-project-no-field.png")
-            browser.close()
-            print(
-                "no project-name field appeared. A screenshot is at "
-                "/tmp/create-project-no-field.png; look at it rather than "
-                "guessing at selectors."
-            )
-            return 1
-        box.fill(args.name, timeout=30_000)
-        page.wait_for_timeout(800)
-
-        if args.dry_run:
-            browser.close()
-            print(f"dry run: would create {args.name!r}")
-            return 0
-
-        for label in SUBMIT_LABELS:
-            button = page.get_by_role("button", name=label, exact=True)
-            if button.count() and button.first.is_enabled():
-                button.first.click(timeout=30_000)
-                break
-        else:
-            browser.close()
-            print(f"no submit button among {SUBMIT_LABELS}")
-            return 1
-
-        page.wait_for_timeout(6_000)
-        created = page.url
-        browser.close()
-
-    print(f"landed on: {created}")
-    call = created_project(calls)
-    if call:
-        print(f"\nthe call that created it:\n  {call['method']} {call['url']}")
-        if call.get("body"):
-            print(f"  body: {call['body'][:400]}")
-        print(f"  -> {call['status']}  {str(call.get('response'))[:200]}")
+    elif args.instructions_text is not None:
+        instructions = args.instructions_text
     else:
-        print("\nno call returned a g-p- id; the mutations seen were:")
-        for c in mutations(calls):
-            print(f"  {c['method']} {c['url']} -> {c['status']}")
+        instructions = ""
+
+    memory_scope = MEMORY_SCOPES[args.memory] if args.memory else DEFAULT_MEMORY_SCOPE
+    body = create_body(args.name, instructions, memory_scope)
+
+    print("POST body:")
+    print(json.dumps(body, indent=2, ensure_ascii=False))
+
+    if args.dry_run:
+        print()
+        print("dry run: nothing created")
+        return 0
+
+    session = open_session()
+    status, resp = session.session.call(PROJECTS, method="POST", payload=body)
+    new_id = created_id(resp) if status == 200 else ""
+    if not new_id:
+        print(f"\ncreate failed: HTTP {status} {str(resp)[:200]}")
+        return 1
+
+    read_status, gizmo_payload = session.session.call(GIZMO.format(id=new_id))
+    if read_status != 200 or not isinstance(gizmo_payload, dict):
+        print(f"\ncreated {new_id} but could not read it back: HTTP {read_status}")
+        return 1
+
+    after = project_of(gizmo_payload)
+    wanted = {"instructions": instructions, "memory_scope": memory_scope}
+    mismatches = verify(after, wanted)
+
+    print()
+    print(render_created(after))
+
+    if mismatches:
+        print("\nread-back disagrees:")
+        for mismatch in mismatches:
+            print(f"  {mismatch}")
+        return 1
     return 0
 
 

@@ -1114,6 +1114,7 @@ class BrowserSender:
         model: str = "",
         search: bool = False,
         record_send_body: str = "",
+        attachments: list[str] | tuple[str, ...] = (),
     ):
         self.browser = browser
         self.visible = visible
@@ -1138,6 +1139,20 @@ class BrowserSender:
         # post_data) is recorded there, so one real send can document what
         # the page actually sends with and without search.
         self.record_send_body = record_send_body.strip()
+        # Files to upload through the composer before the prompt is filled
+        # (ROADMAP.md, Stage 3 item 3 / B4): the same file input and the
+        # same settle wait _attach_prompt already uses for the
+        # prompt-as-a-file case (_upload_files). Resolved to absolute
+        # paths and checked to exist right here, before any browser opens
+        # -- a typo must fail in an instant, not cost a whole window
+        # (SKILL.md, "The browser is budgeted").
+        resolved_attachments: list[str] = []
+        for raw in attachments:
+            attachment_path = Path(raw).expanduser()
+            if not attachment_path.is_file():
+                raise FileNotFoundError(f"no such attachment file: {attachment_path}")
+            resolved_attachments.append(str(attachment_path.resolve()))
+        self.attachments = resolved_attachments
         # Set by _rewrite_send_route: the exact post_data (JSON text) that
         # went on the wire for the last f/conversation POST, once effort,
         # model or search rewrote it. Stays None until then, and forever
@@ -1346,7 +1361,16 @@ class BrowserSender:
         return True
 
     def _write_record(self, doc: dict[str, Any]) -> None:
-        """Write ``doc`` to ``record_send_body``; never raises."""
+        """Write ``doc`` to ``record_send_body``; never raises.
+
+        Every attachment path is added under ``"attachments"`` when this
+        send has any, so the one file both call sites (the rewritten and
+        the plain shape) write through stays exactly as it was -- the
+        backward-compatibility contract of ``record_send_body`` -- for a
+        send that pins nothing at all, including no attachments.
+        """
+        if self.attachments:
+            doc = {**doc, "attachments": self.attachments}
         with contextlib.suppress(Exception):
             target = Path(self.record_send_body)
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -1537,24 +1561,25 @@ class BrowserSender:
         "summarise the file back to me."
     )
 
-    def _attach_prompt(self, page: Any, text: str, name: str) -> None:
-        """Upload the prompt as a file and wait for the upload to finish."""
-        from playwright.sync_api import TimeoutError as PWTimeout
+    def _upload_files(self, page: Any, paths: list[str]) -> None:
+        """Upload ``paths`` through the composer's file input, then wait
+        for the upload(s) to settle.
 
-        path = Path(tempfile.gettempdir()) / f"rp-prompt-{name}.md"
-        path.write_text(text, encoding="utf-8")
+        The same primary selector and generic fallback, and the same
+        "wait until attached, then poll the Uploading indicator clear"
+        sequence ``_attach_prompt`` already used for the prompt-as-a-file
+        case (below, now built on this). A single path is sent bare, the
+        way ``_attach_prompt`` always has; more than one is sent as a
+        single list in one call, because Playwright's ``set_input_files``
+        replaces the input's files on every call rather than adding to
+        them, so looping one at a time would leave only the last file
+        attached.
+        """
         file_input = page.locator("input#upload-files")
         if not file_input.count():
             file_input = page.locator('input[type="file"]:not([accept*="image"])')
         file_input.first.wait_for(state="attached", timeout=30_000)
-        file_input.first.set_input_files(str(path))
-        chip = page.get_by_text(re.compile(re.escape(path.stem[:24]), re.I))
-        try:
-            chip.first.wait_for(state="visible", timeout=60_000)
-        except PWTimeout:
-            raise TransportError(
-                "the attached prompt never appeared in the composer"
-            ) from None
+        file_input.first.set_input_files(paths[0] if len(paths) == 1 else list(paths))
         for _ in range(120):
             if not page.locator(
                 '[aria-label*="Uploading" i], [aria-busy="true"]'
@@ -1562,6 +1587,21 @@ class BrowserSender:
                 break
             page.wait_for_timeout(1_000)
         page.wait_for_timeout(1_500)
+
+    def _attach_prompt(self, page: Any, text: str, name: str) -> None:
+        """Upload the prompt as a file and wait for the upload to finish."""
+        from playwright.sync_api import TimeoutError as PWTimeout
+
+        path = Path(tempfile.gettempdir()) / f"rp-prompt-{name}.md"
+        path.write_text(text, encoding="utf-8")
+        self._upload_files(page, [str(path)])
+        chip = page.get_by_text(re.compile(re.escape(path.stem[:24]), re.I))
+        try:
+            chip.first.wait_for(state="visible", timeout=60_000)
+        except PWTimeout:
+            raise TransportError(
+                "the attached prompt never appeared in the composer"
+            ) from None
 
     def _click_send(self, page: Any, budget: int) -> bool:
         """Press the send button, forcing past the actionability check if needed.
@@ -1669,11 +1709,18 @@ class BrowserSender:
         # long fill is never killed by the window watchdog.
         budget = max(120_000, min(900_000, 6_000 * (len(text) // 1_000 + 1)))
         if len(text) > self.ATTACH_ABOVE_BYTES:
+            # Before _attach_prompt runs: it uploads the prompt itself
+            # through the same input, and set_input_files replaces rather
+            # than adds, so any attachments must go through first.
+            if self.attachments:
+                self._upload_files(page, self.attachments)
             self._attach_prompt(page, text, name)
             self._focus_composer(composer)
             composer.fill(self.ATTACH_COVER, timeout=30_000)
         else:
             self._focus_composer(composer)
+            if self.attachments:
+                self._upload_files(page, self.attachments)
             composer.fill(text, timeout=budget)
         page.wait_for_timeout(800)
         sent = self._click_send(page, budget)

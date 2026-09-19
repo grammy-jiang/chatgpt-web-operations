@@ -70,6 +70,7 @@ class FakeSender:
         visible=False,
         search=False,
         record_send_body="",
+        attachments=(),
     ):
         self.init_kwargs = {
             "browser": browser,
@@ -79,6 +80,7 @@ class FakeSender:
             "visible": visible,
             "search": search,
             "record_send_body": record_send_body,
+            "attachments": attachments,
         }
         return self
 
@@ -339,13 +341,16 @@ def test_help_exits_0_without_touching_a_session(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# --attach -- recorded, not uploaded (ROADMAP.md, Stage 3, B4)
+# --attach -- uploaded through the sender, as resolved absolute paths
 # ---------------------------------------------------------------------------
 
 
-def test_attach_files_are_recorded_but_not_uploaded(
-    monkeypatch, tmp_path, capsys
+def test_attach_files_reach_the_sender_and_the_json_document_as_absolute_paths(
+    monkeypatch, tmp_path
 ) -> None:
+    """Attachments flow through the BrowserSender constructor, in the order
+    given on the command line, resolved to absolute paths -- never through
+    send()'s own arguments, which stay text/chat/name only."""
     fake_sender = FakeSender(result=REAL_ID)
     monkeypatch.setattr(cc, "BrowserSender", fake_sender)
     monkeypatch.setattr(cc, "ChatGPTSession", lambda browser: FakeSession())
@@ -353,6 +358,8 @@ def test_attach_files_are_recorded_but_not_uploaded(
 
     paper = tmp_path / "paper.pdf"
     paper.write_text("not a real pdf", encoding="utf-8")
+    appendix = tmp_path / "appendix.pdf"
+    appendix.write_text("not a real pdf either", encoding="utf-8")
     out_json = tmp_path / "out.json"
 
     rc = send_prompt.main(
@@ -362,20 +369,57 @@ def test_attach_files_are_recorded_but_not_uploaded(
             REAL_ID,
             "--attach",
             str(paper),
+            str(appendix),
             "--json",
             str(out_json),
         ]
     )
 
     assert rc == 0
-    assert "not uploaded" in capsys.readouterr().out
+    resolved = [str(paper.resolve()), str(appendix.resolve())]
+    assert fake_sender.init_kwargs["attachments"] == resolved
     doc = json.loads(out_json.read_text())
-    assert doc["attachments"] == [str(paper)]
-    # the fake sender's send() takes only text/chat/name: nothing attach-shaped
-    # was passed to it, matching the "recorded, not uploaded" contract.
+    assert doc["attachments"] == resolved
     assert fake_sender.calls == [
         {"text": "hello there", "chat": REAL_ID, "name": "prompt"}
     ]
+
+
+def test_a_missing_attachment_file_is_refused_before_any_session_opens(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    monkeypatch.setattr(cc, "BrowserSender", _boom)
+    monkeypatch.setattr(cc, "ChatGPTSession", _boom)
+
+    def _boom_open_session(*a, **kw):
+        raise AssertionError("open_session must not run for a refused invocation")
+
+    monkeypatch.setattr(send_prompt, "open_session", _boom_open_session)
+
+    missing = tmp_path / "nope.pdf"
+    rc = send_prompt.main([str(_prompt(tmp_path)), "--attach", str(missing)])
+
+    assert rc == 2
+    assert "no such attachment file" in capsys.readouterr().out
+
+
+def test_a_missing_attachment_among_several_is_refused_too(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    """The first bad path stops the whole send, whatever position it is in."""
+    monkeypatch.setattr(cc, "BrowserSender", _boom)
+    monkeypatch.setattr(cc, "ChatGPTSession", _boom)
+
+    present = tmp_path / "present.pdf"
+    present.write_text("here", encoding="utf-8")
+    missing = tmp_path / "nope.pdf"
+
+    rc = send_prompt.main(
+        [str(_prompt(tmp_path)), "--attach", str(present), str(missing)]
+    )
+
+    assert rc == 2
+    assert "no such attachment file" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
@@ -413,6 +457,7 @@ def test_effort_model_and_visible_reach_the_sender(monkeypatch, tmp_path) -> Non
         "visible": True,
         "search": False,
         "record_send_body": "",
+        "attachments": [],
     }
 
 

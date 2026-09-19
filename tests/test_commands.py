@@ -464,64 +464,6 @@ def test_a_project_without_a_slug_still_yields_a_usable_url() -> None:
 
 
 # ---------------------------------------------------------------------------
-# create_project — the capture is the evidence, and a rate limit means stop
-# ---------------------------------------------------------------------------
-
-create_project = _load("create_project")
-
-
-def _call(method: str, url: str, status: int = 200, response: str = "") -> dict:
-    return {"method": method, "url": url, "status": status, "response": response}
-
-
-def test_only_non_get_backend_calls_are_treated_as_mutations() -> None:
-    calls = [
-        _call("GET", "https://chatgpt.com/backend-api/conversations"),
-        _call("POST", "https://chatgpt.com/backend-api/gizmos"),
-        _call("POST", "https://cdn.example.com/telemetry"),
-    ]
-    assert [c["url"] for c in create_project.mutations(calls)] == [
-        "https://chatgpt.com/backend-api/gizmos"
-    ]
-
-
-def test_the_creating_call_is_the_one_that_returned_a_project_id() -> None:
-    """Identify it by the id it returned, not by an endpoint name we guessed."""
-    calls = [
-        _call("POST", "https://chatgpt.com/backend-api/a", 200, '{"ok": true}'),
-        _call(
-            "POST",
-            "https://chatgpt.com/backend-api/b",
-            200,
-            '{"gizmo": {"id": "g-p-abc123"}}',
-        ),
-    ]
-    found = create_project.created_project(calls)
-    assert found is not None
-    assert found["url"].endswith("/backend-api/b")
-
-
-def test_a_failed_call_that_mentions_a_project_id_is_not_the_creator() -> None:
-    calls = [_call("POST", "https://chatgpt.com/backend-api/b", 500, "g-p-abc")]
-    assert create_project.created_project(calls) is None
-
-
-def test_no_creating_call_is_reported_as_none_not_guessed() -> None:
-    calls = [_call("POST", "https://chatgpt.com/backend-api/a", 200, '{"ok": 1}')]
-    assert create_project.created_project(calls) is None
-
-
-def test_the_rate_limit_modal_is_recognised_by_its_test_id() -> None:
-    """The selector that blocked a real run; it means stop, not retry harder."""
-    assert "modal-conversation-history-rate-limit" in create_project.RATE_LIMIT_MODAL
-
-
-def test_the_new_project_control_is_found_by_its_aria_label() -> None:
-    """Discovered from a live page; the visible wording has changed before."""
-    assert create_project.NEW_PROJECT == 'button[aria-label="New project"]'
-
-
-# ---------------------------------------------------------------------------
 # review_topic.py -- was a finished topic done properly?
 # ---------------------------------------------------------------------------
 

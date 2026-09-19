@@ -1,10 +1,10 @@
-"""Tests for the three commands that drive a real browser page directly:
-``create_project.py``, ``discover_endpoints.py`` and ``measure_window.py``.
+"""Tests for the two commands that drive a real browser page directly:
+``discover_endpoints.py`` and ``measure_window.py``.
 
 Nothing here touches a real browser, Xvfb, the GNOME keyring, a real Chrome
 profile, or the network. ``fake_playwright.install()`` puts a fake
 ``playwright`` / ``playwright.sync_api`` module pair in ``sys.modules``
-before either script's lazy ``from playwright.sync_api import
+before ``discover_endpoints.py``'s lazy ``from playwright.sync_api import
 sync_playwright`` import runs; ``cc._helpers``, ``cc.browser_slot``,
 ``cc.virtual_display`` and the module-level ``chatgpt_cookies`` import are
 replaced with small fakes the same way ``tests/test_client_browser.py``
@@ -12,14 +12,10 @@ does for ``BrowserSender`` (its ``enter_env`` fixture). ``measure_window.py``
 never reaches a page at all, so its ``cc.BrowserSender`` is replaced outright
 by a small dedicated fake (see ``FakeBrowserSender``) instead.
 
-Two gaps in the shared fake are shimmed locally, scoped by ``monkeypatch``,
-per the rule that only this file may change: ``fake_playwright.Locator`` has
-no ``hover()`` (``create_project.py`` calls it to paint the New-project
-button before forcing a click), and ``fake_playwright.Response`` has no
-``.headers`` / ``.json()`` (``create_project.py``'s ``on_response`` handler
-reads both to recognise the call that created a project). Neither is a bug
-in the source; the shared fake simply has not needed them for
-``BrowserSender``'s own tests.
+``create_project.py`` moved to plain HTTP on 2026-09-20 (the request body
+was captured on a throwaway project) and no longer drives a browser; its
+tests live in ``tests/test_create_project.py`` now, over a fake session
+rather than a fake page.
 
 Every test names the failure it is defending against, the same rule
 ``tests/test_commands.py`` uses.
@@ -28,7 +24,6 @@ Every test names the failure it is defending against, the same rule
 from __future__ import annotations
 
 import contextlib
-import json
 import subprocess
 import sys
 import types
@@ -41,13 +36,12 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import chatgpt_client as cc  # noqa: E402
-import create_project  # noqa: E402
 import discover_endpoints  # noqa: E402
 import fake_playwright as fp  # noqa: E402
 import measure_window  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# shared plumbing for create_project.py and discover_endpoints.py
+# shared plumbing for discover_endpoints.py
 # ---------------------------------------------------------------------------
 
 
@@ -61,9 +55,8 @@ def _install_client_fakes(monkeypatch: pytest.MonkeyPatch, module: object) -> No
     """Wire ``module.load_client()`` to the real ``chatgpt_client``, with its
     browser plumbing, cookie helper and the module-level ``chatgpt_cookies``
     import all faked -- the same pattern ``tests/test_client_browser.py``
-    uses for ``BrowserSender``, reused here so ``create_project.py`` and
-    ``discover_endpoints.py`` never touch a real browser slot, Xvfb, or the
-    Chrome cookie database.
+    uses for ``BrowserSender``, reused here so ``discover_endpoints.py``
+    never touches a real browser slot, Xvfb, or the Chrome cookie database.
     """
     monkeypatch.setattr(module, "load_client", lambda: cc)
     monkeypatch.setattr(cc, "browser_slot", _noop_cm)
@@ -92,82 +85,6 @@ def _wire_page(driver: fp.Playwright) -> tuple[fp.Browser, fp.BrowserContext, fp
     page = fp.Page()
     ctx.new_page_result = page
     return browser, ctx, page
-
-
-def _shim_hover(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Add a recorded, non-raising ``Locator.hover()`` to the shared fake.
-
-    ``create_project.py`` calls it to paint the New-project button (a
-    ``can-hover:opacity-0`` control) before forcing the click; the shared
-    fake has no ``hover()`` at all, so without this every call raises
-    ``AttributeError`` (silently caught by the source's own
-    ``contextlib.suppress(Exception)``, but that also skips the
-    ``page.wait_for_timeout(400)`` line right after it).
-    """
-
-    def hover(self: fp.Locator, timeout: int | None = None, **kw: object) -> None:
-        self._record("hover", (), {"timeout": timeout, **kw})
-        self._maybe_raise("hover")
-
-    monkeypatch.setattr(fp.Locator, "hover", hover, raising=False)
-
-
-def _shim_response_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Add ``.headers`` / ``.json()`` to the shared fake's ``Response``.
-
-    ``create_project.py``'s ``on_response`` handler reads
-    ``res.headers.get("content-type")`` and calls ``res.json()`` to decide
-    whether a response body is the creation call's evidence; the shared
-    fake's ``Response`` has neither.
-    """
-    monkeypatch.setattr(
-        fp.Response,
-        "headers",
-        property(
-            lambda self: {"content-type": "application/json"} if self._body else {}
-        ),
-        raising=False,
-    )
-    monkeypatch.setattr(
-        fp.Response, "json", lambda self: json.loads(self._body), raising=False
-    )
-
-
-def _fire_on_goto(
-    page: fp.Page, events: list[tuple[str, str, int, str | None, str]]
-) -> None:
-    """Make ``page.goto()`` also emit the given request/response pairs.
-
-    The fake Playwright never generates network traffic on its own; a real
-    page would fire these while the submit click's request resolves.
-    ``page.on(...)`` handlers are already registered by the time
-    ``create_project.py`` calls ``goto``, so hooking it here is enough.
-    Each event is ``(method, url, status, post_data, response_text)``.
-    """
-    original = page.goto
-
-    def goto(url: str, **kw: object) -> None:
-        original(url, **kw)
-        for method, event_url, status, post_data, text in events:
-            page.emit_request(event_url, method=method, post_data=post_data)
-            page.emit_response(
-                event_url, status=status, text=text, method=method, post_data=post_data
-            )
-
-    page.goto = goto
-
-
-@pytest.fixture
-def cp_page(monkeypatch: pytest.MonkeyPatch):
-    """A wired fake browser/context/page for ``create_project.py``'s
-    ``main()``, with the client plumbing faked and ``Locator.hover``
-    shimmed in.
-    """
-    driver = fp.install(monkeypatch)
-    _install_client_fakes(monkeypatch, create_project)
-    _shim_hover(monkeypatch)
-    browser, ctx, page = _wire_page(driver)
-    return types.SimpleNamespace(driver=driver, browser=browser, ctx=ctx, page=page)
 
 
 @pytest.fixture
@@ -201,232 +118,6 @@ def _sleep_that_emits(
 
     monkeypatch.setattr(module.time, "sleep", fake_sleep)
     return calls
-
-
-# ---------------------------------------------------------------------------
-# create_project.py
-# ---------------------------------------------------------------------------
-
-
-def test_the_rate_limit_modal_stops_the_flow_before_any_click(cp_page, capsys) -> None:
-    """The modal means stop, and clicking past it earns a longer limit: no
-    New-project click may ever be attempted while it is up."""
-    page, browser = cp_page.page, cp_page.browser
-    page.set_locator(create_project.RATE_LIMIT_MODAL, count=1)
-
-    assert create_project.main(["msgloom workers"]) == 2
-
-    assert browser.closed
-    assert not any(c[0] == "locator" and c[2] == "click" for c in page.calls)
-    assert "rate-limit modal is up" in capsys.readouterr().out
-
-
-def test_a_missing_new_project_control_is_reported_not_guessed_at(
-    cp_page, capsys
-) -> None:
-    """A changed sidebar must be reported by the selector that failed, not
-    misread as something else."""
-    page, browser = cp_page.page, cp_page.browser
-    page.set_locator(create_project.NEW_PROJECT, count=0)
-
-    assert create_project.main(["msgloom workers"]) == 1
-
-    assert browser.closed
-    assert create_project.NEW_PROJECT in capsys.readouterr().out
-
-
-def test_the_new_project_control_is_hovered_before_the_forced_click(cp_page) -> None:
-    """The control is only painted on hover (``can-hover:opacity-0``);
-    clicking straight away, without hovering first, is what a plain click
-    being silently intercepted looks like."""
-    page = cp_page.page
-    page.set_locator(create_project.NEW_PROJECT, count=1)
-    page.set_locator(create_project.NAME_FIELD, count=0)  # end the run quickly
-
-    create_project.main(["msgloom workers"])
-
-    on_opener = [
-        c
-        for c in page.calls
-        if c[0] == "locator" and c[1] == create_project.NEW_PROJECT
-    ]
-    methods = [c[2] for c in on_opener]
-    assert methods.index("hover") < methods.index("click")
-    hover_call = next(c for c in on_opener if c[2] == "hover")
-    assert hover_call[4] == {"timeout": 10_000}
-    click_call = next(c for c in on_opener if c[2] == "click")
-    assert click_call[4] == {"timeout": 30_000, "force": True}
-    assert ("page", "wait_for_timeout", (400,), {}) in page.calls
-
-
-def test_a_missing_name_field_reports_and_screenshots_before_giving_up(
-    cp_page, capsys
-) -> None:
-    """No visible text input after opening the dialog must be reported with
-    a screenshot to look at, not a guess about which selector changed."""
-    page, browser = cp_page.page, cp_page.browser
-    page.set_locator(create_project.NEW_PROJECT, count=1)
-    page.set_locator(create_project.NAME_FIELD, count=0)
-
-    assert create_project.main(["msgloom workers"]) == 1
-
-    assert browser.closed
-    shots = [c for c in page.calls if c[0] == "page" and c[1] == "screenshot"]
-    assert shots and shots[0][3]["path"] == "/tmp/create-project-no-field.png"
-    assert "no project-name field appeared" in capsys.readouterr().out
-
-
-def test_a_failed_screenshot_does_not_crash_the_missing_field_report(
-    cp_page, capsys
-) -> None:
-    """A screenshot failure (a full disk, a closed page) must be suppressed:
-    the more important fact -- no name field appeared -- still has to be
-    reported and the command must still exit cleanly."""
-    page, browser = cp_page.page, cp_page.browser
-    page.set_locator(create_project.NEW_PROJECT, count=1)
-    page.set_locator(create_project.NAME_FIELD, count=0)
-
-    def boom(**_kw: object) -> None:
-        raise RuntimeError("disk full")
-
-    page.screenshot = boom
-
-    assert create_project.main(["msgloom workers"]) == 1
-    assert browser.closed
-    assert "no project-name field appeared" in capsys.readouterr().out
-
-
-def test_dry_run_fills_the_name_and_never_submits(cp_page, capsys) -> None:
-    """--dry-run must open the flow and fill the name, then stop -- it must
-    never click a submit button or report a creation."""
-    page, browser = cp_page.page, cp_page.browser
-    page.set_locator(create_project.NEW_PROJECT, count=1)
-    page.set_locator(create_project.NAME_FIELD, count=1)
-
-    assert create_project.main(["msgloom workers", "--dry-run"]) == 0
-
-    fills = [
-        c
-        for c in page.calls
-        if c[0] == "locator" and c[1] == create_project.NAME_FIELD and c[2] == "fill"
-    ]
-    assert fills and fills[0][3] == ("msgloom workers",)
-    assert not any(
-        c[0] == "locator" and c[1].startswith("role=button") for c in page.calls
-    )
-    assert browser.closed
-    assert "dry run: would create 'msgloom workers'" in capsys.readouterr().out
-
-
-def test_a_disabled_submit_label_is_skipped_for_the_next_enabled_one(cp_page) -> None:
-    """A present-but-disabled button (still rendering, or a different modal
-    state) must not be clicked; the next label in the list should be."""
-    page = cp_page.page
-    page.set_locator(create_project.NEW_PROJECT, count=1)
-    page.set_locator(create_project.NAME_FIELD, count=1)
-    page.set_locator(
-        fp.key_for_role("button", "Create project", True), count=1, enabled=False
-    )
-    page.set_locator(fp.key_for_role("button", "Create", True), count=1, enabled=True)
-
-    assert create_project.main(["msgloom workers"]) == 0
-
-    clicked = [
-        c
-        for c in page.calls
-        if c[0] == "locator" and c[2] == "click" and c[1].startswith("role=button")
-    ]
-    assert len(clicked) == 1
-    assert clicked[0][1] == fp.key_for_role("button", "Create", True)
-
-
-def test_no_enabled_submit_button_among_any_label_is_reported(cp_page, capsys) -> None:
-    """When none of the known labels is present and enabled, say so by name
-    instead of leaving a silent non-creation."""
-    page, browser = cp_page.page, cp_page.browser
-    page.set_locator(create_project.NEW_PROJECT, count=1)
-    page.set_locator(create_project.NAME_FIELD, count=1)
-
-    assert create_project.main(["msgloom workers"]) == 1
-
-    assert browser.closed
-    assert str(create_project.SUBMIT_LABELS) in capsys.readouterr().out
-
-
-def test_the_call_that_created_it_is_identified_from_recorded_events(
-    monkeypatch, cp_page, capsys
-) -> None:
-    """The endpoint is recorded from evidence: the request/response pair
-    whose JSON body carries a new ``g-p-...`` id, not a hand-written
-    guess."""
-    page, browser = cp_page.page, cp_page.browser
-    page.set_locator(create_project.NEW_PROJECT, count=1)
-    page.set_locator(create_project.NAME_FIELD, count=1)
-    page.set_locator(
-        fp.key_for_role("button", "Create project", True), count=1, enabled=True
-    )
-    _shim_response_json(monkeypatch)
-    _fire_on_goto(
-        page,
-        [
-            (
-                "POST",
-                "https://chatgpt.com/backend-api/gizmos/snorlax",
-                200,
-                '{"name": "msgloom workers"}',
-                json.dumps({"gizmo": {"id": "g-p-abc123"}}),
-            )
-        ],
-    )
-
-    assert create_project.main(["msgloom workers"]) == 0
-
-    assert browser.closed
-    out = capsys.readouterr().out
-    assert "the call that created it:" in out
-    assert "POST https://chatgpt.com/backend-api/gizmos/snorlax" in out
-    assert 'body: {"name": "msgloom workers"}' in out
-    assert "-> 200" in out
-    assert "g-p-abc123" in out
-
-
-def test_no_matching_call_lists_every_mutation_seen(
-    monkeypatch, cp_page, capsys
-) -> None:
-    """When nothing returned a ``g-p-...`` id, list the mutations that *did*
-    happen instead of failing silently -- that is the evidence the next
-    person debugs the endpoint change from. A static-asset request outside
-    ``backend-api`` must never show up among them."""
-    page, browser = cp_page.page, cp_page.browser
-    page.set_locator(create_project.NEW_PROJECT, count=1)
-    page.set_locator(create_project.NAME_FIELD, count=1)
-    page.set_locator(
-        fp.key_for_role("button", "Create project", True), count=1, enabled=True
-    )
-    # No response shim here on purpose: res.headers is missing on the plain
-    # fake, so on_response's try/except is exercised too, and the response
-    # body is left unset -- another way "no g-p- id" legitimately happens.
-    _fire_on_goto(
-        page,
-        [
-            ("GET", "https://chatgpt.com/static/app.js", 200, None, ""),
-            (
-                "POST",
-                "https://chatgpt.com/backend-api/gizmos/snorlax",
-                200,
-                '{"name": "msgloom workers"}',
-                json.dumps({"ok": True}),
-            ),
-        ],
-    )
-
-    assert create_project.main(["msgloom workers"]) == 0
-
-    assert browser.closed
-    out = capsys.readouterr().out
-    assert "no call returned a g-p- id; the mutations seen were:" in out
-    assert "POST https://chatgpt.com/backend-api/gizmos/snorlax -> 200" in out
-    assert "app.js" not in out
 
 
 # ---------------------------------------------------------------------------

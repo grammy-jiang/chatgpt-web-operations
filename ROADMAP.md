@@ -65,7 +65,7 @@ it, including capture. "Evidence" says whether the endpoint is already known.
 | M2 | Pin and unpin a chat (`is_starred`), unarchive | write | captured 2026-09-20: `PATCH /backend-api/conversation/<id>` with `is_starred` or `is_archived` true / false | medium: mark a run's report chat | command pending | 2 |
 | M3 | Set or update a project's instructions | write | captured 2026-09-20: `PATCH /backend-api/projects/<g-p-id>` with the full body (name, instructions, emoji, theme) | high: house rules for workers become explicit per run | command pending | 2 |
 | M4 | Memory isolation for worker chats: per-project memory setting, or `is_do_not_remember` on the conversation | write / send | not captured; conversation items expose `memory_scope` and `is_do_not_remember`; projects expose `memory_enabled` and `memory_scope` (all `global` on 2026-09-20); Project settings' "Project-only memory" captured 2026-09-20: the same PATCH with `memory_scope` `project_v2` or `global`; the account-wide "Enable memory" switch has no identified key in `settings/user` | high: stops runs from reading or writing the user's memory | investigate first | 2 |
-| M5 | Move a chat into a project; rename or delete a project | write | create and delete captured 2026-09-20 (`POST /backend-api/projects`, `DELETE /backend-api/gizmos/<id>`); move and rename not captured | delete: needed to clean up test projects; the rest low | create_project.py to HTTP, delete_project.py next | 2 |
+| M5 | Move a chat into a project; rename or delete a project | write | create and delete captured 2026-09-20 (`POST /backend-api/projects`, `DELETE /backend-api/gizmos/<id>`); move and rename not captured | delete: needed to clean up test projects; the rest low | **done 2026-09-20**: `create_project.py` is plain HTTP and `delete_project.py` deletes with a name check (both tested, `tests/live/test_write_project_lifecycle.py` round-trips a throwaway project); move and rename remain uncaptured | 2 |
 | M6 | Memory entries and custom instructions: edit | write | not captured | low, and it changes the user's global profile | one recorded action | not planned |
 | M7 | Scheduled task create or pause; share links | write | not captured | low | one recorded action | not planned |
 | B1 | Model preset per step through the cookie (`oai-last-model-config` carries `model`) | send | cookie seen; whether the composer honours `gpt-6-pro` from it is untested | medium | small experiment, no send needed to read the label | 3 |
@@ -195,6 +195,11 @@ orchestrator is not modified.
    paper before designing anything, because both change the shape and the
    timing of what comes back. Attachments come first because they feed the
    existing analysis steps; Deep research is a new kind of step.
+   **B4 done 2026-09-20 (offline part)**: `BrowserSender(attachments=...)`
+   validates the paths and uploads them through the composer's file input
+   (`_upload_files`, shared with the large-prompt path) before the fill;
+   `send_prompt.py --attach` uploads instead of only recording. 14 T0
+   tests, both modules at 100%.
 
 Exit criterion: `send_prompt.py` exposes the four choices, the client's
 tests cover them offline, and one measured send per feature is recorded in
