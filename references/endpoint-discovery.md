@@ -302,6 +302,22 @@ from the cookie. The reply's assistant messages carry
 `search_result_groups`, `citations`, `reasoning_start_time` and
 `reasoning_end_time`.
 
+**Captured 2026-09-20, project create and delete**, from the user's own
+Chrome with the fetch hook, on a throwaway project `rp-test-sandbox-2`
+that was deleted in the same minute, each verified over HTTP:
+
+```
+POST   /backend-api/projects            {"instructions": "", "name": "<name>", "memory_scope": "unset"}
+                                        -> 200 {"resource": {"gizmo": {"id": "g-p-…", "short_url": …, …}}}
+DELETE /backend-api/gizmos/<g-p-id>     (no body) -> the project is gone; GET gizmos/<id> answers 404
+```
+
+The Create dialog also offers the memory choice, so `memory_scope` may be
+`"project_v2"` at creation instead of `"unset"` (the PATCH values are
+`project_v2` and `global`). Deleting a project deletes every chat in it;
+the dialog says so and it cannot be undone. With the body known,
+`create_project.py` no longer needs a browser.
+
 ## Re-run this when
 
 - a send starts failing in a way `probe_account.py` says is not the account
