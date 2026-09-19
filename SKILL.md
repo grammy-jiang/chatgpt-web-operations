@@ -54,7 +54,7 @@ creates a project, and `send_prompt.py` posts a message.
 | `probe_account.py` | Does the account answer at all? Auth, `/me`, one listing, plan window and credits. | 0 reads work |
 | `probe_cookies.py` | Which cookies decrypt. Never prints a value. | 0 session cookie readable |
 | `probe_send_gates.py` | What a send requires right now: proof-of-work, Turnstile, `so`. | 0 no browser needed |
-| `model_settings.py` | Which model and effort a send will use: the Power slider's presets, and the profile's cookie resolved to one. | 0 cookie resolves |
+| `model_settings.py` | Which model and effort a send will use: the Power slider's presets, the API levels, and the account's `last_used_model_config` resolved to a preset. | 0 record resolves |
 | `profile_context.py` | The hidden inputs of a run: custom instructions, memory usage, model and effort from cookie and server, one project's instructions and files. `--json` keeps them beside a run. | 0 every read answered |
 | `list_chats.py` | Recent conversations by title substring; `--pinned`, `--archived`, `--no-project-chats`; flags project / pinned / archived. | 0 always |
 | `list_projects.py` | Every project (paged), one project's full instructions and files, and the chats inside one. | 0 found, 1 no such `--id` |
