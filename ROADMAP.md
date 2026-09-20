@@ -218,67 +218,32 @@ orchestrator is not modified.
    Several PROMPT_FILEs now share one window (the window is the expensive
    part) and are waited on after it closes. **Done 2026-09-20 (offline
    part)**: 28 T0 tests, both modules at 100%.
-   **Deep research measured 2026-09-20**: one send with `--system-hint
-   plugin:connector_openai_deep_research` (the hint id the models payload
-   lists) makes the model invoke the Deep research connector as a tool:
-   the conversation shows an assistant `code` message to
-   `api_tool.call_tool`, a `tool` reply, `thoughts`, then the text "Deep
-   Research has started working on your query and will update you with
-   the report" (all on `gpt-5-6-instant`, seconds after the send). The
-   conversation's `async_status` read 7 and cleared after about a
-   minute, and **no report arrived in the conversation within 30 minutes
-   of polling** (`GET conversation/<id>` every 60 s). So the hint reaches
-   the connector but does not, by itself, deliver a report over HTTP; the
-   page-driven flow is now captured (`references/endpoint-discovery.md`,
-   "The page's own Deep research send"): the page adds
-   `messages[0].metadata` fields and an `@Deep research` mention, then
-   polls `ecosystem/call_mcp get_state` every ~60 s and prepares a
-   follow-up turn from about two minutes, so the report is delivered
-   through the page, not over plain HTTP. Design consequence: a Deep
-   research step must keep its window open until the connector is done
-   (tens of minutes of the browser budget), then collect the follow-up
-   turn. **Third run, window open 23 minutes**: still no report, no
-   follow-up send; the page's own polling stopped after 2.5 minutes. But
-   `call_mcp get_state` answers over plain HTTP with the bearer token and
-   exposes the progress (`references/endpoint-discovery.md`), so a
-   headless collector is possible in principle once the completion is
-   understood. **Parked**: three runs on 2026-09-20 never showed a
-   finished report; value was rated "medium, uncertain" and the cost is a
-   Deep research run per attempt. Revisit when a run needs it, starting
-   from a hand-made Deep research chat in the user's own browser observed
-   to completion (what turn appears, and what the page calls when it
-   does), which costs no skill work. `send_prompt.py --system-hint` starts
-   the research; the UI path is not needed.
-   **Later the same day**: the connector's tools are `start`, `steer`,
-   `get_state`, `subscribe`, `pause`, `skip_sleep`, `stop`, `export` (pdf
-   or docx) and `get_inline_images`, all taking the "session (backing
-   conversation) id": the research runs in a hidden backing conversation
-   whose id travels only in the send's SSE stream, so `--record-send-body`
-   now records that stream and `send_prompt.py --json` reports
-   `session_id`. Deleting the front conversation deletes the backing one.
-   **Runs 4-6 (later)**: the stream is recorded and parsed; `get_state`
-   says the report is generated within a minute; but the backing
-   conversation is not readable through `conversation/<id>` (404), the
-   state carries no report text, and the front conversation had no new
-   turn 48 minutes after the send. **Solved the same hour**: `export`
-   (docx or pdf) returns the finished report as a base64 file in
-   `_meta.encoded_data`; `subscribe` returns the page's websocket URL.
-   The report never lands in the front conversation (60 minutes observed);
-   it is a widget. So a Deep research step is: send with the hint (the
-   only browser part, ~20 s including the stream), read `session_id` from
-   the stream, poll `get_state` once a minute until a "Generated report"
-   title appears, then `export`. **Done 2026-09-20**: `deep_research.py`
-   (`start` / `status` / `export`) collects a run entirely over HTTP after
-   the send; 81 T0 tests over two synthetic fixtures, 100% coverage; the
-   429 rule is built in (one poll a minute, two minutes back-off).
-   `subscribe` stays unimplemented (its websocket URL carries a per-user
-   token). **Verified end to end 2026-09-20**: `start --project` minted a
-   carrier and started the research in 22 s (16 s of it the send), the
-   research finished in about four minutes with the carrier's own topic,
-   and `export` wrote a 12.5 kB docx holding 3,308 characters. One export
-   failed first with "could not open a session: The read operation timed
-   out" and succeeded on a retry: the session mint is worth retrying
-   before believing anything is wrong.
+   **Deep research, settled 2026-09-20 over twelve live runs.** The trail
+   of wrong turns is in `references/endpoint-discovery.md`; what holds:
+   the hint makes the model call the Deep Research connector, an MCP app
+   reachable at `POST /backend-api/ecosystem/call_mcp` with plain HTTP and
+   the bearer token (tools: `start`, `steer`, `get_state`, `subscribe`,
+   `pause`, `skip_sleep`, `stop`, `export`, `get_inline_images`). Three
+   facts decide the design. The research's topic comes from the **carrier
+   conversation's own content**, never from the `user_query` argument, so
+   the prompt must be posted as an ordinary message first; that send is
+   the only browser step (~16 s). `get_state` and `export` key on the
+   **carrier conversation's id**, never on the session id, so nothing has
+   to be scraped out of the send's stream. One research per carrier for
+   its life: a second `start` there returns a session id whose state is
+   unreachable, and a random uuid carrier is refused. The report never
+   lands in the conversation (60 minutes observed); `export` returns it as
+   a base64 docx or pdf. **Done**: `deep_research.py` (`start` with
+   `--conversation`, `--from-send` or `--project`; `status`; `export`),
+   122 T0 tests over synthetic fixtures, 100% coverage, the 429 rule built
+   in (one poll a minute, two minutes back-off). `subscribe` stays
+   unimplemented: its websocket URL carries a per-user token. **Verified
+   end to end**: `start --project` minted a carrier and started the
+   research in 22 s, it finished in about four minutes on the carrier's
+   own topic, and `export` wrote a 12.5 kB docx holding 3,308 characters.
+   A first export failed with "could not open a session: The read
+   operation timed out" and succeeded on a retry; the session mint is
+   worth retrying before believing anything is wrong.
 
 Exit criterion: `send_prompt.py` exposes the four choices, the client's
 tests cover them offline, and one measured send per feature is recorded in
