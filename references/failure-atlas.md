@@ -77,6 +77,30 @@ retry twenty seconds later. That is the session mint (`/api/auth/session`)
 timing out, not the account and not the connector. Retry once before
 diagnosing anything.
 
+## The effort that was never set
+
+From 2026-09-16 to 2026-09-20 every research send asked for a per-step
+reasoning effort through `TASK_EFFORT`, and every one of them ran at the
+profile's own setting instead. The mechanism was a cookie rewrite
+(`with_effort` on `oai-last-model-config`); the page takes model and effort
+from the account's server-side `last_used_model_config`. Four of the eight
+steps asked for `extended` and ran at `max`: slower turns, more polling,
+and polling volume is what earns this account its rate limits.
+
+| What was believed | What was true | What settled it |
+|-------------------|---------------|-----------------|
+| The cookie pins the effort | The page ignores it | A send asking for `standard` recorded `thinking_effort: max`, run through the production client itself |
+| A transcript does not record the effort | Every assistant message does | `metadata.thinking_effort`, `read_chat.py --effort` |
+| The skill's fix reached production | The repository ran its own stale copy | Two copies of `chatgpt_client.py`, only one fixed |
+
+Three lessons, in the order they bite. A setting you never read back is a
+wish: the cookie was written, and nothing ever asked what the send
+actually carried. A second copy of a file is a second place for a bug to
+survive a fix; the repository now imports this skill's client and keeps
+none of its own. And a test that asks for the value the profile already
+uses proves nothing, which is why the live check picks a level that
+differs from the account's current default.
+
 ## Measurements worth keeping
 
 Composer fill, the real 89 kB review prompt, on an idle host:

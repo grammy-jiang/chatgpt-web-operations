@@ -1,5 +1,15 @@
 # Vendored modules
 
+**Since 2026-09-20 the arrow points the other way.** The research-pipeline
+repository no longer carries a copy of `chatgpt_client.py`: its
+`chatgpt_research.py` imports this skill's client from
+`~/.claude/skills/chatgpt-web-operations/scripts`, overridable through
+`CHATGPT_SKILL_DIR`. Two copies is what let a broken mechanism run in
+production for two months (`references/failure-atlas.md`), so there is now
+one client, here, and the repository's 186 orchestrator tests run against
+it. Anything below describes where the files came from, not a sync
+obligation.
+
 This skill imports nothing from a repository checkout. The modules below
 started as copies.
 
