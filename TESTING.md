@@ -64,7 +64,7 @@ Enforcement, not promises:
 | smoke | T1 | each read command exits as documented against the real account; assertions on shape, never on the user's data | `profile_context.py` exits 0; the slider has 5 positions |
 | round trip | T2 | each write command: act, read back, revert; the cleanup is verified by a read | set instructions on the sandbox, read `gizmos/<id>`, restore |
 | browser dry run | T3 | the send path opens: window, cookies, composer found, upload works; never sends | `tests/live/test_browser_upload.py`: upload one file, the composer shows its `Remove file …` chip and the send button stays enabled, never clicked |
-| measured send | T4 | the send path end to end, one message per feature, timings recorded in `failure-atlas.md` | search on and off, one attachment, one deep research |
+| measured send | T4 | the send path end to end, one message per feature, timings recorded in `failure-atlas.md` | search on and off, one attachment, one deep research; and `tests/live/test_send_effort.py`, which pins a level the account is **not** already using and asserts the reply recorded it -- the check that would have caught the two-month effort regression |
 
 ## 3. Coverage gate
 
