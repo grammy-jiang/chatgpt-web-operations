@@ -14,10 +14,11 @@ stage notes), `TESTING.md` and `SKILL.md`; sections 1 onward are the first
 session's handover and are kept as history. Where this section and a later
 one disagree, this one is what was measured last.
 
-**State.** This directory is a git repository on `main`, 49 commits, tree
-clean. 20 commands in `scripts/`, 1,195 offline tests, a per-module
+**State.** This directory is a git repository on `main`, 57 commits, tree
+clean. 21 commands in `scripts/`, 1,323 offline tests, a per-module
 coverage gate (95% core, 90% other) and four opt-in live tiers that pass:
-4 read, 3 write, 1 browser, 2 send.
+11 read, 3 write, 1 browser, 2 send. A daily health check runs from cron
+since 2026-09-21 (below).
 
 **The user's standing decisions.** All work stays in this skill. The agent
 performs every recorded action itself and never asks the user to click
@@ -66,6 +67,45 @@ commands `measure_window.py` and `discover_endpoints.py`.
   reclassifies a superseded or lost entry. It never touches a resumable
   entry and refuses while an orchestrator is running.
 
+**The daily health check, 2026-09-21.** `scripts/health.py` is the HTTP
+half: preflight's four groups by calling preflight's own functions, plus a
+"health" group (session-token expiry read from the jar without decrypting;
+the sandbox answering to its name and holding no leftover chat; the
+sidebar and pins reads), and `--json` with a `facts` block whose keys are
+the same every run. `~/.local/bin/chatgpt-ops-check.sh` (its own git repo)
+wraps it the house way -- state in `~/.local/state/chatgpt-ops`, silent on
+OK, `--browser` and `--summary` modes -- and runs from the crontab: daily
+05:25 (Friday's run is the browser one), summary Friday 03:40. The slot
+was chosen from the backup logs: backup.sh 03:30 runs up to 11 min, apt
+~04:08, r2-sync 04:30-04:47, r2-check 05:00-05:16. Cadence rests on
+measured rot: Google Chrome, the send path's browser, upgrades every
+~4.5 days (dpkg log; a major version every ~13), which only a browser run
+sees; the session token is issued for 90 days and is the only cookie that
+matters -- removing `_puid` (7 d) or `__Secure-oai-is` (30 d) changed
+nothing, the page reissues them. Two things made cron possible:
+`chatgpt_session.ensure_desktop_env()` now defaults the D-Bus address
+before cookie decryption (it was on the browser path only; four scripts in
+`~/.local/bin` had exported the variables themselves), and preflight has a
+real "keyring bus" check instead of an import that always said ok.
+
+**The private-seam audit, 2026-09-20.** Three callers reached into
+`BrowserSender`'s private members and all three were broken or had
+silently stopped working: `preflight.py --browser` (wrong thread, and a
+page nothing had navigated -- it had never worked), `measure_window.py`
+(the navigation half of the same defect), and the T3 upload test (worked
+only because it navigated itself). Each fake was kinder than the real
+object. The sender now has public `probe_composer`, `fill_composer` and
+`attach_files`, `fill_budget_ms` is shared with `_send`, and a
+consistency test refuses `sender._<name>` in any code outside the client.
+The rule: a new need is a new public method on the sender, never a reach.
+
+**Two observations on the host.** Short-lived Playwright Chromes
+(fresh `playwright_chromiumdev_profile`) come from binnacle's
+`chatgpt-mcp-dev` skill (`Projects/binnacle`); preflight counts them as
+in-flight browsers, the wrapper treats that as WARN. And on 2026-09-20 at
+22:59-23:00 four tracked files were modified by no session or agent that
+could be identified (reviewed on content, committed as `15c6d18`).
+
 **The defect that shaped the session.** For two months the research
 orchestrator pinned a send's reasoning effort by rewriting the
 `oai-last-model-config` cookie. That never worked: two recorded sends
@@ -90,7 +130,9 @@ earlier run left, because the session-end sweep empties the sandbox. That
 mistake made the pin and archive test skip every run from the day it was
 written until it was fixed, and a skip reads like a pass. The T4 send cap
 `CHATGPT_LIVE_SENDS` (default 4) is enforced now and fails rather than
-skips, for the same reason.
+skips, for the same reason. `scripted_browser_pids()` requires argv[0] to be a
+browser binary: a shell script that merely mentions "playwright" and
+"chrome" once held the in-flight block for an hour.
 
 **Sandbox.** `rp-test-sandbox` = `g-p-6aaea9da2bc881918d6f9eb5177cf904`
 (`tests/live/sandbox.json`), project-only memory, left empty. The live
