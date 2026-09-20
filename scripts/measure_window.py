@@ -10,6 +10,16 @@ budget on a host whose other load has changed.
 ``--fill-file`` is the honest test: an idle composer costs far less than one
 holding a large prompt, and it was the idle number that once understated a
 real send by half a gigabyte.
+
+Both paths go through the sender's public methods -- ``probe_composer`` to
+load the page and wait for its composer, ``fill_composer`` to fill it the
+way a send's paste path does, under the send's own budget. Until
+2026-09-20 this called the sender's private ``_composer`` on a window that
+nothing had navigated (``__enter__`` opens on about:blank; the navigation
+lives in the send), so with ``--fill-file`` it waited 60 s for a composer
+on an empty page and then reported a login problem, and without it the
+"idle" number was a blank window's, not a composer's. Nobody had run it
+since the navigation moved (references/failure-atlas.md).
 """
 
 from __future__ import annotations
@@ -58,18 +68,13 @@ def main(argv: list[str] | None = None) -> int:
     fill_seconds = 0.0
     try:
         with cc.BrowserSender("chrome", visible=args.visible) as sender:
-            opened = time.monotonic() - started
-
-            def do_fill() -> float:
-                composer = sender._composer()
-                sender._focus_composer(composer)
-                begin = time.monotonic()
-                composer.fill(text, timeout=900_000)
-                return time.monotonic() - begin
-
+            launched = time.monotonic() - started
             if text:
-                fill_seconds = sender._owner.submit(do_fill).result()
+                ready, fill_seconds = sender.fill_composer(text)
+                opened = launched + ready
             else:
+                sender.probe_composer()
+                opened = time.monotonic() - started
                 time.sleep(3)
     finally:
         stop.set()
@@ -80,8 +85,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"composer ready in  {opened:8.1f} s")
     if text:
         rate = fill_seconds / max(len(text) / 1000, 1)
+        budget = cc.fill_budget_ms(len(text)) / 1000
         print(f"filled {len(text):,} chars in {fill_seconds:.1f} s  ({rate:.2f} s/kB)")
-        print("The fill budget is 6 s/kB capped at 900 s; compare against that.")
+        print(f"A send would give this fill {budget:.0f} s; compare against that.")
     return 0
 
 

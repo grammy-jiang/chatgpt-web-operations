@@ -1190,6 +1190,34 @@ def virtual_display(visible: bool = False) -> Generator[None]:
 STREAM_SUFFIX = ".stream.txt"
 
 
+def fill_budget_ms(n_chars: int) -> int:
+    """How long a send gives the composer to ingest ``n_chars`` of prompt:
+    6 s per kB, never under 120 s, capped at 900 s. One function, so a
+    measurement (``measure_window.py``) compares against exactly the budget
+    a send would use.
+
+    Why these numbers, from the sends that set them:
+
+    ProseMirror ingests a large prompt slowly on this host, so the budget
+    scales; above ATTACH_ABOVE_BYTES the prompt is uploaded instead,
+    because minutes of re-rendering is what made the big synthesis and
+    review prompts fail outright.
+    Measured 2026-09-16: an 89 kB review prompt fills in 63-69 s on an
+    idle host, whatever the launch flags. The old 2.5 s/kB rate gave
+    that prompt 225 s, a 3.5x margin, and a busy host still blew
+    through it: the fill that cost a round ran while a full-repository
+    pre-commit scan had the CPU. The rate is what absorbs contention,
+    so it is generous. A timeout costs a whole retry cycle; waiting
+    longer costs nothing when the fill was going to finish anyway.
+    The cap has to clear the largest prompt this pipeline builds. A
+    round-2 review prompt is 172 kB, and 600 s was not enough for it on
+    a host whose load average was 5: the send failed twice and took the
+    round with it. Keep the cap under BROWSER_MAX_SECONDS so a genuine
+    long fill is never killed by the window watchdog.
+    """
+    return max(120_000, min(900_000, 6_000 * (n_chars // 1_000 + 1)))
+
+
 class BrowserSender:
     """One scripted Chrome page per run that posts messages to chatgpt.com.
 
@@ -1909,12 +1937,51 @@ class BrowserSender:
         except Exception as exc:  # playwright errors have no common base here
             raise TransportError(f"composer probe failed: {exc}"[:300]) from exc
 
-    def _probe_composer(self) -> str:
+    def _load_composer(self, url: str | None = None) -> Any:
+        """Owner thread only. Load ``url`` (default: where a new chat is
+        composed) and return its composer once visible. The one place the
+        page is navigated: ``_send``, ``probe_composer`` and
+        ``fill_composer`` all go through here. ``__enter__`` opens the window
+        on about:blank, so nothing that wants a composer may skip this."""
         self.page.goto(
-            self.new_chat_url(), wait_until="domcontentloaded", timeout=PAGE_LOAD_MS
+            url or self.new_chat_url(),
+            wait_until="domcontentloaded",
+            timeout=PAGE_LOAD_MS,
         )
-        self._composer()
+        return self._composer()
+
+    def _probe_composer(self) -> str:
+        self._load_composer()
         return str(self.page.url)
+
+    def fill_composer(self, text: str) -> tuple[float, float]:
+        """Load the page a send would compose on and put ``text`` in its
+        composer the way the paste path of a send does: focus, then
+        ``fill`` under the send's own budget (``fill_budget_ms``). Never
+        clicks send. From any thread, like ``send``.
+
+        Returns ``(ready, fill)`` in seconds: how long the composer took to
+        appear after the navigation began, and how long the fill took. This
+        is what ``measure_window.py --fill-file`` measures, and the reason
+        the measurement is honest: it is the send's own load, focus and fill,
+        not a re-implementation beside them. The upload path a send takes
+        above ``ATTACH_ABOVE_BYTES`` is not measured here.
+        """
+        try:
+            return self._owner.submit(self._fill_composer, text).result()
+        except TransportError:
+            raise
+        except Exception as exc:  # playwright errors have no common base here
+            raise TransportError(f"composer fill failed: {exc}"[:300]) from exc
+
+    def _fill_composer(self, text: str) -> tuple[float, float]:
+        begin = time.monotonic()
+        composer = self._load_composer()
+        ready = time.monotonic() - begin
+        self._focus_composer(composer)
+        begin = time.monotonic()
+        composer.fill(text, timeout=fill_budget_ms(len(text)))
+        return ready, time.monotonic() - begin
 
     def new_chat_url(self) -> str:
         """Where to compose a new conversation.
@@ -1941,8 +2008,7 @@ class BrowserSender:
         # only delay a load that was going to fail anyway -- it cannot break
         # one that would have worked -- so the ceiling is where the slack
         # belongs.
-        page.goto(url, wait_until="domcontentloaded", timeout=PAGE_LOAD_MS)
-        composer = self._composer()
+        composer = self._load_composer(url)
         # Chat surface only: leave the surface toggle alone when absent.
         chat_toggle = page.get_by_role("radio", name=re.compile(r"^Chat$", re.I))
         if chat_toggle.count() and chat_toggle.first.is_visible():
@@ -1951,23 +2017,7 @@ class BrowserSender:
                 chat_toggle.first.click(timeout=3_000)
                 page.wait_for_timeout(500)
         turns_before = page.locator('[data-message-author-role="user"]').count()
-        # ProseMirror ingests a large prompt slowly on this host, so the budget
-        # scales; above ATTACH_ABOVE_BYTES the prompt is uploaded instead,
-        # because minutes of re-rendering is what made the big synthesis and
-        # review prompts fail outright.
-        # Measured 2026-09-16: an 89 kB review prompt fills in 63-69 s on an
-        # idle host, whatever the launch flags. The old 2.5 s/kB rate gave
-        # that prompt 225 s, a 3.5x margin, and a busy host still blew
-        # through it: the fill that cost a round ran while a full-repository
-        # pre-commit scan had the CPU. The rate is what absorbs contention,
-        # so it is generous. A timeout costs a whole retry cycle; waiting
-        # longer costs nothing when the fill was going to finish anyway.
-        # The cap has to clear the largest prompt this pipeline builds. A
-        # round-2 review prompt is 172 kB, and 600 s was not enough for it on
-        # a host whose load average was 5: the send failed twice and took the
-        # round with it. Keep the cap under BROWSER_MAX_SECONDS so a genuine
-        # long fill is never killed by the window watchdog.
-        budget = max(120_000, min(900_000, 6_000 * (len(text) // 1_000 + 1)))
+        budget = fill_budget_ms(len(text))
         if len(text) > self.ATTACH_ABOVE_BYTES:
             # Before _attach_prompt runs: it uploads the prompt itself
             # through the same input, and set_input_files replaces rather

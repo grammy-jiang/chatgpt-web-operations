@@ -981,6 +981,76 @@ def test_probe_composer_loads_the_new_chat_page_then_waits_for_the_composer(
     assert waits and waits[0][4]["state"] == "visible"
 
 
+@pytest.mark.parametrize(
+    ("n_chars", "expected_ms"),
+    [
+        (0, 120_000),  # the floor: even an empty prompt gets two minutes
+        (10_000, 120_000),  # 11 kB * 6 s = 66 s, still under the floor
+        (50_000, 306_000),  # 51 kB * 6 s
+        (172_000, 900_000),  # the round-2 review prompt hits the cap
+        (10**6, 900_000),  # nothing exceeds it
+    ],
+)
+def test_fill_budget_is_six_seconds_per_kb_between_its_floor_and_cap(
+    n_chars: int, expected_ms: int
+) -> None:
+    assert cc.fill_budget_ms(n_chars) == expected_ms
+
+
+def test_fill_composer_runs_its_work_on_the_owner_thread(make_sender) -> None:
+    sender = make_sender()
+    seen: list[str] = []
+
+    def record(text: str) -> tuple[float, float]:
+        seen.append(threading.current_thread().name)
+        return (1.0, 2.0)
+
+    sender._fill_composer = record
+    assert sender.fill_composer("hello") == (1.0, 2.0)
+    assert seen and seen[0].startswith("chatgpt-send"), seen
+
+
+def test_fill_composer_loads_focuses_and_fills_under_the_send_budget(
+    make_sender, monkeypatch
+) -> None:
+    """The measurement is honest only if it is the send's own path: the
+    same navigation, the same focus, the same fill budget. Until 2026-09-20
+    measure_window.py filled a composer it had never navigated to, with a
+    flat 900 s budget of its own."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    page.url = "https://chatgpt.com/"
+    focused: list[object] = []
+    monkeypatch.setattr(
+        sender, "_focus_composer", lambda composer: focused.append(composer)
+    )
+    text = "y" * 50_000
+
+    ready, fill = sender._fill_composer(text)
+
+    assert ready >= 0.0 and fill >= 0.0
+    gotos = _page_calls(page, "goto")
+    assert gotos and gotos[0][2] == ("https://chatgpt.com/",)
+    assert len(focused) == 1
+    fills = _calls(page, "fill", "#prompt-textarea")
+    assert fills and fills[0][3] == (text,)
+    assert fills[0][4]["timeout"] == cc.fill_budget_ms(len(text)) == 306_000
+
+
+def test_fill_composer_wraps_a_playwright_error_as_transport_error(
+    make_sender,
+) -> None:
+    sender = make_sender()
+
+    def boom(text: str) -> tuple[float, float]:
+        raise ValueError("Target page, context or browser has been closed")
+
+    sender._fill_composer = boom
+    with pytest.raises(cc.TransportError, match="composer fill failed"):
+        sender.fill_composer("hello")
+
+
 def test_probe_composer_wraps_a_playwright_error_as_transport_error(
     make_sender,
 ) -> None:

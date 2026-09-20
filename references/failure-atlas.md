@@ -232,3 +232,8 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   wider lesson: preflight was in no live tier, so 31 offline-tested
   functions had never met the real account; `tests/live/test_read_preflight.py`
   is that.
+  `measure_window.py` had the navigation half of the same defect, with the
+  same kind of fake hiding it: with `--fill-file` it filled a composer it
+  had never navigated to, and without one its "idle" number was a blank
+  window's. It now goes through `probe_composer` and `fill_composer`, and
+  the fill budget it compares against is the send's own (`fill_budget_ms`).

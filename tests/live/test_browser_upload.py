@@ -104,10 +104,13 @@ def test_uploading_a_file_shows_its_remove_chip_and_leaves_send_enabled(
 ) -> None:
     """Attach one file, never fill the prompt, never click send.
 
-    ``sender._owner.submit(work).result()`` is the same pattern
-    scripts/measure_window.py uses for every Playwright call once the
-    window is open: one owner thread made the browser, so it is the only
-    thread allowed to touch it.
+    ``sender._owner.submit(work).result()``: one owner thread made the
+    browser, so it is the only thread allowed to touch it. This is the last
+    caller outside chatgpt_client.py on the sender's private seam
+    (``_composer``, ``_focus_composer``, ``_upload_files``, ``_owner``);
+    preflight.py and measure_window.py moved to public methods on
+    2026-09-20 after both were found to have never worked. It navigates
+    itself, which is why it works; a public upload seam is the next step.
     """
     import chatgpt_client as cc
 

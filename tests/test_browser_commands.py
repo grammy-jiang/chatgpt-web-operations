@@ -401,54 +401,33 @@ def test_browser_rss_mb_is_zero_when_nothing_matches(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-class _FakeComposer:
-    """Stands in for the Locator ``BrowserSender._composer()`` returns."""
-
-    def __init__(self) -> None:
-        self.fill_calls: list[tuple[str, int | None]] = []
-
-    def fill(self, text: str, timeout: int | None = None, **_kw: object) -> None:
-        self.fill_calls.append((text, timeout))
-
-
-class _FakeFuture:
-    def __init__(self, value: object) -> None:
-        self._value = value
-
-    def result(self, timeout: float | None = None) -> object:
-        return self._value
-
-
-class _FakeOwner:
-    """``sender._owner.submit(fn).result()`` must run ``fn`` synchronously,
-    on this thread, so a test can see its side effects and control its
-    timing through the fake clock."""
-
-    def submit(self, fn: object, *a: object, **kw: object) -> _FakeFuture:
-        return _FakeFuture(fn(*a, **kw))  # type: ignore[operator]
-
-
 class FakeBrowserSender:
-    """Stands in for ``cc.BrowserSender``.
+    """Stands in for ``cc.BrowserSender``, exposing ONLY the public surface
+    measure_window.py may use: the context-manager protocol,
+    ``probe_composer`` and ``fill_composer``.
 
-    ``measure_window.py`` only ever uses the context-manager protocol,
-    ``_composer()``, ``_focus_composer()`` and
-    ``_owner.submit(fn).result()``; driving the real class would need the
-    full fake Playwright stack for behaviour this command never touches
-    (the real ``__enter__`` opens a browser slot, starts a watchdog thread,
-    and launches Chrome), so a small dedicated fake is used instead.
+    Driving the real class would need the full fake Playwright stack for
+    behaviour this command never touches (the real ``__enter__`` opens a
+    browser slot, starts a watchdog thread, and launches Chrome), so a small
+    dedicated fake is used instead. Until 2026-09-20 this fake also offered
+    the private ``_composer``, ``_focus_composer`` and ``_owner``, which let
+    measure_window.py pass here while filling a page it had never
+    navigated to (references/failure-atlas.md);
+    ``test_the_fake_sender_offers_nothing_the_real_sender_does_not`` keeps
+    it honest now.
     """
 
     instances: list[FakeBrowserSender] = []
+    ready_seconds = 1.0
+    fill_seconds = 1.0
 
     def __init__(
         self, browser: str = "chrome", visible: bool = False, **kw: object
     ) -> None:
         self.browser = browser
         self.visible = visible
-        self.composer = _FakeComposer()
-        self.focus_calls: list[object] = []
-        self._owner = _FakeOwner()
+        self.probes = 0
+        self.fill_calls: list[str] = []
         FakeBrowserSender.instances.append(self)
 
     def __enter__(self) -> FakeBrowserSender:
@@ -457,11 +436,13 @@ class FakeBrowserSender:
     def __exit__(self, *exc: object) -> bool:
         return False
 
-    def _composer(self) -> _FakeComposer:
-        return self.composer
+    def probe_composer(self) -> str:
+        self.probes += 1
+        return "https://chatgpt.com/"
 
-    def _focus_composer(self, composer: object) -> None:
-        self.focus_calls.append(composer)
+    def fill_composer(self, text: str) -> tuple[float, float]:
+        self.fill_calls.append(text)
+        return (self.ready_seconds, self.fill_seconds)
 
 
 class _FakeThread:
@@ -528,12 +509,16 @@ def test_main_without_fill_file_reports_baseline_and_idles_three_seconds(
     out = capsys.readouterr().out
     assert f"baseline           {BASE_MB:8.1f} MB" in out
     assert f"peak               {BASE_MB:8.1f} MB   (+0.0)" in out
-    assert f"{1.0:8.1f} s" in out  # composer ready in
+    # composer ready in: launch (tick 1) plus the page load probe (tick 2).
+    # Before 2026-09-20 this read 1.0, the window alone -- no page was loaded.
+    assert f"{2.0:8.1f} s" in out
     assert "filled" not in out
     assert sleep_calls == [3]
     sender = fake_sender.instances[-1]
     assert sender.visible is True
-    assert sender.composer.fill_calls == []
+    # the idle number is a loaded composer's, not a blank window's
+    assert sender.probes == 1
+    assert sender.fill_calls == []
 
 
 def test_main_with_fill_file_measures_the_fill_and_prints_the_rate(
@@ -553,8 +538,26 @@ def test_main_with_fill_file_measures_the_fill_and_prints_the_rate(
     out = capsys.readouterr().out
     assert f"baseline           {BASE_MB:8.1f} MB" in out
     assert "filled 1,000 chars in 1.0 s  (1.00 s/kB)" in out
-    assert "The fill budget is 6 s/kB capped at 900 s; compare against that." in out
+    assert "A send would give this fill 120 s; compare against that." in out
+    assert f"{2.0:8.1f} s" in out  # composer ready in: launch 1.0 + ready 1.0
     assert sleep_calls == []  # the fill path never takes the idle nap
     sender = fake_sender.instances[-1]
-    assert sender.composer.fill_calls == [("x" * 1000, 900_000)]
-    assert sender.focus_calls == [sender.composer]
+    assert sender.fill_calls == ["x" * 1000]
+    assert sender.probes == 0  # fill_composer loads the page itself; no second load
+
+
+def test_the_fake_sender_offers_nothing_the_real_sender_does_not() -> None:
+    """Every public name FakeBrowserSender offers must be a public method of
+    the real BrowserSender, and it may offer no private one: a fake kinder
+    than the real object is how measure_window.py passed for as long as it
+    was broken (references/failure-atlas.md)."""
+    names = sorted(n for n in vars(FakeBrowserSender) if not n.startswith("__"))
+    assert names == [
+        "fill_composer",
+        "fill_seconds",
+        "instances",
+        "probe_composer",
+        "ready_seconds",
+    ]
+    for name in ("fill_composer", "probe_composer"):
+        assert callable(getattr(cc.BrowserSender, name, None)), name
