@@ -757,21 +757,137 @@ def test_record_send_body_off_by_default_attaches_no_listener(
 
 
 # ---------------------------------------------------------------------------
-# stream_events / find_session_id -- pure parsers over a recorded SSE stream
-# (the Deep research connector's session id is visible only there; module
-# docstring, WHY)
+# stream_events -- pure parser over a recorded SSE stream (module docstring,
+# WHY): event: lines, blank lines, and data: lines whose payload is any
+# JSON type, ending in the stream's own data: [DONE]. The shape below is
+# synthetic, modelled on the real framing recorded 2026-09-20 (delta_encoding
+# "v1", a resume token, a run of delta frames, trailing message_stream_complete
+# / title_generation / conversation_detail_metadata, then [DONE]) -- not the
+# real stream itself, which is not read here.
 # ---------------------------------------------------------------------------
 
+REALISTIC_STREAM = (
+    "event: delta_encoding\n"
+    'data: "v1"\n'
+    "\n"
+    'data: {"type": "resume_conversation_token", "kind": "topic", '
+    '"token": "resume-token-fake"}\n'
+    "\n"
+    "event: delta\n"
+    'data: {"v": {"message": {"id": "m1"}, "conversation_id": "c1", '
+    '"error": null}, "c": 0}\n'
+    "event: delta\n"
+    'data: {"p": "/message/content/parts/0", "o": "append", "v": "hi"}\n'
+    "event: delta\n"
+    'data: {"o": "patch", "v": [{"p": "/message/status", "o": "replace", '
+    '"v": "finished_successfully"}]}\n'
+    "event: delta\n"
+    'data: {"o": "add", "p": "/some/path", "v": 1}\n'
+    'data: {"type": "message_stream_complete", "conversation_id": "c1"}\n'
+    'data: {"type": "title_generation", "title": "Hi"}\n'
+    'data: {"type": "conversation_detail_metadata", "banner_info": null}\n'
+    "data: [DONE]\n"
+)
 
-def test_stream_events_parses_data_lines_and_skips_the_rest() -> None:
+
+def test_stream_events_parses_every_payload_type_in_stream_order() -> None:
+    """A bare JSON string first (``"v1"``), then a resume-token object, a
+    run of delta frames (a full message object, an append, and a
+    patch-list), the trailing message_stream_complete / title_generation /
+    conversation_detail_metadata objects, and finally ``data: [DONE]``,
+    which contributes nothing -- ``event: `` lines and blank lines skipped
+    throughout."""
+    assert cc.stream_events(REALISTIC_STREAM) == [
+        "v1",
+        {
+            "type": "resume_conversation_token",
+            "kind": "topic",
+            "token": "resume-token-fake",
+        },
+        {
+            "v": {"message": {"id": "m1"}, "conversation_id": "c1", "error": None},
+            "c": 0,
+        },
+        {"p": "/message/content/parts/0", "o": "append", "v": "hi"},
+        {
+            "o": "patch",
+            "v": [
+                {
+                    "p": "/message/status",
+                    "o": "replace",
+                    "v": "finished_successfully",
+                }
+            ],
+        },
+        {"o": "add", "p": "/some/path", "v": 1},
+        {"type": "message_stream_complete", "conversation_id": "c1"},
+        {"type": "title_generation", "title": "Hi"},
+        {"type": "conversation_detail_metadata", "banner_info": None},
+    ]
+
+
+def test_stream_events_skips_event_lines_blank_lines_done_and_bad_json() -> None:
     sse = (
         'event: delta\ndata: {"a": 1}\n\ndata: {"b": 2}\ndata: not-json\ndata: [DONE]\n'
     )
     assert cc.stream_events(sse) == [{"a": 1}, {"b": 2}]
 
 
+def test_stream_events_returns_a_list_or_number_payload_unwrapped() -> None:
+    """Any JSON type comes back exactly as parsed, not only objects and
+    strings (module docstring: "an object, a list, ... or a number")."""
+    assert cc.stream_events("data: [1, 2, 3]\ndata: 42\n") == [[1, 2, 3], 42]
+
+
 def test_stream_events_over_empty_text_is_an_empty_list() -> None:
     assert cc.stream_events("") == []
+
+
+# ---------------------------------------------------------------------------
+# find_session_id / find_key -- recursive search through dicts, lists and
+# strings: a session id can sit inside a string that is itself JSON text (a
+# tool call's code, or a tool reply's own JSON), never at a fixed path
+# (module docstring, WHY)
+# ---------------------------------------------------------------------------
+
+
+def test_find_session_id_inside_a_tool_call_code_string() -> None:
+    """A composer tool call's code is JSON text carried as a plain string
+    value; the session id sits inside it, not as a dict key at that level."""
+    events = [
+        {
+            "v": {
+                "message": {
+                    "content": {
+                        "content_type": "code",
+                        "text": (
+                            '{"path": "/Deep Research App/start", "args": '
+                            '{"session_id": "abc12345-dead-beef-0000-111122223333"}}'
+                        ),
+                    }
+                }
+            }
+        }
+    ]
+    assert cc.find_session_id(events) == "abc12345-dead-beef-0000-111122223333"
+
+
+def test_find_session_id_inside_a_patch_lists_json_string_value() -> None:
+    """A ``{"o": "patch", "v": [...]}`` delta's own patch "v" can itself be
+    a JSON string carrying the session id, e.g. a tool reply's payload."""
+    events = [
+        {
+            "o": "patch",
+            "v": [
+                {
+                    "p": "/message/content/parts/0",
+                    "o": "replace",
+                    "v": '{"session_id": "sess-xyz-789", "ok": true}',
+                }
+            ],
+        }
+    ]
+    assert cc.find_session_id(events) == "sess-xyz-789"
 
 
 def test_find_session_id_nested_several_levels_deep() -> None:
@@ -787,14 +903,56 @@ def test_find_session_id_inside_a_list() -> None:
     assert cc.find_session_id(events) == "abc"
 
 
-def test_find_session_id_returns_the_first_occurrence() -> None:
+def test_find_session_id_absent_returns_none() -> None:
+    events = [{"a": 1}, {"b": [1, 2, {"c": 3}]}]
+    assert cc.find_session_id(events) is None
+
+
+def test_find_session_id_returns_the_first_occurrence_in_stream_order() -> None:
     events = [{"session_id": "first"}, {"session_id": "second"}]
     assert cc.find_session_id(events) == "first"
 
 
-def test_find_session_id_absent_returns_none() -> None:
-    events = [{"a": 1}, {"b": [1, 2, {"c": 3}]}]
+def test_find_session_id_an_empty_string_value_does_not_win() -> None:
+    """A dict's own "session_id" key must hold a *non-empty* string to win
+    outright; otherwise the search still walks the rest of the dict,
+    including that same key's own (non-winning) value."""
+    events = [{"session_id": "", "nested": {"session_id": "real"}}]
+    assert cc.find_session_id(events) == "real"
+
+
+def test_find_session_id_falls_back_to_regex_when_the_string_is_not_clean_json() -> (
+    None
+):
+    """A string can carry "session_id" without being valid JSON on its own
+    -- e.g. a fragment wrapped in surrounding text -- and the regex
+    fallback still finds it."""
+    events = [
+        {"note": 'garbled text before "session_id": "0123456789abcdef0123" after'}
+    ]
+    assert cc.find_session_id(events) == "0123456789abcdef0123"
+
+
+def test_find_session_id_regex_fallback_with_no_match_returns_none() -> None:
+    """The string contains the key's own text but not in the quoted-value
+    shape the regex expects (``json.loads`` also fails on it): no match."""
+    events = [{"note": "the session_id field is not set for this run"}]
     assert cc.find_session_id(events) is None
+
+
+def test_find_session_id_events_of_plain_strings_or_numbers_never_raise() -> None:
+    """``stream_events``'s own return type can include bare strings and
+    numbers alongside objects; the search must not assume a dict, a list,
+    or even a string."""
+    assert cc.find_session_id(["v1", 42, 3.14, None, True]) is None
+
+
+def test_find_key_searches_for_any_key_not_just_session_id() -> None:
+    """``find_session_id`` is ``find_key(events, "session_id")``; the
+    helper itself is not hardcoded to one key."""
+    events = [{"conversation_id": "conv-1", "session_id": "sess-1"}]
+    assert cc.find_key(events, "conversation_id") == "conv-1"
+    assert cc.find_key(events, "session_id") == "sess-1"
 
 
 # ---------------------------------------------------------------------------

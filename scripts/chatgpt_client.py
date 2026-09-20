@@ -152,15 +152,30 @@ def parse_json_text(text: str) -> Any:
     raise ValueError("no JSON object found in the reply")
 
 
-def stream_events(text: str) -> list[dict]:
+def stream_events(text: str) -> list[Any]:
     """Parse a recorded SSE stream (``record_send_body``'s ``.stream.txt``
     sibling, see ``BrowserSender._record_send_stream``) into its JSON payloads.
 
-    One entry per ``data: `` line whose payload parses as JSON, in order;
-    ``data: [DONE]`` (the stream's own end marker), blank lines, ``event: ``
-    lines, and any payload that does not parse as JSON are all skipped.
+    A recorded stream is server-sent events: ``event: `` lines, blank
+    lines, and ``data: `` lines -- the opening ``event: delta_encoding`` /
+    ``data: "v1"``, a ``data: {"type":"resume_conversation_token",...}``
+    object, a run of ``event: delta`` / ``data: {...}`` frames (a full
+    message object, then content-append and patch deltas such as
+    ``{"p": ..., "o": "append", "v": "..."}`` and
+    ``{"o": "patch", "v": [...]}``), trailing
+    ``{"type":"message_stream_complete",...}`` /
+    ``{"type":"title_generation",...}`` /
+    ``{"type":"conversation_detail_metadata",...}`` payloads, and finally
+    the stream's own ``data: [DONE]`` end marker.
+
+    One entry per ``data: `` line, parsed independently and in stream
+    order: a payload can be any JSON type -- an object, a list, a bare
+    string (``"v1"``), or a number -- so this returns whatever
+    ``json.loads`` gives back, unchanged. ``event: `` lines, blank lines,
+    ``data: [DONE]``, and any payload that does not parse as JSON are all
+    skipped; nothing here raises on odd input.
     """
-    events: list[dict] = []
+    events: list[Any] = []
     for line in text.splitlines():
         if not line.startswith("data: "):
             continue
@@ -174,29 +189,58 @@ def stream_events(text: str) -> list[dict]:
     return events
 
 
-def find_session_id(events: Iterable[dict]) -> str | None:
-    """The first ``session_id`` value found anywhere inside ``events``.
+def find_key(events: Iterable[Any], key: str) -> str | None:
+    """The first non-empty string value of ``key`` found anywhere inside
+    ``events``, walked depth first, in stream order.
 
-    ``events`` is normally ``stream_events(text)``'s list. A Deep research
-    send's connector session id (module docstring, WHY) is nested somewhere
-    inside one of them, never at a fixed path, so the search is recursive
-    and unconditional on shape: both dict values and list items are
-    walked, depth first, and the first match wins.
+    ``events`` is normally ``stream_events(text)``'s list, but any iterable
+    of JSON-shaped values works, including one holding plain strings or
+    numbers (they simply contribute no match, never an error). The walk is
+    unconditional on shape:
+
+    * a dict -- ``key`` itself first: a non-empty string value there wins
+      outright, over anything else nested in the dict; otherwise (the key
+      is absent, or its value is not a non-empty string) every value is
+      walked in turn, in insertion order, which still reaches that same
+      key's value when it is itself a container worth searching;
+    * a list -- every item, in order;
+    * a string -- a value inside a recorded stream is often JSON text in
+      its own right (a tool call's code, or a tool reply's own JSON), so a
+      string containing ``key`` is parsed with ``json.loads`` and the
+      result is walked the same way; when that parse fails (the string is
+      not clean JSON on its own, e.g. ``key`` sits inside a larger blob of
+      code or log text), a regex over the raw text is tried instead:
+      ``"<key>"\\s*:\\s*"([0-9a-f-]{20,})"``.
+
+    Every other type contributes nothing. Nothing here raises on odd input.
     """
+    pattern = re.compile(r'"' + re.escape(key) + r'"\s*:\s*"([0-9a-f-]{20,})"')
 
     def _search(value: Any) -> str | None:
         if isinstance(value, dict):
-            if "session_id" in value:
-                return value["session_id"]
+            found = value.get(key)
+            if isinstance(found, str) and found:
+                return found
             for v in value.values():
                 found = _search(v)
                 if found is not None:
                     return found
-        elif isinstance(value, list):
+            return None
+        if isinstance(value, list):
             for item in value:
                 found = _search(item)
                 if found is not None:
                     return found
+            return None
+        if isinstance(value, str):
+            if key not in value:
+                return None
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                m = pattern.search(value)
+                return m.group(1) if m else None
+            return _search(parsed)
         return None
 
     for event in events:
@@ -204,6 +248,19 @@ def find_session_id(events: Iterable[dict]) -> str | None:
         if found is not None:
             return found
     return None
+
+
+def find_session_id(events: Iterable[Any]) -> str | None:
+    """The Deep research connector's session id found anywhere inside
+    ``events`` (``find_key(events, "session_id")``).
+
+    ``events`` is normally ``stream_events(text)``'s list. The recorded
+    stream this exists for (module docstring, WHY) carried it twice, both
+    times inside a string value that was itself JSON text -- a tool call's
+    code and a tool reply -- never as a plain top-level key, which is why
+    ``find_key`` walks into strings too, not only dicts and lists.
+    """
+    return find_key(events, "session_id")
 
 
 # ---------------------------------------------------------------------------
