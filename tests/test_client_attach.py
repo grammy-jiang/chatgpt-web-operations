@@ -435,3 +435,97 @@ def test_record_send_body_omits_attachments_when_there_are_none(
     finally:
         sender._stack.close()
         sender._owner.shutdown(wait=True)
+
+
+# ---------------------------------------------------------------------------
+# attach_files -- the public seam the T3 dry run is built on
+# ---------------------------------------------------------------------------
+
+
+def test_attach_files_runs_its_work_on_the_owner_thread(make_sender) -> None:
+    import threading
+
+    sender = make_sender()
+    seen: list[str] = []
+
+    def record(paths: list[str]) -> dict:
+        seen.append(threading.current_thread().name)
+        return {
+            "url": "u",
+            "remove_labels": [],
+            "send_exists": True,
+            "send_enabled": True,
+        }
+
+    sender._attach_files = record
+    assert sender.attach_files(["/tmp/a.pdf"])["url"] == "u"
+    assert seen and seen[0].startswith("chatgpt-send"), seen
+
+
+def test_attach_files_loads_focuses_uploads_then_reads_the_composer(
+    make_sender, monkeypatch
+) -> None:
+    """Load first (the window opens on about:blank), focus, upload through
+    the real path, then read the composer's own DOM -- and report it in a
+    fixed shape whatever the page returned."""
+    sender = make_sender(project="g-p-abc")
+    page = fp.Page()
+    sender.page = page
+    page.url = "https://chatgpt.com/g/g-p-abc/project"
+    page.set_locator(UPLOAD_INPUT, count=1)
+    page.set_evaluate_result(
+        "Remove file",
+        {
+            "remove_labels": ["Remove file 1: a.pdf"],
+            "send_exists": True,
+            "send_enabled": True,
+        },
+    )
+    focused: list[object] = []
+    monkeypatch.setattr(
+        sender, "_focus_composer", lambda composer: focused.append(composer)
+    )
+
+    info = sender._attach_files(["/tmp/a.pdf"])
+
+    gotos = _page_calls(page, "goto")
+    assert gotos and gotos[0][2] == ("https://chatgpt.com/g/g-p-abc/project",)
+    assert len(focused) == 1
+    assert _calls(page, "set_input_files", UPLOAD_INPUT)[0][3] == ("/tmp/a.pdf",)
+    assert info == {
+        "url": "https://chatgpt.com/g/g-p-abc/project",
+        "remove_labels": ["Remove file 1: a.pdf"],
+        "send_exists": True,
+        "send_enabled": True,
+    }
+
+
+def test_attach_files_reports_a_fixed_shape_when_the_page_answers_nothing(
+    make_sender, monkeypatch
+) -> None:
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    page.url = "https://chatgpt.com/"
+    page.set_locator(UPLOAD_INPUT, count=1)
+    monkeypatch.setattr(sender, "_focus_composer", lambda composer: None)
+
+    info = sender._attach_files(["/tmp/a.pdf"])
+
+    assert info == {
+        "url": "https://chatgpt.com/",
+        "remove_labels": [],
+        "send_exists": False,
+        "send_enabled": False,
+    }
+
+
+def test_attach_files_wraps_a_playwright_error_as_transport_error(make_sender) -> None:
+    sender = make_sender()
+
+    def boom(paths: list[str]) -> dict:
+        raise ValueError("Target page, context or browser has been closed")
+
+    sender._attach_files = boom
+    with pytest.raises(cc.TransportError, match="attachment probe failed"):
+        sender.attach_files(["/tmp/a.pdf"])

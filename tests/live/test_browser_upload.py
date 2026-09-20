@@ -1,19 +1,24 @@
 """Live browser dry run for an attachment (T3, TESTING.md section 1).
 
 Marker live_browser, skipped unless CHATGPT_LIVE=browser (tests/conftest.py).
-Opens exactly one Chrome window on the sandbox project, the same way
-scripts/measure_window.py does (``BrowserSender`` as a context manager,
-every Playwright call made through ``sender._owner.submit(fn).result()``,
-since Playwright's sync objects may only be used from the thread that
-created them -- chatgpt_client.py's ``BrowserSender`` docstring on
-``_owner``). It uploads one small file through the composer's real upload
-path (``BrowserSender._upload_files``) and checks the composer's own DOM
-for the result: TESTING.md's T3 row is "the send path opens: window,
-cookies, composer found; never sends", and an attachment is part of what
-"opens" now covers (ROADMAP.md Stage 3 item 3 / B4). The prompt is never
-filled and send is never clicked -- ``verify`` below only ever looks, it
-never acts -- so this never creates a conversation in the sandbox and
-leaves nothing for tests/live/conftest.py's sweep to find.
+Opens exactly one Chrome window on the sandbox project and asks the sender,
+through its public ``attach_files``, to do what a send with ``attachments``
+does up to the point of sending: load the compose page, focus the composer,
+upload one small file through the real upload path, wait for it to settle,
+and report what the composer shows. TESTING.md's T3 row is "the send path
+opens: window, cookies, composer found; never sends", and an attachment is
+part of what "opens" now covers (ROADMAP.md Stage 3 item 3 / B4). The
+prompt is never filled and send is never clicked -- ``verify`` below only
+ever looks, it never acts -- so this never creates a conversation in the
+sandbox and leaves nothing for tests/live/conftest.py's sweep to find.
+
+Until 2026-09-20 this test drove the sender's private members itself
+(``_composer``, ``_focus_composer``, ``_upload_files``, the owner thread)
+with its own copy of the DOM-reading script. It worked, because it also
+did its own navigation; the other two private-seam callers, preflight.py
+and measure_window.py, had not and had never worked
+(references/failure-atlas.md). A consistency test now refuses any code
+outside chatgpt_client.py that reaches past the sender's public methods.
 
 ``chatgpt_client`` is imported inside the test function, not at module
 import time, the same rule tests/live/conftest.py follows for the same
@@ -41,54 +46,26 @@ if str(SCRIPTS) not in sys.path:
 
 pytestmark = pytest.mark.live_browser
 
-# Scoped to the composer's own <form> when one is found (BrowserSender's
-# SEND_BUTTONS selectors show the send button lives inside one), so a
-# same-named button elsewhere on the page could never produce a false pass.
-_REMOVE_CHIP_AND_SEND_JS = """
-() => {
-    const composer = document.querySelector('#prompt-textarea');
-    const form = composer ? composer.closest('form') : null;
-    const scope = form || document;
-    const removeButton = Array.from(
-        scope.querySelectorAll('button[aria-label]')
-    ).find((button) =>
-        (button.getAttribute('aria-label') || '').startsWith('Remove file')
-    );
-    const sendButton =
-        scope.querySelector('button[data-testid="send-button"]') ||
-        scope.querySelector('button[aria-label="Send prompt"]');
-    return {
-        remove_label: removeButton ? removeButton.getAttribute('aria-label') : null,
-        send_exists: Boolean(sendButton),
-        send_enabled: Boolean(sendButton) && !sendButton.disabled,
-    };
-}
-"""
-
 
 def verify(info: dict[str, Any], filename: str) -> list[str]:
-    """Mismatches between one ``_REMOVE_CHIP_AND_SEND_JS`` result and what a
-    completed, unsent upload must look like.
+    """Mismatches between one ``BrowserSender.attach_files`` report and what
+    a completed, unsent upload must look like.
 
     Pure -- no page, no browser -- so it is unit-tested in
     tests/test_harness.py by fabricating ``info`` in the shape
-    ``_REMOVE_CHIP_AND_SEND_JS`` returns, the same ``mismatches == []``
-    pattern tests/live/test_send_chat_flags.py and
+    ``attach_files`` returns, the same ``mismatches == []`` pattern
+    tests/live/test_send_chat_flags.py and
     tests/live/test_write_project_settings.py use for their own round trips.
 
-    Measured 2026-09-20: once ``_upload_files`` returns, the chip "Remove
-    file 1: <name>" is present and the send button is enabled.
+    Measured 2026-09-20: once the upload has settled, the chip "Remove file
+    1: <name>" is present and the send button is enabled.
     """
     mismatches: list[str] = []
-    label = info.get("remove_label")
-    if not label or not str(label).startswith("Remove file"):
-        mismatches.append(
-            f"no button aria-label starting with 'Remove file'; got {label!r}"
-        )
-    elif filename not in str(label):
-        mismatches.append(
-            f"remove-file aria-label {label!r} does not name {filename!r}"
-        )
+    labels = [str(label) for label in info.get("remove_labels") or []]
+    if not labels:
+        mismatches.append("no button aria-label starting with 'Remove file'")
+    elif not any(filename in label for label in labels):
+        mismatches.append(f"no remove-file label names {filename!r}; got {labels!r}")
     if not info.get("send_exists"):
         mismatches.append(
             "no send button (neither [data-testid=send-button] nor "
@@ -102,36 +79,15 @@ def verify(info: dict[str, Any], filename: str) -> list[str]:
 def test_uploading_a_file_shows_its_remove_chip_and_leaves_send_enabled(
     sandbox_id: str, tmp_path: Path
 ) -> None:
-    """Attach one file, never fill the prompt, never click send.
-
-    ``sender._owner.submit(work).result()``: one owner thread made the
-    browser, so it is the only thread allowed to touch it. This is the last
-    caller outside chatgpt_client.py on the sender's private seam
-    (``_composer``, ``_focus_composer``, ``_upload_files``, ``_owner``);
-    preflight.py and measure_window.py moved to public methods on
-    2026-09-20 after both were found to have never worked. It navigates
-    itself, which is why it works; a public upload seam is the next step.
-    """
+    """Attach one file, never fill the prompt, never click send."""
     import chatgpt_client as cc
 
     upload_path = tmp_path / "rp-test-browser-upload.txt"
     upload_path.write_text("rp-test browser upload probe\n", encoding="utf-8")
 
     with cc.BrowserSender("chrome", project=sandbox_id, visible=False) as sender:
+        info = sender.attach_files([str(upload_path)])
 
-        def work() -> dict[str, Any]:
-            page = sender.page
-            page.goto(
-                sender.new_chat_url(),
-                wait_until="domcontentloaded",
-                timeout=cc.PAGE_LOAD_MS,
-            )
-            composer = sender._composer()
-            sender._focus_composer(composer)
-            sender._upload_files(page, [str(upload_path)])
-            return page.evaluate(_REMOVE_CHIP_AND_SEND_JS)
-
-        info = sender._owner.submit(work).result()
-
+    assert info["url"].startswith("https://chatgpt.com/"), info["url"]
     mismatches = verify(info, upload_path.name)
     assert mismatches == [], mismatches

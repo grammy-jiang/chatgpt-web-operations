@@ -183,3 +183,78 @@ def test_testing_md_names_every_make_target() -> None:
     text = TESTING_MD.read_text(encoding="utf-8")
     missing = [t for t in targets if not re.search(rf"\bmake {re.escape(t)}\b", text)]
     assert not missing, f"Makefile target(s) not named in TESTING.md: {missing}"
+
+
+# ---------------------------------------------------------------------------
+# (e) nobody outside chatgpt_client.py touches a sender's private members
+# ---------------------------------------------------------------------------
+
+PRIVATE_SENDER_USE = re.compile(r"\bsender\._[A-Za-z]")
+
+
+def _docstring_lines(source: str) -> set[int]:
+    """Line numbers occupied by module, class and function docstrings, so a
+    docstring that *names* a private member is never mistaken for code."""
+    lines: set[int] = set()
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef):
+            body = node.body
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                doc = body[0]
+                lines.update(range(doc.lineno, (doc.end_lineno or doc.lineno) + 1))
+    return lines
+
+
+def private_sender_uses(source: str) -> list[tuple[int, str]]:
+    """Every code line in ``source`` that reaches into ``sender._<name>``.
+    Comments and docstrings do not count. Pure, so it is tested on strings
+    below as well as run over the tree."""
+    skip = _docstring_lines(source)
+    found: list[tuple[int, str]] = []
+    for lineno, line in enumerate(source.splitlines(), 1):
+        if lineno in skip:
+            continue
+        if PRIVATE_SENDER_USE.search(line.split("#", 1)[0]):
+            found.append((lineno, line.strip()))
+    return found
+
+
+def _sender_callers() -> list[Path]:
+    files = [p for p in sorted(SCRIPTS.glob("*.py")) if p.name != "chatgpt_client.py"]
+    return files + sorted((TESTS_DIR / "live").glob("*.py"))
+
+
+@pytest.mark.parametrize(
+    "path", _sender_callers(), ids=lambda p: str(p.relative_to(SKILL_DIR))
+)
+def test_no_code_outside_the_client_uses_a_senders_private_members(
+    path: Path,
+) -> None:
+    """``BrowserSender`` runs every Playwright call on its owner thread and
+    opens its window on about:blank; only its public methods know both.
+    Three callers reached past them, and all three were broken or had
+    silently stopped working (references/failure-atlas.md, 2026-09-20):
+    preflight.py, measure_window.py, tests/live/test_browser_upload.py.
+    A new need is a new public method on the sender, never a reach."""
+    offenders = [
+        f"{path.relative_to(SKILL_DIR)}:{lineno}: {text}"
+        for lineno, text in private_sender_uses(path.read_text(encoding="utf-8"))
+    ]
+    assert offenders == [], offenders
+
+
+def test_private_sender_use_finder_sees_code_but_not_docstrings_or_comments() -> None:
+    source = (
+        '"""Module docstring naming sender._owner on purpose."""\n'
+        "def f(sender):\n"
+        '    """Also sender._composer, in a docstring."""\n'
+        "    x = sender.send('hi')  # not sender._send\n"
+        "    return sender._composer()\n"
+    )
+    assert private_sender_uses(source) == [(5, "return sender._composer()")]

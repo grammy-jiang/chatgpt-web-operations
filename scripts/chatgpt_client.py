@@ -1190,6 +1190,31 @@ def virtual_display(visible: bool = False) -> Generator[None]:
 STREAM_SUFFIX = ".stream.txt"
 
 
+# What the composer shows after an upload, read from its own DOM. Scoped to
+# the composer's <form> when one is found (SEND_BUTTONS shows the send
+# button lives inside one), so a same-named button elsewhere on the page can
+# never produce a false answer. One label per "Remove file ..." chip, in
+# page order.
+COMPOSER_STATE_JS = """
+() => {
+    const composer = document.querySelector('#prompt-textarea');
+    const form = composer ? composer.closest('form') : null;
+    const scope = form || document;
+    const removeLabels = Array.from(scope.querySelectorAll('button[aria-label]'))
+        .map((button) => button.getAttribute('aria-label') || '')
+        .filter((label) => label.startsWith('Remove file'));
+    const sendButton =
+        scope.querySelector('button[data-testid="send-button"]') ||
+        scope.querySelector('button[aria-label="Send prompt"]');
+    return {
+        remove_labels: removeLabels,
+        send_exists: Boolean(sendButton),
+        send_enabled: Boolean(sendButton) && !sendButton.disabled,
+    };
+}
+"""
+
+
 def fill_budget_ms(n_chars: int) -> int:
     """How long a send gives the composer to ingest ``n_chars`` of prompt:
     6 s per kB, never under 120 s, capped at 900 s. One function, so a
@@ -1982,6 +2007,42 @@ class BrowserSender:
         begin = time.monotonic()
         composer.fill(text, timeout=fill_budget_ms(len(text)))
         return ready, time.monotonic() - begin
+
+    def attach_files(self, paths: list[str]) -> dict[str, Any]:
+        """Load the page a send would compose on, upload ``paths`` through
+        the composer's file input the way a send with ``attachments`` does,
+        wait for the upload to settle, and report what the composer then
+        shows: ``remove_labels`` (one "Remove file ..." label per chip, in
+        page order), ``send_exists`` and ``send_enabled`` (the send button,
+        scoped to the composer's own form) and ``url``. Never fills, never
+        clicks. From any thread, like ``send``.
+
+        The T3 browser dry run (tests/live/test_browser_upload.py) is built
+        on this. Until 2026-09-20 it drove the private ``_composer``,
+        ``_focus_composer`` and ``_upload_files`` itself, with its own copy
+        of the state-reading script; it worked only because it also did its
+        own navigation, which the other two private-seam callers
+        (preflight.py, measure_window.py) had not.
+        """
+        try:
+            return self._owner.submit(self._attach_files, list(paths)).result()
+        except TransportError:
+            raise
+        except Exception as exc:  # playwright errors have no common base here
+            raise TransportError(f"attachment probe failed: {exc}"[:300]) from exc
+
+    def _attach_files(self, paths: list[str]) -> dict[str, Any]:
+        composer = self._load_composer()
+        self._focus_composer(composer)
+        self._upload_files(self.page, paths)
+        raw = self.page.evaluate(COMPOSER_STATE_JS)
+        state = dict(raw) if isinstance(raw, dict) else {}
+        return {
+            "url": str(self.page.url),
+            "remove_labels": [str(label) for label in state.get("remove_labels") or []],
+            "send_exists": bool(state.get("send_exists")),
+            "send_enabled": bool(state.get("send_enabled")),
+        }
 
     def new_chat_url(self) -> str:
         """Where to compose a new conversation.

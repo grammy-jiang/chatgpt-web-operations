@@ -237,3 +237,9 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   had never navigated to, and without one its "idle" number was a blank
   window's. It now goes through `probe_composer` and `fill_composer`, and
   the fill budget it compares against is the send's own (`fill_budget_ms`).
+  `tests/live/test_browser_upload.py` was the third caller on the private
+  seam; it worked only because it navigated itself. It now goes through
+  `attach_files`, and a consistency test refuses any code outside
+  `chatgpt_client.py` that reaches into `sender._<name>`. The rule that
+  came out of all three: a new need is a new public method on the sender,
+  never a reach past it.
