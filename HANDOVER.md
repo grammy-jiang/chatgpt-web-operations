@@ -14,10 +14,10 @@ stage notes), `TESTING.md` and `SKILL.md`; sections 1 onward are the first
 session's handover and are kept as history. Where this section and a later
 one disagree, this one is what was measured last.
 
-**State.** This directory is a git repository on `main`, 60 commits, tree
-clean. 24 commands in `scripts/`, 1,470 offline tests, a per-module
+**State.** This directory is a git repository on `main`, 62 commits, tree
+clean. 24 commands in `scripts/`, 1,529 offline tests, a per-module
 coverage gate (95% core, 90% other) and four opt-in live tiers that pass:
-20 read, 3 write, 1 browser, 2 send. A daily health check runs from cron
+22 read, 3 write, 1 browser, 2 send. A daily health check runs from cron
 since 2026-09-21 (below).
 
 **The user's standing decisions.** All work stays in this skill. The agent
@@ -66,6 +66,21 @@ commands `measure_window.py` and `discover_endpoints.py`.
   classifies each one and, with `--apply`, archives a collectable reply and
   reclassifies a superseded or lost entry. It never touches a resumable
   entry and refuses while an orchestrator is running.
+
+**The session token renews itself, 2026-09-21.** `GET /api/auth/session`,
+the call every session build makes for its bearer token, re-issues
+`__Secure-next-auth.session-token` for 90 days on every call, and older
+copies stay valid. `chatgpt_session.Session` now keeps the renewed copy
+in the keyring (Secret Service item `application=chatgpt-web-operations`,
+`purpose=chatgpt-session-token`), sends whichever of Chrome's copy and
+the keyring's expires later, and the browser jar gets the same choice
+through one helper. Chrome's cookie database is never written. So the
+daily health check is the renewal: as long as it runs, the token never
+reaches its expiry; the one way to lose the session is a logout or
+password change, which that check reports as an ALERT the next morning.
+`CHATGPT_SESSION_STORE=0` turns the keyring off. The earlier statement
+in this file that "nothing automated can keep the cookies alive" was
+wrong: it was written before the one request that settles it was made.
 
 **Three reads closed on 2026-09-21 (ROADMAP R4-R6).** `search_chats.py`
 searches chat *content* through the page's own search, `POST
