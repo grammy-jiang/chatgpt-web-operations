@@ -55,7 +55,7 @@ and `discover_endpoints.py`) open a browser; everything else is plain HTTP.
 |---------|---------|-----------------|
 | `preflight.py` | One go/no-go check before a run starts: host, link, account and run over one session; `--browser` adds a composer check, `--project` and `--workdir` add their own. | 0 GO, 1 DO NOT START (n blocking), 2 GO WITH WARNINGS (n) |
 | `probe_account.py` | Does the account answer at all? Auth, `/me`, one listing, plan window and credits. | 0 reads work |
-| `probe_cookies.py` | Which cookies decrypt. Never prints a value. | 0 session cookie readable |
+| `probe_cookies.py` | Which cookies decrypt, and when the session token expires (nothing here refreshes a cookie; only the user's own Chrome does). Never prints a value. `--json PATH` for a caller that wants the number. | 0 session cookie readable |
 | `probe_send_gates.py` | What a send requires right now: proof-of-work, Turnstile, `so`. | 0 no browser needed |
 | `model_settings.py` | Which model and effort a send will use: the Power slider's presets, the API levels, and the account's `last_used_model_config` resolved to a preset. | 0 record resolves |
 | `profile_context.py` | The hidden inputs of a run: custom instructions, memory usage, model and effort from cookie and server, one project's instructions and files. `--json` keeps them beside a run. | 0 every read answered |

@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -192,18 +193,19 @@ def test_a_new_gate_name_is_ignored_rather_than_silently_passing() -> None:
 
 def test_cookie_values_are_never_returned_only_their_lengths() -> None:
     """A secret in a log is worse than the bug this command diagnoses."""
-    rows = [("__Secure-next-auth.session-token.0", "chatgpt.com", b"enc")]
-    good, bad = probe_cookies.classify(rows, lambda _enc: "super-secret-value")
+    rows = [("__Secure-next-auth.session-token.0", "chatgpt.com", b"enc", 0)]
+    good, bad = probe_cookies.classify(rows, lambda _enc: "super-secret-value", now=0)
     assert not bad
     assert "super-secret-value" not in str(good)
     assert good[0][2] == "18 chars"
+    assert good[0][3] == "session"
 
 
 def test_an_unreadable_cookie_is_reported_not_raised() -> None:
     def boom(_enc: bytes) -> str:
         raise ValueError("bad padding")
 
-    good, bad = probe_cookies.classify([("_dd_s", "chatgpt.com", b"x")], boom)
+    good, bad = probe_cookies.classify([("_dd_s", "chatgpt.com", b"x", 0)], boom)
     assert good == []
     assert bad == [("_dd_s", "chatgpt.com", "ValueError")]
 
@@ -217,12 +219,79 @@ def test_one_bad_cookie_does_not_hide_the_good_ones() -> None:
         return "ok"
 
     rows = [
-        ("_dd_s", "chatgpt.com", b"bad"),
-        ("__Secure-next-auth.session-token.0", "chatgpt.com", b"good"),
+        ("_dd_s", "chatgpt.com", b"bad", 0),
+        ("__Secure-next-auth.session-token.0", "chatgpt.com", b"good", 0),
     ]
     good, bad = picky and probe_cookies.classify(rows, picky)
     assert [g[0] for g in good] == ["__Secure-next-auth.session-token.0"]
     assert [b[0] for b in bad] == ["_dd_s"]
+
+
+# 2026-12-19T10:59:49Z, the real token's expiry the day this was written.
+# Computed, not typed: the first draft typed 1_797_505_189, which is two
+# days earlier, and three tests failed against correct code.
+_DEC_19 = int(datetime(2026, 12, 19, 10, 59, 49, tzinfo=UTC).timestamp())
+_DEC_19_WEBKIT = (_DEC_19 + probe_cookies.WEBKIT_EPOCH_DELTA_S) * 1_000_000
+
+
+def test_expiry_label_names_the_day_and_the_days_left() -> None:
+    assert probe_cookies.expiry_label(0, now=_DEC_19) == "session"
+    assert probe_cookies.expiry_label(_DEC_19_WEBKIT, now=_DEC_19 - 7 * 86400) == (
+        "2026-12-19 (7.0 d)"
+    )
+    # already expired: negative, never hidden
+    assert probe_cookies.expiry_label(_DEC_19_WEBKIT, now=_DEC_19 + 86400) == (
+        "2026-12-19 (-1.0 d)"
+    )
+
+
+def test_session_horizon_is_the_soonest_chunk_and_needs_no_decryption() -> None:
+    """The token is stored in chunks (.0, .1); the one that expires first is
+    the one that ends the session. Expiry is read from the jar, so an
+    unreadable value cannot hide it."""
+    rows = [
+        ("_puid", "chatgpt.com", b"x", _DEC_19_WEBKIT - 83 * 86400 * 1_000_000),
+        ("__Secure-next-auth.session-token.0", "chatgpt.com", b"s0", _DEC_19_WEBKIT),
+        (
+            "__Secure-next-auth.session-token.1",
+            "chatgpt.com",
+            b"s1",
+            _DEC_19_WEBKIT - 86400 * 1_000_000,
+        ),
+    ]
+    assert probe_cookies.session_horizon(rows, now=_DEC_19 - 91 * 86400) == (
+        "2026-12-18",
+        90.0,
+    )
+
+
+def test_session_horizon_is_none_without_a_persistent_session_token() -> None:
+    assert probe_cookies.session_horizon([], now=0) is None
+    assert (
+        probe_cookies.session_horizon(
+            [("__Secure-next-auth.session-token.0", "chatgpt.com", b"s", 0)], now=0
+        )
+        is None
+    )
+
+
+def test_report_is_the_json_shape_the_health_check_reads() -> None:
+    good = [("__Secure-next-auth.session-token.0", "chatgpt.com", "3 chars", "x")]
+    bad = [("_dd_s", "chatgpt.com", "ValueError")]
+    assert probe_cookies.report(good, bad, ("2026-12-19", 89.987)) == {
+        "readable": 1,
+        "unreadable": 1,
+        "session_readable": True,
+        "session_expires": "2026-12-19",
+        "session_days_left": 89.99,
+    }
+    assert probe_cookies.report([], bad, None) == {
+        "readable": 0,
+        "unreadable": 1,
+        "session_readable": False,
+        "session_expires": None,
+        "session_days_left": None,
+    }
 
 
 # ---------------------------------------------------------------------------

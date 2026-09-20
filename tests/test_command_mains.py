@@ -15,9 +15,11 @@ Chrome's own.
 
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -191,11 +193,18 @@ def test_skipped_papers_survives_a_corrupted_skipped_json(tmp_path: Path) -> Non
 # ---------------------------------------------------------------------------
 
 
-def _cookie_db(path: Path, rows: list[tuple[str, str, bytes]]) -> Path:
-    """A sqlite file with the one table and columns probe_cookies.read_jar reads."""
+def _cookie_db(path: Path, rows: list[tuple]) -> Path:
+    """A sqlite file with the one table and columns probe_cookies.read_jar
+    reads. A row may omit ``expires_utc``; it is then 0, a session cookie."""
     con = sqlite3.connect(path)
-    con.execute("CREATE TABLE cookies (name TEXT, host_key TEXT, encrypted_value BLOB)")
-    con.executemany("INSERT INTO cookies VALUES (?, ?, ?)", rows)
+    con.execute(
+        "CREATE TABLE cookies (name TEXT, host_key TEXT, encrypted_value BLOB, "
+        "expires_utc INTEGER)"
+    )
+    con.executemany(
+        "INSERT INTO cookies VALUES (?, ?, ?, ?)",
+        [row if len(row) == 4 else (*row, 0) for row in rows],
+    )
     con.commit()
     con.close()
     return path
@@ -239,8 +248,8 @@ def test_read_jar_reads_every_chatgpt_cookie_ordered_by_name(tmp_path: Path) -> 
     )
     rows = probe_cookies.read_jar(db)
     assert rows == [
-        ("__Secure-next-auth.session-token.0", "chatgpt.com", b"enc-session"),
-        ("_dd_s", "chatgpt.com", b"enc-analytics"),
+        ("__Secure-next-auth.session-token.0", "chatgpt.com", b"enc-session", 0),
+        ("_dd_s", "chatgpt.com", b"enc-analytics", 0),
     ]
 
 
@@ -252,7 +261,21 @@ def test_read_jar_copies_the_database_rather_than_opening_it_in_place(
     before = db.read_bytes()
     probe_cookies.read_jar(db)
     assert db.read_bytes() == before  # untouched, and still openable afterwards
-    assert probe_cookies.read_jar(db) == [("a", "chatgpt.com", b"x")]
+    assert probe_cookies.read_jar(db) == [("a", "chatgpt.com", b"x", 0)]
+
+
+def test_read_jar_keeps_the_expiry_and_reads_a_null_as_zero(tmp_path: Path) -> None:
+    db = _cookie_db(
+        tmp_path / "Cookies",
+        [
+            ("a", "chatgpt.com", b"x", 13_400_000_000_000_000),
+            ("b", "chatgpt.com", b"y", None),
+        ],
+    )
+    assert probe_cookies.read_jar(db) == [
+        ("a", "chatgpt.com", b"x", 13_400_000_000_000_000),
+        ("b", "chatgpt.com", b"y", 0),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +324,49 @@ def test_main_reports_an_unreadable_analytics_cookie_without_failing(
     out = capsys.readouterr().out
     assert "unreadable:" in out
     assert "1 readable, 1 unreadable" in out
+
+
+def test_main_json_reports_counts_and_the_session_horizon(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    """The daily health check reads this file for one number, the session
+    token's days left; the text output says the same in words."""
+    # 2026-12-19T10:59:49Z as Chrome stores it: microseconds since 1601.
+    dec_19 = int(datetime(2026, 12, 19, 10, 59, 49, tzinfo=UTC).timestamp())
+    expires = (dec_19 + probe_cookies.WEBKIT_EPOCH_DELTA_S) * 1_000_000
+    db = _cookie_db(
+        tmp_path / "Cookies",
+        [
+            ("__Secure-next-auth.session-token.0", "chatgpt.com", b"s0", expires),
+            ("__Secure-next-auth.session-token.1", "chatgpt.com", b"s1", expires),
+            ("_dd_s", "chatgpt.com", b"bad-blob", 0),
+        ],
+    )
+
+    def decrypt(enc: bytes) -> str:
+        if enc == b"bad-blob":
+            raise ValueError("bad padding")
+        return enc.decode()
+
+    monkeypatch.setattr(
+        probe_cookies, "load_client", lambda: _FakeCookieClient(db, decrypt=decrypt)
+    )
+    monkeypatch.setattr(probe_cookies.time, "time", lambda: dec_19 - 90 * 86400)
+    out_path = tmp_path / "cookies.json"
+
+    assert probe_cookies.main(["--json", str(out_path)]) == 0
+
+    doc = json.loads(out_path.read_text(encoding="utf-8"))
+    assert doc == {
+        "readable": 2,
+        "unreadable": 1,
+        "session_readable": True,
+        "session_expires": "2026-12-19",
+        "session_days_left": 90.0,
+    }
+    out = capsys.readouterr().out
+    assert "session token expires 2026-12-19 (90.0 days left)" in out
+    assert "2026-12-19 (90.0 d)" in out  # the expires column
 
 
 def test_main_exits_1_when_the_session_cookie_itself_is_unreadable(
