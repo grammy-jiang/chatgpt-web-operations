@@ -118,7 +118,7 @@ reproduced with the bearer token. All reads.
 | `GET /backend-api/conversations?…&is_archived=false&is_starred=false&hide_snorlax=true` | the main list hides project chats with `hide_snorlax`; archived and starred are filters |
 | `GET /backend-api/pins` | pinned chats and projects |
 | `GET /backend-api/gizmos/<g-p-id>` | one project: instructions, files |
-| `GET /backend-api/tasks` | scheduled tasks |
+| `GET /backend-api/tasks` | **not** scheduled tasks (corrected 2026-09-21): the account's background-task history -- 51 records measured, 49 of the old Deep research mechanism (`task_id` `deepresch_…`, 2025-03 to 2026-02) and 2 image generations (`imagegen_…`); `{"tasks": [50 per page], "cursor": "<opaque>"}`, `?cursor=` pages, `?limit=` is ignored, `final_message` always null, `prompt` mostly set. No command reads it. Real scheduled tasks are `/backend-api/automations`, see "Seen on 2026-09-21" below and `list_automations.py` |
 | `GET /backend-api/memories?include_memory_entries=false` | memory |
 | `GET /backend-api/user_system_messages` | custom instructions |
 | `GET /backend-api/models?…&supports_model_picker_upgrade_presets=true` | models, `thinking_efforts`, and `versions[].intelligence_presets`, which are the composer's Power slider |
@@ -129,7 +129,7 @@ reproduced with the bearer token. All reads.
 | `GET /backend-api/files/library/storage/usage` | storage totals by file type and by source |
 | `POST /backend-api/files/library` | the library listing: body `{}` or `{"limit": 100, "cursor": "…"}`; a page is `{"items": […], "cursor": "…"}` and the cursor is null on the last page; no body at all is a 422 |
 | `GET /backend-api/files/library/directories/path` | library folders (one root) |
-| `GET /backend-api/ps/plugins/installed?limit=1000`, `GET /backend-api/hazelnuts?include_permissions=true&scope=installed` | installed plugins and skills |
+| `GET /backend-api/ps/plugins/installed?limit=1000`, `GET /backend-api/hazelnuts?include_permissions=true&scope=installed` | installed apps/connectors and the user's own uploaded skills, respectively; item shapes enriched 2026-09-21, see "Seen on 2026-09-21" below and `list_skills.py` |
 
 ## Seen on 2026-09-20
 
@@ -507,6 +507,8 @@ the right way were in hand early and were walked past: the page bundle's
 | Endpoint | Use |
 |----------|-----|
 | `POST /backend-api/global/search` | search conversations by content, not just title |
+| `GET /backend-api/automations?filter=scheduled`, `?filter=paused`, `?filter=finished` | scheduled tasks ("automations"), the three tabs of `chatgpt.com/scheduled`; see `list_automations.py` |
+| `GET /backend-api/suggested_automations` | three template suggestions for creating a *new* automation; not used by any command here |
 
 **Captured 2026-09-21** from the page's own search box and replayed over
 plain HTTP: `POST /backend-api/global/search`, body `{"query": "<text>",
@@ -538,6 +540,81 @@ four of ten "worker" hits and finding a `gizmo_id` on each -- but the
 payload itself carries no project id, so a hit cannot say *which* project;
 `list_projects.py --id ... --chats` answers that. Whether an archived chat
 can match is not verified: none happened to match during capture.
+
+**Captured 2026-09-21**, scheduled tasks ("automations"). The page at
+`https://chatgpt.com/scheduled` (`chatgpt.com/tasks` redirects there) lists
+its "Active", "Paused" and "Finished" tabs from `GET
+/backend-api/automations?filter=scheduled`, `?filter=paused` and
+`?filter=finished`, reproduced over plain HTTP with the bearer token.
+Response 200: `{"items": [...], "cursor": <str|null>}`; the cursor was
+null in all three captures (7, 13 and 5 items) -- treat a non-null cursor
+as "more exist, not followed" rather than guessing at the paging
+parameter. 350-750 ms per filter.
+
+Every item, in all three filters, has exactly these keys: `can_delete`,
+`complexity`, `content_type`, `conversation_id`, `created_by_display_name`,
+`current_user_role`, `default_timezone`, `display_emoji`,
+`display_schedule`, `display_title`, `email_enabled`, `executor`,
+`external_channel`, `id`, `is_enabled`, `last_edited_at`,
+`last_edited_by_display_name`, `last_run_time`, `next_run_times`,
+`notifications_enabled`, `prompt`, `schedule`, `schedule_components`,
+`schedule_time_of_day`, `source_conversation_is_work_mode`,
+`target_time_utc`, `team_id`, `thread_mode`, `timing_mode`, `title`,
+`updated_at`, `webhook_triggers`. `schedule` is an iCalendar string, for
+example `"BEGIN:VEVENT\nDTSTART:20260830T075934Z\nRRULE:FREQ=HOURLY\n
+END:VEVENT"`. `schedule_components` is a dict with keys `by_day`,
+`by_hour`, `by_minute`, `by_month`, `by_month_day`, `by_second`,
+`by_year_day`, `frequency`, `start_time` (each null or a string, for
+example `frequency` `"hourly"`, `by_minute` `"59"`). `timing_mode` values
+seen: `"condition_watch"` (a monitor that polls), `"exact_schedule"`,
+`"flexible_schedule"`. `display_schedule` is `"Monitoring"` for
+`condition_watch` items and null otherwise. `next_run_times` is a list of
+ISO strings with their own UTC offset, for example
+`"2026-09-21T08:59:34+10:00"` (empty for finished items); `last_run_time`
+is an ISO UTC string or null. `is_enabled` is true for scheduled, false
+for paused and finished. `executor` is `"cloud"` and `thread_mode` is
+`"existing_chat"` on every item seen. `conversation_id` is where the task
+posts its results; `prompt` is the task's own instruction text, the
+user's content. `list_automations.py` implements this.
+
+`GET /backend-api/suggested_automations` returns a list of 3 template
+suggestions: `title`, `description`, `user_message`,
+`suggested_automation_type`, `system_hint`, `emoji`, `icon_url`,
+`announcement_id`. No command uses it: it proposes a *new* automation to
+create, and this skill's automations command is read-only.
+
+**Captured 2026-09-21**, skills and apps, enriching the 2026-09-19 row.
+`GET /backend-api/hazelnuts?include_permissions=true&scope=installed` ->
+`{"hazelnuts": [...]}`: the user's own uploaded skills (4 on this account
+that day). Keys per item: `base_sediment_id`, `brand_color`,
+`check_sum_hash`, `creator_id`, `creator_name`, `default_version_no`,
+`description`, `display_name`, `enabled`, `files` (a dict, path ->
+`{"start", "length"}` byte ranges, never content), `icon_small`,
+`iconography`, `id`, `in_my_list`, `last_updated_at`, `latest_version_no`,
+`name`, `permissions` (`can_read`, `can_write`, `can_export`,
+`can_share`, `can_share_workspace`, `can_enable_share`, `can_delete`),
+`safety_check_status` (seen: `"blocked"`, `"unchecked"`), `safety_scan`
+(`{"risk_score": int, "justification": str, "labels": [str]}`, for
+example `labels` `["safeguard_evasion"]` on one skill), `sample_prompts`,
+`sediment_id`, `short_description`, `surfaces` (for example `["tpp"]`),
+`updated_at`. That day: `research-pipeline` was `enabled`,
+`default_version_no` `"1"`, `latest_version_no` `"14"`,
+`safety_check_status` `"blocked"`, `labels` `["safeguard_evasion"]`, 46
+files. The meaning of `safety_check_status` and of default versus latest
+version is **not verified**: `list_skills.py` prints them verbatim, never
+interpreted.
+
+`GET /backend-api/ps/plugins/installed?limit=1000` ->
+`{"plugins": [...], "pagination": {"limit", "next_page_token"}}`: apps
+and connectors (16 that day). Per item: `id`, `name`, `created_at`,
+`scope` (`"GLOBAL"`/`"USER"`), `status` (`"ENABLED"` seen), `enabled`,
+`installed_at`, `creator_name` (`"OpenAI"` or the user), `connector_id`,
+`canonical_app_id`, `release` (`{version, display_name, description,
+interface {...}, skills, ...}`), `installation_policy`,
+`authentication_policy`, `disabled_reason`, `disabled_skill_names`.
+`next_page_token` was null; a non-null token means more exist and is not
+followed, the paging parameter being unknown, same as `automations`'
+`cursor`. `list_skills.py --apps` implements this.
 
 ## Re-run this when
 

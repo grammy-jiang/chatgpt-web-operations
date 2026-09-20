@@ -59,8 +59,8 @@ it, including capture. "Evidence" says whether the endpoint is already known.
 | R1 | Record a run's hidden inputs: custom instructions, memory state, model + effort preset, project instructions | read | endpoints seen | high: makes runs auditable and repeatable | small | done 2026-09-20 |
 | R2 | Project details: instructions and files of one project (`gizmos/<g-p-id>`) | read | seen | medium | small | 1 |
 | R3 | Credits and plan limit window in `probe_account.py` (`wham/usage`) | read | seen; note the weekly window excludes chat | medium | tiny | 1 |
-| R4 | Scheduled tasks list (`tasks`) | read | seen | low | small | deferred |
-| R5 | Installed plugins and skills (`ps/plugins/installed`, `hazelnuts`) | read | seen | low: checks the research-pipeline skill is installed on chatgpt.com | small | deferred |
+| R4 | Scheduled tasks (automations) | read | captured 2026-09-21: `GET /backend-api/automations?filter=…` (`references/endpoint-discovery.md`, "Seen on 2026-09-21"); `/backend-api/tasks`, this row's original evidence, turned out to be the account's background-task history, not scheduled tasks -- see that endpoint's own corrected row | low | small | done 2026-09-21: `list_automations.py` |
+| R5 | Installed plugins and skills (`ps/plugins/installed`, `hazelnuts`) | read | captured 2026-09-21: full item shapes for both endpoints (`references/endpoint-discovery.md`, "Seen on 2026-09-21") | low: checks the research-pipeline skill is installed on chatgpt.com | small | done 2026-09-21: `list_skills.py` |
 | R6 | Global search of chats by content | read | captured 2026-09-21 (`POST /backend-api/global/search`) | medium | small | done 2026-09-21: `search_chats.py` |
 | M2 | Pin and unpin a chat (`is_starred`), unarchive | write | captured 2026-09-20: `PATCH /backend-api/conversation/<id>` with `is_starred` or `is_archived` true / false | medium: mark a run's report chat | command pending | 2 |
 | M3 | Set or update a project's instructions | write | captured 2026-09-20: `PATCH /backend-api/projects/<g-p-id>` with the full body (name, instructions, emoji, theme) | high: house rules for workers become explicit per run | command pending | 2 |
