@@ -1139,6 +1139,24 @@ def test_ensure_desktop_env_sets_defaults_from_the_uid(
     assert os.environ["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/run/user/4242/bus"
 
 
+def test_ensure_desktop_env_never_goes_through_the_patching_loader(
+    monkeypatch,
+) -> None:
+    """``_helpers()`` patches chatgpt_session's cookie reader as a side
+    effect. A defaulting helper that reached the session module through it
+    patched that module for every later test in the process, and three
+    tests in tests/test_session.py failed only in a full run (2026-09-20)."""
+
+    def boom() -> None:
+        raise AssertionError("ensure_desktop_env must not call _helpers()")
+
+    monkeypatch.setattr(cc, "_helpers", boom)
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
+    cc.ensure_desktop_env()
+    assert "DBUS_SESSION_BUS_ADDRESS" in os.environ
+
+
 def test_ensure_desktop_env_does_not_override_an_existing_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

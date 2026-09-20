@@ -12,6 +12,7 @@ with the browser logged in to chatgpt.com.
 """
 
 import json
+import os
 import shutil
 import sqlite3
 import sys
@@ -19,6 +20,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from collections.abc import MutableMapping
 from pathlib import Path
 from typing import NoReturn
 
@@ -54,7 +56,41 @@ def fail(msg: str) -> NoReturn:
     raise SystemExit(1)
 
 
+def ensure_desktop_env(environ: MutableMapping[str, str] | None = None) -> None:
+    """Default the D-Bus session-bus variables cron never sets.
+
+    A cron job's environment has no ``DBUS_SESSION_BUS_ADDRESS``: nothing
+    logged this user in on that terminal, so nothing exported it. Without
+    that variable, libdbus falls back to autolaunching a bus, and the
+    autolaunch path needs ``$DISPLAY`` for its X11 fallback, so it dies with
+    "Unable to autolaunch a dbus-daemon without a $DISPLAY for X11" -- even
+    though the real per-user bus is already running and reachable, because
+    ``loginctl`` linger keeps it alive with nobody logged in. Before this
+    function existed, four maintenance scripts under ``~/.local/bin`` each
+    exported ``XDG_RUNTIME_DIR`` or ``DBUS_SESSION_BUS_ADDRESS`` themselves
+    before calling anything in this module. Defaulting both here, at the
+    top of :func:`_keyring_password`, where the bus is first touched, means
+    no caller has to know the bus exists, let alone how to address it.
+
+    Each variable is defaulted independently and never overwritten once
+    set, so calling this twice, or with one variable already set by the
+    caller, is a no-op for that variable. ``environ`` defaults to
+    ``os.environ`` (so the real process picks up the default) but takes any
+    mutable string mapping, such as a plain ``dict``, so this can be unit
+    tested without touching the real process environment.
+    """
+    if environ is None:
+        environ = os.environ
+    xdg_runtime_dir = environ.get("XDG_RUNTIME_DIR")
+    if xdg_runtime_dir is None:
+        xdg_runtime_dir = f"/run/user/{os.getuid()}"
+        environ["XDG_RUNTIME_DIR"] = xdg_runtime_dir
+    if "DBUS_SESSION_BUS_ADDRESS" not in environ:
+        environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={xdg_runtime_dir}/bus"
+
+
 def _keyring_password(app: str) -> bytes:
+    ensure_desktop_env()
     import dbus  # system python3 provides python-dbus
 
     bus = dbus.SessionBus()

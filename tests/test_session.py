@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import sqlite3
 import sys
 import types
@@ -119,7 +120,17 @@ class _FakeBus:
 
 
 def _install_fake_dbus(monkeypatch, bus: _FakeBus) -> None:
-    """Replace sys.modules['dbus'] so _keyring_password never reaches the real bus."""
+    """Replace sys.modules['dbus'] so _keyring_password never reaches the real bus.
+
+    Also clears XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS: _keyring_password's
+    first line is now ``ensure_desktop_env()``, which mutates the real
+    ``os.environ`` (its default target) when either is absent. Starting every
+    faked-bus test from "both absent", the cron case, makes the test outcome
+    independent of whatever this machine's own desktop session happens to
+    export; monkeypatch restores the true ambient values either way.
+    """
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
     fake = types.ModuleType("dbus")
     fake.SessionBus = lambda: bus
     fake.Interface = lambda obj, iface_name: obj
@@ -177,6 +188,53 @@ def test_fail_prints_the_current_prog_prefix_and_exits_1(monkeypatch, capsys) ->
 
 
 # ---------------------------------------------------------------------------
+# ensure_desktop_env -- the D-Bus variables cron never sets
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_desktop_env_sets_both_variables_from_the_uid_when_absent(
+    monkeypatch,
+) -> None:
+    """A cron environment starts with neither variable; both must be derived
+    from getuid(), not left for the caller to guess."""
+    monkeypatch.setattr(chatgpt_session.os, "getuid", lambda: 4242)
+    environ: dict[str, str] = {}
+    chatgpt_session.ensure_desktop_env(environ)
+    assert environ["XDG_RUNTIME_DIR"] == "/run/user/4242"
+    assert environ["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/run/user/4242/bus"
+
+
+def test_ensure_desktop_env_leaves_either_preset_variable_untouched(
+    monkeypatch,
+) -> None:
+    """A value the caller already exported (its own XDG_RUNTIME_DIR, or a bus
+    address pointed somewhere non-standard) must never be overwritten."""
+    monkeypatch.setattr(chatgpt_session.os, "getuid", lambda: 4242)
+
+    custom_dir = {"XDG_RUNTIME_DIR": "/custom/runtime"}
+    chatgpt_session.ensure_desktop_env(custom_dir)
+    assert custom_dir["XDG_RUNTIME_DIR"] == "/custom/runtime"
+    assert custom_dir["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/custom/runtime/bus"
+
+    custom_address = {"DBUS_SESSION_BUS_ADDRESS": "unix:path=/elsewhere/bus"}
+    chatgpt_session.ensure_desktop_env(custom_address)
+    assert custom_address["DBUS_SESSION_BUS_ADDRESS"] == "unix:path=/elsewhere/bus"
+    assert custom_address["XDG_RUNTIME_DIR"] == "/run/user/4242"
+
+
+def test_ensure_desktop_env_is_idempotent(monkeypatch) -> None:
+    """A second call in the same process (_keyring_password and
+    virtual_display can both run there) must change nothing the first call
+    already set."""
+    monkeypatch.setattr(chatgpt_session.os, "getuid", lambda: 4242)
+    environ: dict[str, str] = {}
+    chatgpt_session.ensure_desktop_env(environ)
+    first = dict(environ)
+    chatgpt_session.ensure_desktop_env(environ)
+    assert environ == first
+
+
+# ---------------------------------------------------------------------------
 # _keyring_password -- the GNOME keyring over D-Bus, faked
 # ---------------------------------------------------------------------------
 
@@ -224,6 +282,40 @@ def test_keyring_password_fails_when_no_item_is_found(monkeypatch) -> None:
     with pytest.raises(SystemExit) as exc:
         chatgpt_session._keyring_password("chrome")
     assert exc.value.code == 1
+
+
+def test_keyring_password_sets_the_bus_address_before_opening_the_session_bus(
+    monkeypatch,
+) -> None:
+    """Under cron there is no DBUS_SESSION_BUS_ADDRESS yet; _keyring_password
+    must set one itself -- via ensure_desktop_env() -- before calling
+    dbus.SessionBus(), not assume a caller already exported it. The fake
+    SessionBus records what DBUS_SESSION_BUS_ADDRESS was at the moment it was
+    called, so a defaulting call placed too late (e.g. after the bus is
+    opened) would be caught here even though the faked bus itself does not
+    care what address it was "opened" with.
+    """
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    monkeypatch.delenv("DBUS_SESSION_BUS_ADDRESS", raising=False)
+    monkeypatch.setattr(chatgpt_session.os, "getuid", lambda: 4242)
+
+    service = _FakeService(unlocked=["/item1"], locked=[])
+    bus = _FakeBus(service, {"/item1": _FakeItem(secret=b"unlocked-secret")})
+    seen_address: list[str | None] = []
+
+    fake = types.ModuleType("dbus")
+
+    def session_bus() -> _FakeBus:
+        seen_address.append(os.environ.get("DBUS_SESSION_BUS_ADDRESS"))
+        return bus
+
+    fake.SessionBus = session_bus
+    fake.Interface = lambda obj, iface_name: obj
+    fake.String = lambda s, variant_level=0: s
+    monkeypatch.setitem(sys.modules, "dbus", fake)
+
+    assert chatgpt_session._keyring_password("chrome") == b"unlocked-secret"
+    assert seen_address == ["unix:path=/run/user/4242/bus"]
 
 
 # ---------------------------------------------------------------------------

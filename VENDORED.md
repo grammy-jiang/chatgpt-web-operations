@@ -31,6 +31,17 @@ not an origin. The table records where each file came from.
   formatted with this repository's ruff rules since 2026-09-20, so a diff
   against their origins is larger than the listed hunks.
 - `round_state.py`: the listed functions, byte-identical, in origin order.
+- 2026-09-20 (plain-HTTP-from-cron fix): `chatgpt_session.py` gained
+  `ensure_desktop_env()`, called at the top of `_keyring_password()`, so a
+  cron caller with no `DBUS_SESSION_BUS_ADDRESS` no longer dies trying to
+  autolaunch a bus. This did not exist in the binnacle origin above; the
+  sha256 in the table is still the 2026-09-19 origin snapshot and is not
+  re-taken, per "owned here" above -- these files are not re-vendored, only
+  changed and tested in place. `chatgpt_client.py`'s own `ensure_desktop_env`
+  (previously the only copy, called from `virtual_display` alone) is now a
+  thin delegate to the one above, so the HTTP read path and the browser path
+  share one defaulting rule instead of the browser path being the only one
+  that had it.
 
 ## Provenance check
 

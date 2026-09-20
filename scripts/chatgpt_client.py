@@ -51,7 +51,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Generator, Iterable
+from collections.abc import Generator, Iterable, MutableMapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -1118,10 +1118,25 @@ def wait_for_reply(
 # ---------------------------------------------------------------------------
 
 
-def ensure_desktop_env() -> None:
-    uid = os.getuid()
-    os.environ.setdefault("XDG_RUNTIME_DIR", f"/run/user/{uid}")
-    os.environ.setdefault("DBUS_SESSION_BUS_ADDRESS", f"unix:path=/run/user/{uid}/bus")
+def ensure_desktop_env(environ: MutableMapping[str, str] | None = None) -> None:
+    """Default the D-Bus session-bus variables cron never sets.
+
+    A thin delegate: the defaulting logic lives next to the D-Bus call that
+    needs it, in ``chatgpt_session`` (see ``ensure_desktop_env`` there, and
+    VENDORED.md for why this module keeps only one copy). Kept importable
+    here, under its original name, because callers such as ``preflight.py``
+    and :func:`virtual_display` reach it as ``chatgpt_client.ensure_desktop_env``.
+
+    Imports the session module plainly, never through ``_helpers()``: that
+    loader also patches the module's cookie reader as a side effect, and a
+    defaulting helper that quietly did that broke three unrelated tests the
+    first time the full suite ran (2026-09-20).
+    """
+    if str(HELPERS) not in sys.path:
+        sys.path.insert(0, str(HELPERS))
+    import chatgpt_session  # type: ignore[import-not-found]
+
+    chatgpt_session.ensure_desktop_env(environ)
 
 
 def reexec_with_playwright(argv: list[str] | None = None) -> None:
