@@ -2,7 +2,7 @@
 """Start, poll and collect a Deep research run.
 
     deep_research.py start PROMPT_FILE --conversation CONV_ID --run RUN.json
-                     [--title T]
+    deep_research.py start PROMPT_FILE --from-send SEND.json --run RUN.json
     deep_research.py start PROMPT_FILE --project g-p-<id> --run RUN.json
                      [--title T] [--effort LEVEL]
     deep_research.py status --run RUN.json [--wait] [--timeout 1800]
@@ -12,67 +12,99 @@
 
 A Deep research run lives inside a "carrier conversation": an ordinary
 conversation the caller owns, named by its id. ``start``, ``status`` and
-``export`` all key on that id (RUN.json's ``conversation_id``); only one
-research runs at a time per carrier conversation, because a later
-``start`` there replaces the state a later ``get_state`` -- so also
-``status`` and ``export`` -- will return for it. The carrier
+``export`` all key on that id (RUN.json's ``conversation_id``, the only
+key RUN.json must carry); only one research runs at a time per carrier
+conversation, because a later ``start`` there replaces the state a later
+``get_state`` -- so also ``status`` and ``export`` -- will return for it
+(THE MEASURED FACTS, 2026-09-20, twelve live runs: "a second start on it
+yields a session id whose state is unreachable"). The carrier
 conversation's own messages are never added to or changed by any of
-this, not by ``start``, not by polling, not by exporting (THE MEASURED
-FACTS, 2026-09-20: a six-turn conversation still had six turns after a
-headless ``start``, though its title was regenerated).
+this, not by ``start``, not by polling, not by exporting (a six-turn
+conversation still had six turns after a headless ``start``, though its
+title was regenerated).
 
-``start`` is headless by default: ``--conversation`` names a conversation
-the caller already owns (an id the caller does not own still answers
-200, with that other conversation's own unrelated state, so never guess
-one), and ``start`` calls the connector's own ``start`` tool directly
-over ``POST /backend-api/ecosystem/call_mcp`` -- ``mcp_body("start",
-{"user_query": <PROMPT_FILE's text>}, conversation_id, message_id)``,
-with ``message_id`` a fresh ``uuid4`` minted here, never read back from
-anywhere. No browser opens, ``send_prompt.py`` is not called, and no
-message is ever posted (THE MEASURED FACTS, 2026-09-20: a live-verified
-simplification of the send-based flow ROADMAP.md records under Stage 3
-item 4, "Deep research measured 2026-09-20"). The new session id comes
-from the result's ``structuredContent.session_id``; a recursive
-``chatgpt_client.find_key`` search over the whole result is the
-fallback, in case that shape moves later (``start_session_id``). RUN.json
-then records ``conversation_id``, ``session_id``, ``message_id``,
-``started_at``, ``prompt_file``, ``title`` and ``"mode": "headless"``.
-Exit 0 once RUN.json is written. Exit 1 when the call fails over HTTP,
-answers ``isError``, or carries no session id (each prints what came
-back, truncated). Exit 2 for a bad argument: no such PROMPT_FILE,
-neither ``--conversation`` nor ``--project`` given, or both given.
+THE TOPIC COMES FROM THE CARRIER, NEVER FROM AN ARGUMENT: ``start``'s own
+``user_query`` argument is sent, because the tool takes it, but twelve
+live runs agree it is not what decides the research question -- the
+carrier conversation's own content does. A carrier whose only turn was
+"reply with the single word OK" produced a report titled "Handling
+'Reply with the Single Word OK' Test Prompts" even though ``user_query``
+asked about tide gauges. So before any ``start``, the carrier must
+already contain the prompt to research, and a fresh random uuid as
+``--conversation`` is refused outright (``isError``): it must be a real
+conversation the caller owns. This is why ``start`` has three ways to
+reach a carrier that already qualifies:
 
-``--project g-p-<id>`` keeps the original browser path exactly as it
-was, for the one thing headless ``start`` cannot do: mint a brand new
-carrier conversation. Once that conversation exists, run later research
-on it through ``--conversation`` instead; there is no other reason to
-send a real prompt. It sends PROMPT_FILE with the Deep research system
-hint (``plugin:connector_openai_deep_research``) through
-``send_prompt.py`` in process -- ``--no-wait``, because a Deep research
-turn is not the assistant reply that wait is for -- reads the session
-id back out of the document ``send_prompt.py`` wrote, opens a session
-and reads the new conversation for the assistant ``code`` message
-addressed to ``api_tool.call_tool`` (its id is the ``message_id`` every
-later MCP call needs, ``references/endpoint-discovery.md``, "Runs 4 to
-6"), then writes RUN.json the same way but with ``"mode": "send"``.
-Before the send is attempted: exit 2 for a missing PROMPT_FILE. The
-send itself: ``send_prompt.py``'s own exit code passes through
-unchanged (1 a send, resolve or wait failure; 2 a bad argument such as
-an unknown ``--effort``). Once the send succeeded: exit 1 when the
-stream carried no session id ("the stream carried no session id") or
-the conversation carries no tool-call message yet.
+``--conversation CONV_ID`` calls the connector's own ``start`` tool
+directly over ``POST /backend-api/ecosystem/call_mcp`` on a conversation
+the caller says already contains the prompt --
+``mcp_body("start", {"user_query": <PROMPT_FILE's text>}, conversation_id,
+message_id)``, with ``message_id`` a fresh ``uuid4`` minted here, never
+read back from anywhere. No browser opens and no message is ever posted;
+use this once a qualifying carrier already exists -- one ``--project`` or
+``--from-send`` minted earlier, or any other conversation of the
+caller's own that already states the question.
+
+``--from-send SEND.json`` is the two-step flow's second half: run
+``send_prompt.py PROMPT_FILE --project g-p-<id> --json SEND.json``
+first (an ordinary send -- no system hint needed, since posting the
+prompt as a normal message already mints a carrier that contains it),
+then point this at that document. It reads SEND.json's
+``conversation_id`` (required) and ``session_id`` (carried through when
+present, though ``start`` mints its own and that supersedes it -- kept
+only as a fallback for the unlikely case that call answers with none),
+then calls the same MCP ``start`` that ``--conversation`` does, on that
+conversation.
+
+``--project g-p-<id>`` is the one-command path: it posts PROMPT_FILE with
+``send_prompt.py`` (``--no-wait``, since only the carrier's existence and
+content matter here, never any reply -- a plain send, not the old
+system-hinted one: a hint is what makes a turn invoke the connector as a
+tool, and this no longer relies on that, so none is sent) to mint a fresh
+carrier conversation containing PROMPT_FILE, records that send's own
+document at ``RUN.json.send.json``, then calls the same MCP ``start`` on
+the conversation ``send_prompt.py`` resolved. Minting a brand new carrier
+in one command is the only reason to reach for ``--project``; once a
+carrier exists, run later research on it through ``--conversation``
+instead.
+
+Give exactly one of ``--conversation``, ``--from-send`` or ``--project``.
+``--title`` (a label recorded in RUN.json) and ``--effort`` (``min``,
+``standard``, ``extended`` or ``max``) act only through ``--project``'s
+own send -- ``--title`` renames the new chat once sent, ``--effort`` pins
+the send's reasoning effort -- and do nothing for a ``start`` that never
+sends anything, so both are refused with ``--conversation`` or
+``--from-send``.
+
+The new session id comes from the ``start`` result's own
+``structuredContent.session_id``; a recursive ``chatgpt_client.find_key``
+search over the whole result is the fallback, in case that shape moves
+later. RUN.json then records ``conversation_id``, ``session_id``,
+``message_id``, ``started_at``, ``prompt_file``, ``title`` and ``"mode"``
+(``"headless"``, ``"send"`` or ``"from_send"``, one per ``start`` mode).
+Exit 0 once RUN.json is written. Exit 1 when the start call fails over
+HTTP, answers ``isError``, or carries no session id at all (each prints
+what came back, truncated); also when ``--project``'s own send fails
+(its exit code passes through unchanged: 1 a send, resolve or wait
+failure; 2 a bad argument such as an unknown ``--effort``) or its record
+cannot be read back afterwards. Exit 2 for a bad argument: no such
+PROMPT_FILE, none or more than one of
+``--conversation``/``--from-send``/``--project`` given, ``--title`` or
+``--effort`` given without ``--project``, or ``--from-send``'s SEND.json
+missing, unreadable, not valid JSON, or missing its own
+``conversation_id``.
 
 ``status`` polls ``get_state`` for the run named by RUN.json and prints
 the carrier conversation, the number of progress messages, the last
 three reasoning titles, and DONE (a message's ``metadata.reasoning_title``
 starts with "Generated report") or RUNNING. Exit 0 when done, 3 when
 still running (so a caller can loop it), 1 on an MCP error or an HTTP
-failure, 2 when RUN.json cannot be read or carries no ``conversation_id``.
-``--wait`` polls every ``--interval`` seconds (minimum 60, enforced --
-three calls every 30 s for ten minutes earned an HTTP 429) until done or
-``--timeout`` runs out, printing a line only when the summary changes; a
-429 sleeps 120 s and tries again rather than counting as either a change
-or a failure.
+failure, 2 when RUN.json cannot be read or carries no ``conversation_id``
+(the only key it must carry). ``--wait`` polls every ``--interval``
+seconds (minimum 60, enforced -- three calls every 30 s for ten minutes
+earned an HTTP 429) until done or ``--timeout`` runs out, printing a line
+only when the summary changes; a 429 sleeps 120 s and tries again rather
+than counting as either a change or a failure.
 
 ``export`` calls ``get_state`` first and refuses with exit 3 when no
 "Generated report" title exists yet, unless ``--force`` skips that check
@@ -92,8 +124,16 @@ The front conversation never receives the report (60 minutes observed);
 on RUN.json's ``conversation_id``, never ``session_id`` (THE MEASURED
 FACTS, 2026-09-20: ``get_state`` called with one conversation's id and
 another run's session id still returned the first conversation's own
-research) -- ``session_id`` is kept for the record, never used to pick
-which research comes back.
+research) -- ``session_id`` is kept for the record when a caller has it,
+never required, and never used to pick which research comes back:
+``status`` and ``export`` send whatever RUN.json recorded, or the
+conversation id itself when RUN.json has none, since the server ignores
+the value either way. ``message_id`` is treated just as loosely -- "a
+message_id may be any uuid" -- so a RUN.json written by hand with only
+``conversation_id`` still works: a freshly minted ``uuid4`` stands in for
+a missing ``message_id``, minted once per command and reused across
+every MCP call that command makes (every poll of one ``--wait``, or both
+calls one ``export`` makes), never regenerated mid-command.
 """
 
 from __future__ import annotations
@@ -117,10 +157,6 @@ import chatgpt_client
 import send_prompt
 from _common import ensure_venv, open_session
 
-# The connector, as the composer's own "+" menu names it
-# (references/endpoint-discovery.md, "Deep research through system_hints").
-DEEP_RESEARCH_HINT = "plugin:connector_openai_deep_research"
-
 # Every tool call goes through this one endpoint, naming the connector by
 # app_uri (references/endpoint-discovery.md, "Runs 4 to 6").
 APP_URI = "connectors://connector_openai_deep_research"
@@ -137,15 +173,31 @@ RATE_LIMIT_BACKOFF = 120.0
 
 EXPORT_TYPES = ("docx", "pdf")
 
-_RUN_KEYS = ("conversation_id", "session_id", "message_id")
+# The one key every RUN.json and every send_prompt.py --json document
+# ("start --from-send", and this module's own intermediate send record)
+# must carry (module docstring, THE MEASURED FACTS: get_state and export
+# key on conversation_id alone).
+REQUIRED_CONVERSATION_KEYS: tuple[str, ...] = ("conversation_id",)
 
 # Repeated in every subcommand's --help (module docstring, same facts).
 CARRIER_NOTE = (
     "The research is hosted by the carrier conversation named by "
-    "--conversation (or created fresh by --project). Only one research "
-    "runs at a time per conversation: a later start there replaces the "
-    "state that get_state -- so also status and export -- will return. "
-    "The conversation's own messages are never added to or changed."
+    "--conversation, --from-send or --project. Only one research runs at "
+    "a time per conversation: a later start there replaces the state "
+    "that get_state -- so also status and export -- will return. The "
+    "conversation's own messages are never added to or changed."
+)
+
+# Repeated in "start"'s own --help (module docstring, same facts, rule 2:
+# say plainly that the carrier's content, not user_query, decides the topic).
+START_TOPIC_NOTE = (
+    "The research topic comes from the carrier conversation's own "
+    "content, never from user_query: the API accepts user_query, but "
+    "measurement shows the carrier decides the topic regardless of what "
+    "user_query says, so the carrier must already contain the prompt you "
+    "want researched. --title and --effort act only through --project's "
+    "send; they do nothing, and are refused, with --conversation or "
+    "--from-send."
 )
 
 
@@ -234,32 +286,25 @@ def start_session_id(resp: Any) -> str | None:
     return chatgpt_client.find_key([resp], "session_id")
 
 
-def tool_call_message_id(conversation: dict[str, Any]) -> str | None:
-    """The id of the assistant's ``code`` message addressed to
-    ``api_tool.call_tool`` -- the id every later MCP call needs as its
-    ``message_id`` (THE MEASURED FACTS: "an assistant message with
-    content_type 'code' and recipient 'api_tool.call_tool'").
+def run_session_arg(run: dict[str, Any]) -> str:
+    """The value ``status``/``export`` send as the MCP call's own
+    ``session_id`` argument: the recorded one when RUN.json has it, else
+    the carrier conversation's own id.
 
-    Walks ``conversation["mapping"]`` (the same conversation shape
-    ``chatgpt_client.chain`` reads, unordered here since only one such
-    message is expected); ``None`` when there is no such message yet, or
-    ``conversation`` is not shaped like a conversation at all.
+    THE MEASURED FACTS, 2026-09-20: the server keys ``get_state`` and
+    ``export`` on ``conversation_id`` alone and ignores this argument's
+    value entirely, so any non-empty string satisfies it and the
+    conversation id always qualifies as a stand-in.
     """
-    mapping = conversation.get("mapping") if isinstance(conversation, dict) else None
-    if not isinstance(mapping, dict):
-        return None
-    for node in mapping.values():
-        msg = (node or {}).get("message") or {}
-        author = msg.get("author") or {}
-        content = msg.get("content") or {}
-        if (
-            author.get("role") == "assistant"
-            and content.get("content_type") == "code"
-            and msg.get("recipient") == "api_tool.call_tool"
-        ):
-            mid = msg.get("id")
-            return str(mid) if mid else None
-    return None
+    return run.get("session_id") or run["conversation_id"]
+
+
+def run_message_id(run: dict[str, Any]) -> str:
+    """The value ``status``/``export`` send as the MCP call's own
+    ``message_id`` argument: the recorded one when RUN.json has it, else a
+    freshly minted ``uuid4`` (THE MEASURED FACTS: "A message_id may be
+    any uuid.")."""
+    return run.get("message_id") or str(uuid.uuid4())
 
 
 _FILENAME_STAR_RE = re.compile(r"filename\*\s*=\s*UTF-8''([^;]+)", re.IGNORECASE)
@@ -339,11 +384,14 @@ def _call_mcp(
     )
 
 
-def _load_run(path: str) -> dict[str, Any] | None:
-    """RUN.json, parsed and checked for the three ids every MCP call
-    needs (``conversation_id`` is the one ``get_state`` and ``export``
-    actually key on; module docstring, THE MEASURED FACTS); prints why
-    and returns ``None`` instead of raising."""
+def _load_json_object(path: str, required: tuple[str, ...]) -> dict[str, Any] | None:
+    """A JSON object read from ``path``, checked for ``required`` keys;
+    prints why and returns ``None`` instead of raising.
+
+    One parser and one set of error messages, shared by RUN.json (for
+    ``status``/``export``), a ``--from-send`` SEND.json, and this
+    module's own intermediate ``*.send.json`` record.
+    """
     try:
         text = Path(path).read_text(encoding="utf-8")
     except OSError as exc:
@@ -357,11 +405,19 @@ def _load_run(path: str) -> dict[str, Any] | None:
     if not isinstance(data, dict):
         print(f"{path} is not a JSON object")
         return None
-    missing = [key for key in _RUN_KEYS if not data.get(key)]
+    missing = [key for key in required if not data.get(key)]
     if missing:
         print(f"{path} is missing {', '.join(missing)}")
         return None
     return data
+
+
+def _load_run(path: str) -> dict[str, Any] | None:
+    """RUN.json, parsed and checked for ``conversation_id`` -- the only
+    key ``status`` and ``export`` need (module docstring, THE MEASURED
+    FACTS): ``run_session_arg``/``run_message_id`` supply a safe stand-in
+    for ``session_id``/``message_id`` when RUN.json carries neither."""
+    return _load_json_object(path, REQUIRED_CONVERSATION_KEYS)
 
 
 def _write_run_doc(run_path: str, run_doc: dict[str, Any]) -> Path:
@@ -395,20 +451,25 @@ def _wait_for_done(
 ) -> int:
     """Poll ``get_state`` until DONE, an MCP error, or ``timeout`` runs out.
 
-    Prints a summary line only when it changes, not on every poll. A 429
-    sleeps ``RATE_LIMIT_BACKOFF`` seconds and tries again instead of
-    counting as either a change or a failure; any other non-200 status
-    ends the wait at once.
+    ``run_session_arg(run)`` and ``run_message_id(run)`` are each resolved
+    once, before the loop starts, and reused for every poll -- a RUN.json
+    missing either still works, and does not mint a new ``message_id`` on
+    every poll. Prints a summary line only when it changes, not on every
+    poll. A 429 sleeps ``RATE_LIMIT_BACKOFF`` seconds and tries again
+    instead of counting as either a change or a failure; any other
+    non-200 status ends the wait at once.
     """
+    session_arg = run_session_arg(run)
+    message_id = run_message_id(run)
     deadline = time.monotonic() + timeout
     prev: dict[str, Any] | None = None
     while True:
         status, data = _call_mcp(
             session,
             "get_state",
-            {"session_id": run["session_id"]},
+            {"session_id": session_arg},
             run["conversation_id"],
-            run["message_id"],
+            message_id,
         )
         if status == 429:
             print(f"HTTP 429: backing off {RATE_LIMIT_BACKOFF:g} s before the next try")
@@ -439,14 +500,32 @@ def _wait_for_done(
 
 
 def _start_headless(
-    args: argparse.Namespace, prompt_path: Path, started_at: str
+    args: argparse.Namespace,
+    prompt_path: Path,
+    started_at: str,
+    *,
+    conversation_id: str = "",
+    fallback_session_id: str | None = None,
+    mode: str = "headless",
 ) -> int:
+    """Call the connector's own ``start`` tool directly -- the one MCP
+    call every ``start`` mode ends in (module docstring, THE MEASURED
+    FACTS 2026-09-20). ``conversation_id`` defaults to ``args.conversation``
+    (the ``--conversation`` path); ``--project`` and ``--from-send`` pass
+    their own resolved conversation id instead. ``user_query`` is
+    PROMPT_FILE's text, sent because the tool takes it, though measurement
+    shows the carrier's own content, not this argument, decides the
+    topic. ``fallback_session_id`` is used only when the start call
+    itself carries none: ``--project`` and ``--from-send`` pass through
+    whatever their own JSON document already recorded, when it did.
+    """
+    conversation_id = conversation_id or args.conversation
     prompt_text = prompt_path.read_text(encoding="utf-8")
     message_id = str(uuid.uuid4())
 
     session = open_session()
     status, data = _call_mcp(
-        session, "start", {"user_query": prompt_text}, args.conversation, message_id
+        session, "start", {"user_query": prompt_text}, conversation_id, message_id
     )
     if status != 200:
         print(f"start failed: HTTP {status} {str(data)[:200]}")
@@ -455,38 +534,63 @@ def _start_headless(
         print(f"MCP error: {_error_text(data)}")
         return 1
 
-    session_id = start_session_id(data)
+    session_id = start_session_id(data) or fallback_session_id
     if not session_id:
         print(f"the start call carried no session id: {str(data)[:200]}")
         return 1
 
     run_doc = {
-        "conversation_id": args.conversation,
+        "conversation_id": conversation_id,
         "session_id": session_id,
         "message_id": message_id,
         "started_at": started_at,
         "prompt_file": str(prompt_path),
         "title": args.title,
-        "mode": "headless",
+        "mode": mode,
     }
     out = _write_run_doc(args.run, run_doc)
     print(f"written to {out}")
     return 0
 
 
+def _start_from_doc(
+    args: argparse.Namespace,
+    prompt_path: Path,
+    started_at: str,
+    doc: dict[str, Any],
+    mode: str,
+) -> int:
+    """The shared tail of ``--project`` and ``--from-send``: both resolve
+    a ``conversation_id`` (and maybe a ``session_id``) from someone
+    else's JSON document, then start on it exactly like ``--conversation``
+    does. ``doc`` is already validated to carry ``conversation_id``
+    (``_load_json_object`` / ``REQUIRED_CONVERSATION_KEYS``)."""
+    return _start_headless(
+        args,
+        prompt_path,
+        started_at,
+        conversation_id=doc["conversation_id"],
+        fallback_session_id=doc.get("session_id") or None,
+        mode=mode,
+    )
+
+
 def _start_send(args: argparse.Namespace, prompt_path: Path, started_at: str) -> int:
-    body_path = f"{args.run}.body.json"
+    """``--project``, the one-command path: ``send_prompt.py`` posts
+    PROMPT_FILE as an ordinary message (``--no-wait``, since only the
+    carrier's existence and content matter here) to mint a fresh carrier
+    conversation containing it -- no system hint, since none is needed to
+    mint a conversation with content in it. Its own exit code passes
+    through unchanged. Once that carrier exists, ``_start_from_doc`` does
+    the same MCP ``start`` the headless path does, on the conversation it
+    resolved."""
     doc_path = f"{args.run}.send.json"
 
     argv = [
         str(prompt_path),
         "--project",
         args.project,
-        "--system-hint",
-        DEEP_RESEARCH_HINT,
         "--no-wait",
-        "--record-send-body",
-        body_path,
         "--json",
         doc_path,
     ]
@@ -499,50 +603,54 @@ def _start_send(args: argparse.Namespace, prompt_path: Path, started_at: str) ->
     if rc != 0:
         return rc
 
-    try:
-        doc = json.loads(Path(doc_path).read_text(encoding="utf-8"))
-    except OSError as exc:
-        print(f"could not read the send record at {doc_path}: {exc}")
+    doc = _load_json_object(doc_path, REQUIRED_CONVERSATION_KEYS)
+    if doc is None:
         return 1
-    except json.JSONDecodeError as exc:
-        print(f"{doc_path} is not valid JSON: {exc}")
-        return 1
+    return _start_from_doc(args, prompt_path, started_at, doc, mode="send")
 
-    conversation_id = doc.get("conversation_id")
-    session_id = doc.get("session_id")
-    if not session_id:
-        print("the stream carried no session id")
-        return 1
 
-    session = open_session()
-    conversation = session.get_conversation(conversation_id)
-    message_id = tool_call_message_id(conversation)
-    if not message_id:
-        print(f"no tool-call message found in conversation {conversation_id}")
-        return 1
-
-    run_doc = {
-        "conversation_id": conversation_id,
-        "session_id": session_id,
-        "message_id": message_id,
-        "started_at": started_at,
-        "prompt_file": str(prompt_path),
-        "title": args.title,
-        "mode": "send",
-    }
-    out = _write_run_doc(args.run, run_doc)
-    print(f"written to {out}")
-    return 0
+def _start_from_send(
+    args: argparse.Namespace, prompt_path: Path, started_at: str
+) -> int:
+    """``--from-send``, the two-step flow's second half: read the
+    ``send_prompt.py --json`` document named by ``--from-send`` (a prior,
+    separate ``send_prompt.py`` call already minted the carrier and put
+    the prompt in it), then start on the conversation it names exactly
+    like ``--conversation`` does. A missing, unreadable, invalid or
+    conversation_id-less document is a bad argument here (exit 2, before
+    any session opens), unlike the internal document ``--project`` writes
+    for itself, which is a runtime failure (exit 1) at that point."""
+    doc = _load_json_object(args.from_send, REQUIRED_CONVERSATION_KEYS)
+    if doc is None:
+        return 2
+    return _start_from_doc(args, prompt_path, started_at, doc, mode="from_send")
 
 
 def _cmd_start(args: argparse.Namespace) -> int:
-    if args.conversation and args.project:
-        print("give --conversation or --project, never both")
-        return 2
-    if not args.conversation and not args.project:
+    modes = [
+        flag
+        for flag, value in (
+            ("--conversation", args.conversation),
+            ("--from-send", args.from_send),
+            ("--project", args.project),
+        )
+        if value
+    ]
+    if len(modes) != 1:
+        detail = f" (got {' and '.join(modes)})" if modes else ""
         print(
-            "give --conversation (headless, the default) or --project "
-            "(browser path, to mint a fresh carrier conversation)"
+            "give exactly one of --conversation CONV_ID (direct, no "
+            "browser), --from-send SEND.json (the two-step flow's second "
+            "half) or --project g-p-<id> (one command: send_prompt.py "
+            "mints the carrier, then the same MCP start)" + detail
+        )
+        return 2
+
+    if (args.title or args.effort) and not args.project:
+        print(
+            "--title and --effort act only through --project's send; "
+            "they do nothing for --conversation or --from-send and are "
+            "refused there"
         )
         return 2
 
@@ -552,9 +660,11 @@ def _cmd_start(args: argparse.Namespace) -> int:
         return 2
 
     started_at = datetime.now(UTC).isoformat(timespec="seconds")
-    if args.conversation:
-        return _start_headless(args, prompt_path, started_at)
-    return _start_send(args, prompt_path, started_at)
+    if args.project:
+        return _start_send(args, prompt_path, started_at)
+    if args.from_send:
+        return _start_from_send(args, prompt_path, started_at)
+    return _start_headless(args, prompt_path, started_at)
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
@@ -570,9 +680,9 @@ def _cmd_status(args: argparse.Namespace) -> int:
         status, data = _call_mcp(
             session,
             "get_state",
-            {"session_id": run["session_id"]},
+            {"session_id": run_session_arg(run)},
             run["conversation_id"],
-            run["message_id"],
+            run_message_id(run),
         )
         if status != 200:
             print(f"get_state failed: HTTP {status} {str(data)[:200]}")
@@ -603,14 +713,16 @@ def _cmd_export(args: argparse.Namespace) -> int:
         return 2
 
     session = open_session()
+    session_arg = run_session_arg(run)
+    message_id = run_message_id(run)
 
     if not args.force:
         status, data = _call_mcp(
             session,
             "get_state",
-            {"session_id": run["session_id"]},
+            {"session_id": session_arg},
             run["conversation_id"],
-            run["message_id"],
+            message_id,
         )
         if status != 200:
             print(f"get_state failed: HTTP {status} {str(data)[:200]}")
@@ -629,9 +741,9 @@ def _cmd_export(args: argparse.Namespace) -> int:
     status, data = _call_mcp(
         session,
         "export",
-        {"session_id": run["session_id"], "export_type": args.type},
+        {"session_id": session_arg, "export_type": args.type},
         run["conversation_id"],
-        run["message_id"],
+        message_id,
     )
     if status != 200:
         print(f"export failed: HTTP {status} {str(data)[:200]}")
@@ -667,46 +779,58 @@ def _build_parser() -> argparse.ArgumentParser:
 
     start = sub.add_parser(
         "start",
-        help="start a Deep research run (headless by default)",
-        description=(
-            "Start a Deep research run. Headless by default: "
-            "--conversation calls the connector directly over MCP, no "
-            "browser, no message ever posted. --project instead opens a "
-            "fresh carrier conversation through the browser first, the "
-            "only reason to use it. " + CARRIER_NOTE
-        ),
+        help="start a Deep research run (--conversation, --from-send or --project)",
+        description="Start a Deep research run. "
+        + START_TOPIC_NOTE
+        + " "
+        + CARRIER_NOTE,
     )
-    start.add_argument("prompt_file", metavar="PROMPT_FILE", help="the prompt to send")
+    start.add_argument(
+        "prompt_file",
+        metavar="PROMPT_FILE",
+        help="the text sent as user_query; the carrier's own content, not "
+        "this, decides the topic",
+    )
     start.add_argument(
         "--conversation",
         default="",
         metavar="CONVERSATION_ID",
-        help=(
-            "the carrier conversation to run in (an id you own; headless, "
-            "the default path). Give this or --project, never both"
-        ),
+        help="a conversation you own that already states the research "
+        "question (direct MCP call, no browser). Give this, --from-send "
+        "or --project, never more than one",
+    )
+    start.add_argument(
+        "--from-send",
+        default="",
+        metavar="SEND.json",
+        help="start on the conversation named by a prior send_prompt.py "
+        "--json document's conversation_id (the two-step flow's second "
+        "half: send that prompt yourself first, so the carrier already "
+        "contains it). Give this, --conversation or --project, never "
+        "more than one",
     )
     start.add_argument(
         "--project",
         default="",
         metavar="g-p-ID",
-        help=(
-            "open a fresh carrier conversation in this project through "
-            "the browser first, then start there (only needed to mint a "
-            "new conversation). Give this or --conversation, never both"
-        ),
+        help="mint a fresh carrier by sending PROMPT_FILE there first "
+        "(send_prompt.py), then start on it -- the one-command path, and "
+        "the only reason to use this. Give this, --conversation or "
+        "--from-send, never more than one",
     )
     start.add_argument(
         "--title",
         default="",
         metavar="T",
-        help="a label recorded in RUN.json; --project also renames the chat once sent",
+        help="a label recorded in RUN.json, and the chat's new name once "
+        "sent -- --project only, refused otherwise",
     )
     start.add_argument(
         "--effort",
         default="",
         metavar="LEVEL",
-        help="min|standard|extended|max (--project's send only)",
+        help="min|standard|extended|max, pins --project's own send -- "
+        "--project only, refused otherwise",
     )
     start.add_argument(
         "--run", required=True, metavar="RUN.json", help="write the run record here"
