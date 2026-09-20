@@ -154,7 +154,7 @@ def parse_json_text(text: str) -> Any:
 
 def stream_events(text: str) -> list[dict]:
     """Parse a recorded SSE stream (``record_send_body``'s ``.stream.txt``
-    sibling, see ``BrowserSender._record_response``) into its JSON payloads.
+    sibling, see ``BrowserSender._record_send_stream``) into its JSON payloads.
 
     One entry per ``data: `` line whose payload parses as JSON, in order;
     ``data: [DONE]`` (the stream's own end marker), blank lines, ``event: ``
@@ -1125,8 +1125,8 @@ def virtual_display(visible: bool = False) -> Generator[None]:
                 proc.wait(timeout=5)
 
 
-# The sibling suffix a send's recorded response stream is written under
-# (``BrowserSender._record_response``): a module-level constant, not a
+# The sibling suffix a send's recorded reply stream is written under
+# (``BrowserSender._record_send_stream``): a module-level constant, not a
 # ``BrowserSender`` one, so ``send_prompt.py`` can read it as
 # ``cc.STREAM_SUFFIX`` even in a test that monkeypatches ``cc.BrowserSender``
 # itself to a fake.
@@ -1230,10 +1230,12 @@ class BrowserSender:
         self.hints = tuple(h.strip() for h in hints if str(h).strip())
         # File path: when set, the f/conversation POST body (method, url,
         # post_data) is recorded there, so one real send can document what
-        # the page actually sends with and without search. The response's
-        # own SSE stream is recorded too, to the sibling STREAM_SUFFIX path
-        # (_record_response) -- a Deep research send's connector session id
-        # is only ever visible there (module docstring).
+        # the page actually sends with and without search. This send's own
+        # reply stream is captured too, to the sibling STREAM_SUFFIX path,
+        # synchronously in _send once the post-click checks confirm the
+        # message went through (_record_send_stream) -- a Deep research
+        # send's connector session id is only ever visible there (module
+        # docstring).
         self.record_send_body = record_send_body.strip()
         # Files to upload through the composer before the prompt is filled
         # (ROADMAP.md, Stage 3 item 3 / B4): the same file input and the
@@ -1355,7 +1357,6 @@ class BrowserSender:
         self.page = ctx.new_page()
         if self.record_send_body:
             self.page.on("request", self._record_request)
-            self.page.on("response", self._record_response)
 
     def _launch(self, pw: Any) -> Any:
         """A browser context that keeps its HTTP cache between sends.
@@ -1460,8 +1461,8 @@ class BrowserSender:
     def _write_record(self, doc: dict[str, Any]) -> None:
         """Write ``doc`` to ``record_send_body``; never raises.
 
-        ``"stream_file"`` -- the sibling path ``_record_response`` writes
-        this same POST's response stream to -- is added to every record, in
+        ``"stream_file"`` -- the sibling path ``_record_send_stream`` writes
+        this same send's reply stream to -- is added to every record, in
         both shapes, so a reader can always find it and pull the Deep
         research connector's session id out of it (``stream_events`` /
         ``find_session_id``). Every attachment path is added under
@@ -1519,38 +1520,54 @@ class BrowserSender:
             doc = {"method": req.method, "url": req.url, "post_data": req.post_data}
         self._write_record(doc)
 
-    def _record_response(self, response: Any) -> None:
-        """Write the send POST's response body to a sibling ``.stream.txt``.
+    def _is_send_stream_response(self, response: Any) -> bool:
+        """The predicate ``_send``'s ``page.expect_response`` watches with.
 
-        A Deep research send's connector session id -- what a later,
-        plain-HTTP ``get_state`` call needs to follow the research after
-        this window closes -- is returned only inside this response's own
-        server-sent-event stream; the conversation JSON read back
-        afterwards shows the tool reply as ``{}`` (module docstring, WHY).
-        Only a POST to exactly ``RECORD_ENDPOINT`` is recorded, the same
-        test ``_record_request`` uses.
+        True for a POST whose URL (query and fragment stripped) ends with
+        exactly ``RECORD_ENDPOINT`` -- never its ``/prepare`` handshake
+        sibling, and never a GET; the same test ``_record_request`` uses.
+        Only ``response.request`` is read, so this can be evaluated the
+        moment the response object exists, before its body -- streaming or
+        not -- has arrived.
+        """
+        req = response.request
+        if req.method != "POST":
+            return False
+        path = req.url.split("?", 1)[0].split("#", 1)[0]
+        return path.endswith(self.RECORD_ENDPOINT)
 
-        A streaming response's body is available only once Playwright has
-        finished receiving it, so ``response.finished()`` is called first
-        when the driver has it (``getattr``, since this repository's own
-        test fake, ``tests/fake_playwright.py``, does not); ``.text()``
-        then returns the full SSE text. Everything here runs inside one
-        ``contextlib.suppress(Exception)``: a body that never finishes, a
-        closed page, or any other Playwright failure leaves the sibling
-        file unwritten rather than breaking the send -- never raises,
-        exactly like ``_record_request``.
+    def _record_send_stream(self, info: Any) -> None:
+        """Write this send's own reply stream to a sibling ``.stream.txt``.
+
+        ``info`` is the ``page.expect_response(...)`` context manager
+        ``_send`` opened just before clicking the send button; ``_send``
+        calls this only after its own post-click checks have confirmed the
+        message actually posted. A Deep research send's connector session
+        id -- what a later, plain-HTTP ``get_state`` call needs to follow
+        the research after this window closes -- is returned only inside
+        this response's own server-sent-event stream; the conversation
+        JSON read back afterwards shows the tool reply as ``{}``.
+
+        Reading ``info.value`` is itself a wait: it blocks until a response
+        matching ``_is_send_stream_response`` has arrived, or raises once
+        the timeout given to ``expect_response`` runs out. ``resp.finished()``
+        then blocks until the whole streaming body has arrived -- recording
+        a send means staying until its reply stream has ended, which is why
+        this runs here, synchronously, instead of in a
+        ``page.on("response", ...)`` handler (removed): that handler ran the
+        moment the response object existed, before a still-streaming body
+        had finished, and could not block for it, so a send whose window
+        closed first produced a JSON record with no sibling stream file.
+        ``resp.text()`` then returns the complete text. Everything here runs
+        inside one ``contextlib.suppress(Exception)``: no matching response,
+        a body that never finishes, or any other Playwright failure leaves
+        the sibling file unwritten rather than failing a send that already
+        succeeded.
         """
         with contextlib.suppress(Exception):
-            req = response.request
-            if req.method != "POST":
-                return
-            path = req.url.split("?", 1)[0].split("#", 1)[0]
-            if not path.endswith(self.RECORD_ENDPOINT):
-                return
-            finished = getattr(response, "finished", None)
-            if callable(finished):
-                finished()
-            text = response.text()
+            resp = info.value
+            resp.finished()
+            text = resp.text()
             target = Path(self.record_send_body + STREAM_SUFFIX)
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(text, encoding="utf-8")
@@ -1876,24 +1893,36 @@ class BrowserSender:
                 self._upload_files(page, self.attachments)
             composer.fill(text, timeout=budget)
         page.wait_for_timeout(800)
-        sent = self._click_send(page, budget)
-        if not sent:
-            self._focus_composer(composer)
-            page.keyboard.press("Enter")
-        else:
-            # The button can report a successful click without the app acting on
-            # it, most often while an attachment is still settling. Give it a
-            # moment, then submit from the keyboard instead of losing the turn.
-            for _ in range(20):
-                page.wait_for_timeout(1_000)
-                if (
-                    page.locator('[data-message-author-role="user"]').count()
-                    > turns_before
-                ):
-                    break
-            else:
+        # Start watching for this send's own reply now, before the click, so
+        # record_send_body's stream capture is not missed; its value is not
+        # read until the post-click checks below have confirmed the message
+        # actually posted -- see _record_send_stream.
+        capture = (
+            page.expect_response(
+                self._is_send_stream_response, timeout=max(budget, 60_000)
+            )
+            if self.record_send_body
+            else contextlib.nullcontext()
+        )
+        with capture as info:
+            sent = self._click_send(page, budget)
+            if not sent:
                 self._focus_composer(composer)
                 page.keyboard.press("Enter")
+            else:
+                # The button can report a successful click without the app acting on
+                # it, most often while an attachment is still settling. Give it a
+                # moment, then submit from the keyboard instead of losing the turn.
+                for _ in range(20):
+                    page.wait_for_timeout(1_000)
+                    if (
+                        page.locator('[data-message-author-role="user"]').count()
+                        > turns_before
+                    ):
+                        break
+                else:
+                    self._focus_composer(composer)
+                    page.keyboard.press("Enter")
         # Confirm the post: a new user bubble and, for a new chat, a /c/ URL.
         posted = False
         for _ in range(90):
@@ -1902,8 +1931,12 @@ class BrowserSender:
                 page.locator('[data-message-author-role="user"]').count() > turns_before
             )
             if posted and "/c/" in page.url and not is_provisional(page.url):
+                if self.record_send_body:
+                    self._record_send_stream(info)
                 return chat_id(page.url)
         if posted and "/c/" in page.url:
+            if self.record_send_body:
+                self._record_send_stream(info)
             return chat_id(page.url)  # provisional WEB: id; the caller resolves it
         page.screenshot(path=str(self.screenshot_dir / "chatgpt-send-fail.png"))
         raise TransportError(

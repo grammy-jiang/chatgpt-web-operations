@@ -90,6 +90,25 @@ handlers; ``page.emit_request(url, ...)`` and
 ``Request`` / ``Response`` and invoke every handler registered for
 ``"request"`` / ``"response"``.
 
+Expecting a response
+---------------------
+``page.expect_response(predicate, timeout=...)`` is a context manager for
+code that starts watching for one response *before* triggering it, and
+only reads the match afterwards -- e.g.
+``chatgpt_client.BrowserSender._send``'s ``record_send_body`` stream
+capture, which does not read the match until well after the ``with``
+block that triggered it has exited. Queue what it should hand back with
+``page.set_next_response(response)`` first (as many as needed; each is
+consumed at most once). Reading the yielded object's ``.value`` is itself
+the wait, exactly like real Playwright: it pops the first queued response
+``predicate`` accepts, or raises ``PlaywrightTimeoutError`` if none (yet)
+do -- ``predicate`` may be ``None`` to accept whatever is queued, the way
+a bare URL glob would in real Playwright, though nothing here builds one
+from a glob string. A ``Response`` also has ``finished()`` (a no-op here:
+this fake's ``text()`` already has the whole body, so there is nothing to
+wait for), matching real Playwright's must-await-before-a-streaming-
+body's-``text()`` shape.
+
 File uploads
 ------------
 ``page.expect_file_chooser()`` is a context manager whose yielded object
@@ -301,6 +320,16 @@ class Response:
     def text(self) -> str:
         return self._body
 
+    def finished(self) -> None:
+        """Stand-in for Playwright's wait-for-the-body-to-finish call.
+
+        This fake's ``text()`` already has the whole body up front, so
+        there is nothing to wait for; real code (e.g.
+        ``chatgpt_client.BrowserSender._record_send_stream``) calls this
+        before ``.text()`` on a possibly still-streaming response.
+        """
+        return None
+
 
 class Route:
     def __init__(self, request: Request):
@@ -379,6 +408,7 @@ class Page:
         self._locator_states: dict[str, ElementState] = {}
         self._script_results: dict[str, Any] = {}
         self._event_handlers: dict[str, list] = {}
+        self._pending_responses: list[Response] = []
 
     # -- navigation ----------------------------------------------------
     @property
@@ -478,6 +508,22 @@ class Page:
         self.calls.append(("page", "expect_file_chooser", (), kw))
         return _ExpectFileChooserCM(self)
 
+    def set_next_response(self, response: Response) -> None:
+        """Queue ``response`` for the next matching ``expect_response``.
+
+        A test arranges the response a send's ``page.expect_response(...)``
+        should hand back through ``info.value`` before triggering the code
+        under test, the same way ``set_locator`` arranges what a selector
+        reports. Several calls queue several responses, each consumed at
+        most once, in order, by whichever ``expect_response`` predicate
+        accepts it first.
+        """
+        self._pending_responses.append(response)
+
+    def expect_response(self, predicate: Any, timeout: int | None = None):
+        self.calls.append(("page", "expect_response", (), {"timeout": timeout}))
+        return _ExpectResponseCM(self, predicate)
+
 
 class _ExpectFileChooserCM:
     """``with page.expect_file_chooser() as fc: ...; fc.value.set_files(p)``."""
@@ -491,6 +537,43 @@ class _ExpectFileChooserCM:
 
     def __exit__(self, *exc: Any) -> bool:
         return False
+
+
+class _ExpectResponseCM:
+    """``with page.expect_response(predicate, timeout=...) as info: ...``.
+
+    Real Playwright starts listening the moment the ``with`` block is
+    entered and only blocks -- on ``info.value`` -- once that property is
+    read, which may be well after the block that triggered the response
+    has already exited; this fake copies that laziness, so code that reads
+    ``.value`` only once further checks of its own have passed (as
+    ``chatgpt_client.BrowserSender._send`` does) is exercised the same way
+    a real wait would be. ``.value`` pops the first response in
+    ``page._pending_responses`` (queued by ``page.set_next_response``) that
+    ``predicate`` accepts; with none queued, or none matching, it raises
+    ``PlaywrightTimeoutError``, exactly as a real unmet ``expect_response``
+    would once its timeout ran out.
+    """
+
+    def __init__(self, page: Page, predicate: Any) -> None:
+        self._page = page
+        self._predicate = predicate
+
+    def __enter__(self) -> _ExpectResponseCM:
+        return self
+
+    def __exit__(self, *exc: Any) -> bool:
+        return False
+
+    @property
+    def value(self) -> Response:
+        pending = self._page._pending_responses
+        for i, response in enumerate(pending):
+            if self._predicate is None or self._predicate(response):
+                return pending.pop(i)
+        raise PlaywrightTimeoutError(
+            "no queued response matched expect_response's predicate"
+        )
 
 
 # ---------------------------------------------------------------------------

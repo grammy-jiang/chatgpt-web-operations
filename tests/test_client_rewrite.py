@@ -798,136 +798,149 @@ def test_find_session_id_absent_returns_none() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _record_response -- the response listener attached in _open next to the
-# request one, recording the send POST's own SSE stream to a sibling
-# ".stream.txt" file
+# _is_send_stream_response -- the predicate _send's own page.expect_response
+# watches with, replacing the removed page.on("response", ...) handler
 # ---------------------------------------------------------------------------
 
 
-def test_record_response_writes_the_sibling_stream_file(
-    enter_env, fake_pw, tmp_path
+def test_is_send_stream_response_accepts_a_post_to_the_send_endpoint(
+    make_sender,
+) -> None:
+    sender = make_sender()
+    response = fp.Response(fp.Request(SEND_URL, "POST", "{}"))
+
+    assert sender._is_send_stream_response(response) is True
+
+
+def test_is_send_stream_response_rejects_the_prepare_sibling(make_sender) -> None:
+    sender = make_sender()
+    response = fp.Response(fp.Request(PREPARE_URL, "POST", "irrelevant"))
+
+    assert sender._is_send_stream_response(response) is False
+
+
+def test_is_send_stream_response_rejects_a_get(make_sender) -> None:
+    sender = make_sender()
+    response = fp.Response(fp.Request(SEND_URL, "GET"))
+
+    assert sender._is_send_stream_response(response) is False
+
+
+# ---------------------------------------------------------------------------
+# _send -- capturing the reply stream synchronously, via page.expect_response
+# / Response.finished(), instead of the removed page.on("response", ...)
+# handler: WHAT WENT WRONG LIVE (2026-09-20) was that handler firing on the
+# response object before its SSE body had finished streaming, then racing
+# the caller's window close -- the suppressed exception hid it, and a real
+# send produced the JSON record but no sibling ".stream.txt" file.
+# ---------------------------------------------------------------------------
+
+REAL_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+REAL_URL = f"https://chatgpt.com/c/{REAL_ID}"
+
+
+def _wire_confirmed_send(page: fp.Page) -> None:
+    """Everything ``_send()`` needs to click the send button and see the
+    post confirmed with a real conversation id, so the tests below can
+    isolate what the stream capture does; the click/post-confirm wiring
+    itself is already covered on its own by test_client_browser.py."""
+    page.set_locator(
+        cc.BrowserSender.SEND_BUTTONS[0], count=1, visible=True, enabled=True
+    )
+    page.set_locator('[data-message-author-role="user"]', count=fp.sequence(0, 1))
+    page.url = fp.sequence(REAL_URL)
+
+
+def test_send_writes_the_stream_file_and_the_record_names_it(
+    make_sender, tmp_path
 ) -> None:
     target = tmp_path / "body.json"
-    sender = cc.BrowserSender(record_send_body=str(target))
-    try:
-        sender._open()
-        sse = 'data: {"session_id": "abc"}\n\ndata: [DONE]\n'
-        sender.page.emit_response(
-            SEND_URL, status=200, text=sse, method="POST", post_data="{}"
-        )
+    sender = make_sender(record_send_body=str(target))
+    page = fp.Page()
+    sender.page = page
+    _wire_confirmed_send(page)
+    sse = 'data: {"session_id": "abc"}\n\ndata: [DONE]\n'
+    page.set_next_response(
+        fp.Response(fp.Request(SEND_URL, "POST", "{}"), status=200, body=sse)
+    )
+    sender._record_request(fp.Request(SEND_URL, "POST", "{}"))  # what _open wires
 
-        stream_file = Path(f"{target}.stream.txt")
-        assert stream_file.read_text(encoding="utf-8") == sse
-    finally:
-        sender._stack.close()
-        sender._owner.shutdown(wait=True)
+    result = sender._send("hello", chat=None, name="task")
+
+    assert result == REAL_ID
+    assert Path(f"{target}.stream.txt").read_text(encoding="utf-8") == sse
+    doc = json.loads(target.read_text(encoding="utf-8"))
+    assert doc["stream_file"] == f"{target}.stream.txt"
 
 
-def test_record_response_ignores_the_prepare_handshake(
-    enter_env, fake_pw, tmp_path
+def test_send_records_the_stream_on_the_provisional_id_return_too(
+    make_sender, tmp_path
 ) -> None:
+    """_send has two success returns (a resolved id, and a still-``WEB:``
+    provisional one); both must record the stream, not just the first."""
     target = tmp_path / "body.json"
-    sender = cc.BrowserSender(record_send_body=str(target))
-    try:
-        sender._open()
-        sender.page.emit_response(
-            PREPARE_URL, status=200, text="data: {}\n", method="POST", post_data="x"
-        )
-        assert not Path(f"{target}.stream.txt").exists()
-    finally:
-        sender._stack.close()
-        sender._owner.shutdown(wait=True)
+    sender = make_sender(record_send_body=str(target))
+    page = fp.Page()
+    sender.page = page
+    page.set_locator(
+        cc.BrowserSender.SEND_BUTTONS[0], count=1, visible=True, enabled=True
+    )
+    page.set_locator('[data-message-author-role="user"]', count=fp.sequence(0, 1))
+    provisional_id = f"WEB:{REAL_ID}"
+    page.url = fp.sequence(f"https://chatgpt.com/c/{provisional_id}")
+    sse = "data: {}\n\ndata: [DONE]\n"
+    page.set_next_response(
+        fp.Response(fp.Request(SEND_URL, "POST", "{}"), status=200, body=sse)
+    )
+
+    result = sender._send("hello", chat=None, name="task")
+
+    assert result == provisional_id
+    assert Path(f"{target}.stream.txt").read_text(encoding="utf-8") == sse
 
 
-def test_record_response_ignores_gets(enter_env, fake_pw, tmp_path) -> None:
-    target = tmp_path / "body.json"
-    sender = cc.BrowserSender(record_send_body=str(target))
-    try:
-        sender._open()
-        sender.page.emit_response(SEND_URL, status=200, text="data: {}\n", method="GET")
-        assert not Path(f"{target}.stream.txt").exists()
-    finally:
-        sender._stack.close()
-        sender._owner.shutdown(wait=True)
-
-
-def test_record_response_ignores_other_backend_api_paths(
-    enter_env, fake_pw, tmp_path
+def test_send_records_nothing_when_the_response_text_raises(
+    make_sender, tmp_path
 ) -> None:
+    """The capture is wrapped in contextlib.suppress(Exception): a failure
+    there must record nothing and never fail a send that already went
+    through."""
     target = tmp_path / "body.json"
-    sender = cc.BrowserSender(record_send_body=str(target))
-    try:
-        sender._open()
-        sender.page.emit_response(
-            "https://chatgpt.com/backend-api/other",
-            status=200,
-            text="data: {}\n",
-            method="POST",
-            post_data="{}",
-        )
-        assert not Path(f"{target}.stream.txt").exists()
-    finally:
-        sender._stack.close()
-        sender._owner.shutdown(wait=True)
+    sender = make_sender(record_send_body=str(target))
+    page = fp.Page()
+    sender.page = page
+    _wire_confirmed_send(page)
+
+    class _FailingTextResponse:
+        def __init__(self, request: fp.Request) -> None:
+            self.request = request
+
+        def finished(self) -> None:
+            return None
+
+        def text(self) -> str:
+            raise RuntimeError("boom")
+
+    page.set_next_response(_FailingTextResponse(fp.Request(SEND_URL, "POST", "{}")))
+
+    result = sender._send("hello", chat=None, name="task")
+
+    assert result == REAL_ID
+    assert not Path(f"{target}.stream.txt").exists()
 
 
-def test_record_response_failing_text_records_nothing_and_does_not_raise(
-    enter_env, fake_pw, tmp_path
+def test_send_without_record_send_body_never_calls_expect_response(
+    make_sender,
 ) -> None:
-    target = tmp_path / "body.json"
-    sender = cc.BrowserSender(record_send_body=str(target))
-    try:
-        sender._open()
+    sender = make_sender()  # record_send_body="" (default)
+    page = fp.Page()
+    sender.page = page
+    _wire_confirmed_send(page)
 
-        class _FailingTextResponse:
-            def __init__(self, request):
-                self.request = request
+    result = sender._send("hello", chat=None, name="task")
 
-            def text(self):
-                raise RuntimeError("boom")
-
-        response = _FailingTextResponse(fp.Request(SEND_URL, "POST", "{}"))
-        sender._record_response(response)  # must not raise
-
-        assert not Path(f"{target}.stream.txt").exists()
-    finally:
-        sender._stack.close()
-        sender._owner.shutdown(wait=True)
-
-
-def test_record_response_calls_finished_before_text_when_the_driver_has_it(
-    enter_env, fake_pw, tmp_path
-) -> None:
-    """Real Playwright's ``Response.finished()`` must be awaited before
-    ``.text()`` on a streaming response; this repository's own fake has no
-    such method (tests/fake_playwright.py), so a small local stand-in
-    proves ``_record_response`` calls it when the driver does have it."""
-    target = tmp_path / "body.json"
-    sender = cc.BrowserSender(record_send_body=str(target))
-    try:
-        sender._open()
-
-        class _StreamingResponse:
-            def __init__(self, request, body):
-                self.request = request
-                self._body = body
-                self.finished_called = False
-
-            def finished(self):
-                self.finished_called = True
-
-            def text(self):
-                return self._body
-
-        body = "data: {}\n\ndata: [DONE]\n"
-        response = _StreamingResponse(fp.Request(SEND_URL, "POST", "{}"), body)
-        sender._record_response(response)
-
-        assert response.finished_called is True
-        assert Path(f"{target}.stream.txt").read_text(encoding="utf-8") == body
-    finally:
-        sender._stack.close()
-        sender._owner.shutdown(wait=True)
+    assert result == REAL_ID
+    assert [c for c in page.calls if c[1] == "expect_response"] == []
 
 
 def test_write_record_includes_the_stream_file_path(
