@@ -54,6 +54,7 @@ and `discover_endpoints.py`) open a browser; everything else is plain HTTP.
 | Command | Purpose | Exit code means |
 |---------|---------|-----------------|
 | `preflight.py` | One go/no-go check before a run starts: host, link, account and run over one session; `--browser` adds a composer check, `--project` and `--workdir` add their own. | 0 GO, 1 DO NOT START (n blocking), 2 GO WITH WARNINGS (n) |
+| `health.py` | The daily health check's HTTP half, for a cron wrapper: preflight's host, link, account and run groups, plus a fifth "health" group over the same session (session-token expiry from the cookie jar, the live-test sandbox's identity and cleanliness, two reads preflight never makes). `--browser` adds preflight's composer check; `--json PATH` writes the verdict plus a `facts` block the wrapper reads. | 0 GO, 1 DO NOT START (n blocking), 2 GO WITH WARNINGS (n) |
 | `probe_account.py` | Does the account answer at all? Auth, `/me`, one listing, plan window and credits. | 0 reads work |
 | `probe_cookies.py` | Which cookies decrypt, and when the session token expires (nothing here refreshes a cookie; only the user's own Chrome does). Never prints a value. `--json PATH` for a caller that wants the number. | 0 session cookie readable |
 | `probe_send_gates.py` | What a send requires right now: proof-of-work, Turnstile, `so`. | 0 no browser needed |

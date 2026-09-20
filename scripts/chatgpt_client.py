@@ -641,17 +641,45 @@ def available_mb() -> float:
     return float("inf")  # unknown: do not block the run over it
 
 
+# argv[0] basenames a Playwright-launched browser can have: Google Chrome
+# (channel="chrome", what this skill uses), Playwright's own Chromium builds,
+# and its headless shell. The user's own Chrome has the same argv[0] and is
+# told apart by PW_MARKER in its arguments (Playwright's profile path).
+BROWSER_BINARIES = frozenset(
+    {
+        "chrome",
+        "chromium",
+        "chromium-browser",
+        "google-chrome",
+        "google-chrome-stable",
+        "headless_shell",
+        "chrome-headless-shell",
+    }
+)
+
+
 def scripted_browser_pids() -> set[int]:
-    """PIDs of Chrome processes started by Playwright, never the user's own."""
+    """PIDs of browser processes started by Playwright, never the user's own.
+
+    Two things must both hold: argv[0] is a browser binary
+    (``BROWSER_BINARIES``), and the arguments carry ``PW_MARKER``. The
+    first test is what keeps a shell script, a pytest run or an editor
+    whose command line merely *mentions* both words from counting as a
+    window: on 2026-09-21 a bash sampler with "playwright" and "chrome" in
+    its text held preflight's "in-flight browsers" block for an hour.
+    """
     pids: set[int] = set()
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
             continue
         try:
-            cmdline = (entry / "cmdline").read_bytes().decode("utf-8", "replace")
+            raw = (entry / "cmdline").read_bytes()
         except OSError:
             continue  # the process ended while we looked
-        if PW_MARKER in cmdline and ("chrome" in cmdline or "chromium" in cmdline):
+        argv = raw.decode("utf-8", "replace").split("\0")
+        if not argv or os.path.basename(argv[0]) not in BROWSER_BINARIES:
+            continue
+        if PW_MARKER in " ".join(argv[1:]):
             pids.add(int(entry.name))
     return pids
 

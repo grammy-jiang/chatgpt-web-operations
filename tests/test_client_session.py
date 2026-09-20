@@ -573,9 +573,16 @@ def test_scripted_browser_pids_matches_only_playwrights_chrome_or_chromium(
         _FakeProcEntry("444", b"playwright\x00/usr/bin/firefox\x00"),
         _FakeProcEntry("self", b"unused"),
         _FakeProcEntry("555", b"", raise_oserror=True),
+        # a shell whose script text mentions both words is not a browser:
+        # this exact shape held the in-flight block for an hour, 2026-09-21
+        _FakeProcEntry("666", b"/bin/bash\x00-c\x00case chrome in *playwright*\x00"),
+        # Playwright's headless shell counts; a browser with no marker is the
+        # user's own and never counts
+        _FakeProcEntry("777", b"/x/chrome-headless-shell\x00--playwright-x\x00"),
+        _FakeProcEntry("888", b"/opt/google/chrome/chrome\x00--type=renderer\x00"),
     ]
     monkeypatch.setattr(cc, "Path", lambda p: _FakeProcRoot(entries))
-    assert cc.scripted_browser_pids() == {111, 222}
+    assert cc.scripted_browser_pids() == {111, 222, 777}
 
 
 # ---------------------------------------------------------------------------

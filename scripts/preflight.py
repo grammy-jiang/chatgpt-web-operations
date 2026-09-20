@@ -715,11 +715,12 @@ def verdict_of(checks: list[dict[str, Any]]) -> tuple[str, int]:
     return "GO", 0
 
 
-def render(checks: list[dict[str, Any]]) -> str:
+def render(checks: list[dict[str, Any]], order: tuple[str, ...] = GROUP_ORDER) -> str:
     """Grouped, human-read report: one line per check, an indented fix below
-    any that has one. ``--json`` carries the same information for machines."""
+    any that has one. ``--json`` carries the same information for machines.
+    ``order`` lets a caller with more groups (health.py) say where they go."""
     lines: list[str] = []
-    for group in GROUP_ORDER:
+    for group in order:
         rows = [c for c in checks if c["group"] == group]
         if not rows:
             continue
