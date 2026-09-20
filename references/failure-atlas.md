@@ -218,3 +218,17 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   rerun is not a repair (4efb66da).
 - **Generic backoff on a 429.** 60/120/240 s spends the budget in seven
   minutes while the limit is still in force (5e00de20).
+- **A check that could never have worked, and a fake that let it pass.**
+  `preflight.py --browser` called the sender's private `_composer` from the
+  calling thread, on a page nothing had navigated. Either defect alone
+  failed it every time -- "Cannot switch to a different thread", or 60 s
+  waiting for a composer on about:blank -- and the record blamed the login.
+  Its offline test passed because the fake `BrowserSender` offered
+  `_composer` as a plain method: a fake kinder than the real object. Found
+  2026-09-20, the first time anyone ran it. Fixed by giving the sender a
+  public `probe_composer` (owner thread, navigates first) and by fakes that
+  may expose only public methods the real class has
+  (`test_the_fake_senders_offer_nothing_the_real_sender_does_not`). The
+  wider lesson: preflight was in no live tier, so 31 offline-tested
+  functions had never met the real account; `tests/live/test_read_preflight.py`
+  is that.

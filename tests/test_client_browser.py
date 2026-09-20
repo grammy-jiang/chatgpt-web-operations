@@ -942,6 +942,75 @@ def test_composer_screenshots_and_raises_when_it_never_appears(make_sender) -> N
     assert "chatgpt-composer-missing.png" in shots[0][3]["path"]
 
 
+def test_probe_composer_runs_its_work_on_the_owner_thread(make_sender) -> None:
+    """Playwright's sync objects belong to the thread that created them, the
+    owner thread. A public method that ran its work on the caller's thread
+    is what broke preflight --browser until 2026-09-20: "Cannot switch to a
+    different thread", reported as a login problem."""
+    sender = make_sender()
+    seen: list[str] = []
+
+    def record() -> str:
+        seen.append(threading.current_thread().name)
+        return "https://chatgpt.com/"
+
+    sender._probe_composer = record
+    assert sender.probe_composer() == "https://chatgpt.com/"
+    assert seen and seen[0].startswith("chatgpt-send"), seen
+    assert seen[0] != threading.current_thread().name
+
+
+def test_probe_composer_loads_the_new_chat_page_then_waits_for_the_composer(
+    make_sender,
+) -> None:
+    """The window opens on about:blank; a probe that never navigated waited
+    60 s for a composer that could not exist (the second half of the same
+    2026-09-20 defect). It must load new_chat_url() -- the project page when
+    one is set -- and only then wait, returning where the composer was."""
+    sender = make_sender(project="g-p-abc")
+    page = fp.Page()
+    sender.page = page
+    page.url = "https://chatgpt.com/g/g-p-abc/project"
+
+    assert sender._probe_composer() == "https://chatgpt.com/g/g-p-abc/project"
+
+    gotos = _page_calls(page, "goto")
+    assert gotos and gotos[0][2] == ("https://chatgpt.com/g/g-p-abc/project",)
+    assert gotos[0][3]["wait_until"] == "domcontentloaded"
+    waits = _calls(page, "wait_for", "#prompt-textarea")
+    assert waits and waits[0][4]["state"] == "visible"
+
+
+def test_probe_composer_wraps_a_playwright_error_as_transport_error(
+    make_sender,
+) -> None:
+    sender = make_sender()
+
+    def boom() -> str:
+        raise ValueError("Target page, context or browser has been closed")
+
+    sender._probe_composer = boom
+    with pytest.raises(cc.TransportError, match="composer probe failed"):
+        sender.probe_composer()
+
+
+def test_probe_composer_passes_a_transport_error_through_unchanged(
+    make_sender,
+) -> None:
+    """The "logged out or challenged" message is what preflight keys its fix
+    line on; wrapping it again would bury the words."""
+    sender = make_sender()
+
+    def missing() -> str:
+        raise cc.TransportError(
+            "composer did not appear at x (logged out or challenged)"
+        )
+
+    sender._probe_composer = missing
+    with pytest.raises(cc.TransportError, match="logged out or challenged"):
+        sender.probe_composer()
+
+
 # ---------------------------------------------------------------------------
 # _attach_prompt -- the large-prompt path: upload, name, and confirm it
 # ---------------------------------------------------------------------------

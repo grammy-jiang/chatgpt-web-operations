@@ -1883,6 +1883,39 @@ class BrowserSender:
                 ) from exc
             raise TransportError(f"browser send failed: {exc}"[:300]) from exc
 
+    def probe_composer(self) -> str:
+        """Load the page a send would compose on and wait for its composer;
+        return the URL it appeared at. From any thread, like ``send``.
+
+        This is what ``preflight.py --browser`` asks: the first half of
+        ``_send`` -- navigate to ``new_chat_url()``, wait for
+        ``#prompt-textarea`` -- and nothing after it: no fill, no click, no
+        turn. A composer that never appears raises the same "logged out or
+        challenged" ``TransportError`` a send would, so the preflight
+        reports exactly what a send would have hit; any other failure is
+        wrapped the way ``send`` wraps one.
+
+        Until 2026-09-20 preflight called ``_composer`` itself, on the
+        calling thread and on a page nothing had navigated: two defects,
+        either of which alone made the check fail every time, with a
+        message blaming the login. Playwright's sync objects belong to the
+        owner thread, which is why every public method here submits to it
+        and why the private methods are never the seam.
+        """
+        try:
+            return self._owner.submit(self._probe_composer).result()
+        except TransportError:
+            raise
+        except Exception as exc:  # playwright errors have no common base here
+            raise TransportError(f"composer probe failed: {exc}"[:300]) from exc
+
+    def _probe_composer(self) -> str:
+        self.page.goto(
+            self.new_chat_url(), wait_until="domcontentloaded", timeout=PAGE_LOAD_MS
+        )
+        self._composer()
+        return str(self.page.url)
+
     def new_chat_url(self) -> str:
         """Where to compose a new conversation.
 

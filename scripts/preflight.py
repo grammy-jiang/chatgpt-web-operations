@@ -600,33 +600,43 @@ def run_checks(
 # ---------------------------------------------------------------------------
 
 
+LOGIN_FIX = (
+    "log in to chatgpt.com from this machine's own browser, or clear any "
+    "Cloudflare challenge, then re-run with --browser"
+)
+
+
 def browser_composer_check(cc: Any, browser: str) -> dict[str, Any]:
-    """Opens a window and confirms the composer appears.
+    """Opens a window, loads the page a send would compose on, and confirms
+    the composer appears: ``BrowserSender.probe_composer``, the public method
+    that does exactly the first half of a send and nothing after it.
 
     Opt-in only: costs one of ``cc.MAX_BROWSERS`` slots and about twenty
-    seconds, so it runs last, after every cheap check. Reuses
-    ``BrowserSender``'s own composer wait, which raises exactly the "logged
-    out or challenged" failure (references/failure-atlas.md) when the
-    composer never appears within 60 s.
+    seconds, so it runs last, after every cheap check.
+
+    The fix line is offered only for the failure it fits. A composer that
+    never appeared means logged out or challenged
+    (references/failure-atlas.md). Any other failure -- no free window slot,
+    memory below the floor, a launch error -- already names its own cause
+    in the detail, and dressing it as a login problem is what this check
+    did until 2026-09-20, when it had never once worked: it called the
+    sender's private ``_composer`` on the wrong thread and on a page nothing
+    had navigated, and its offline test passed because the fake it ran
+    against was kinder than the real object.
     """
     try:
         with cc.BrowserSender(browser) as sender:
-            sender._composer()
+            url = sender.probe_composer()
     except Exception as exc:
-        return check(
-            "browser",
-            "composer",
-            "block",
-            str(exc)[:200],
-            "log in to chatgpt.com from this machine's own browser, or clear "
-            "any Cloudflare challenge, then re-run with --browser",
-        )
+        detail = str(exc)[:200]
+        fix = LOGIN_FIX if "logged out or challenged" in detail else None
+        return check("browser", "composer", "block", detail, fix)
     return check(
         "browser",
         "composer",
         "ok",
-        "the composer appeared; a send would not be blocked by a logged-out "
-        "or challenged session",
+        f"the composer appeared at {url}; a send would not be blocked by a "
+        "logged-out or challenged session",
     )
 
 

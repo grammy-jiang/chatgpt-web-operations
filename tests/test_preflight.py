@@ -62,6 +62,17 @@ class _FnSession:
 
 
 class _FakeSenderOK:
+    """Stands in for chatgpt_client.BrowserSender and exposes ONLY its public
+    surface: a context manager and ``probe_composer``.
+
+    Until 2026-09-20 this fake also offered the private ``_composer``, so
+    preflight could call it directly -- off the owner thread, on a page
+    nothing had navigated -- and pass here while the real check failed every
+    time. A fake that is kinder than the real object tests nothing;
+    ``test_the_fake_senders_offer_nothing_the_real_sender_does_not`` keeps
+    these honest.
+    """
+
     def __init__(self, browser: str) -> None:
         self.browser = browser
 
@@ -71,11 +82,13 @@ class _FakeSenderOK:
     def __exit__(self, *exc: object) -> bool:
         return False
 
-    def _composer(self) -> object:
-        return object()
+    def probe_composer(self) -> str:
+        return "https://chatgpt.com/"
 
 
 class _FakeSenderBlocked:
+    """The composer never appeared: the one failure the login fix fits."""
+
     def __init__(self, browser: str) -> None:
         self.browser = browser
 
@@ -85,10 +98,26 @@ class _FakeSenderBlocked:
     def __exit__(self, *exc: object) -> bool:
         return False
 
-    def _composer(self) -> object:
+    def probe_composer(self) -> str:
         raise RuntimeError(
             "composer did not appear at https://chatgpt.com/ (logged out or challenged)"
         )
+
+
+class _FakeSenderBusy:
+    """Every window slot taken: a failure that names its own cause."""
+
+    def __init__(self, browser: str) -> None:
+        self.browser = browser
+
+    def __enter__(self) -> _FakeSenderBusy:
+        raise RuntimeError("all 1 send window(s) are busy after 60 s")
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def probe_composer(self) -> str:
+        return "https://chatgpt.com/"
 
 
 def _fake_cc(
@@ -886,6 +915,7 @@ def test_browser_composer_check_ok_when_the_composer_appears() -> None:
     c = preflight.browser_composer_check(cc, "chrome")
     assert c["group"] == "browser"
     assert c["state"] == "ok"
+    assert "https://chatgpt.com/" in c["detail"]
 
 
 def test_browser_composer_check_blocks_on_logged_out_or_challenged() -> None:
@@ -893,7 +923,34 @@ def test_browser_composer_check_blocks_on_logged_out_or_challenged() -> None:
     c = preflight.browser_composer_check(cc, "chrome")
     assert c["state"] == "block"
     assert "logged out or challenged" in c["detail"]
-    assert c["fix"]
+    assert c["fix"] == preflight.LOGIN_FIX
+
+
+def test_browser_composer_check_names_a_busy_slot_without_blaming_the_login() -> None:
+    """A failure before the page even opened must not be dressed as a login
+    problem: the detail names the cause and there is no fix line to mislead."""
+    cc = SimpleNamespace(BrowserSender=_FakeSenderBusy)
+    c = preflight.browser_composer_check(cc, "chrome")
+    assert c["state"] == "block"
+    assert "busy" in c["detail"]
+    assert c["fix"] is None
+
+
+def test_the_fake_senders_offer_nothing_the_real_sender_does_not() -> None:
+    """Every public name a fake sender offers must be a public method of the
+    real BrowserSender, and no fake may offer a private one. This is what
+    stops a check from passing over a fake by calling something the real
+    object would refuse -- an off-thread private method, as happened until
+    2026-09-20 (references/failure-atlas.md)."""
+    import chatgpt_client
+
+    for fake in (_FakeSenderOK, _FakeSenderBlocked, _FakeSenderBusy):
+        names = [n for n in vars(fake) if not n.startswith("__")]
+        assert names == ["probe_composer"], f"{fake.__name__} offers {names}"
+        for name in names:
+            assert callable(getattr(chatgpt_client.BrowserSender, name, None)), (
+                f"{fake.__name__}.{name} is not a public BrowserSender method"
+            )
 
 
 # ---------------------------------------------------------------------------
