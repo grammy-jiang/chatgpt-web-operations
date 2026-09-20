@@ -441,6 +441,20 @@ see unless it records them from the window that sent.
   `export` for the report. The front conversation never receives it.
   `deep_research.py` implements `get_state` and `export`; `subscribe` is
   deliberately not implemented.
+- **The whole thing is plain HTTP: the send is not needed.** `tools/call
+  start {"user_query": "<prompt>"}` on a conversation the user owns answers
+  200 with `structuredContent.session_id` and starts the research at once,
+  without adding a single message to that conversation (a six-turn chat
+  still had six turns afterwards; only its title was regenerated). So a
+  Deep research run costs no browser window and passes no send gate.
+- **`get_state` and `export` are keyed by `conversation_id`, not by the
+  `session_id` argument.** Calling `get_state` with conversation A's id and
+  session B's id returns A's research; an unowned random id returns
+  something unrelated. Treat the carrier conversation as the key, one
+  research at a time per conversation, and always pass one the user owns.
+- Measured: a three-paragraph research took about four minutes from `start`
+  to a "Generated report" title; its export was a 15 kB docx holding 8,141
+  characters with an executive summary, sections and numbered citations.
 
 ## Re-run this when
 

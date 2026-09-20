@@ -70,7 +70,7 @@ it, including capture. "Evidence" says whether the endpoint is already known.
 | M7 | Scheduled task create or pause; share links | write | not captured | low | one recorded action | not planned |
 | B1 | Model preset per step through the cookie (`oai-last-model-config` carries `model`) | send | cookie seen; whether the composer honours `gpt-6-pro` from it is untested | medium | small experiment, no send needed to read the label | 3 |
 | B2 | Web search on or off per step | send | UI item seen; the send body hint not captured | medium: search steps on, analysis steps off | medium | 3 |
-| B3 | Deep research as an optional step type | send | UI item seen; not captured | medium, uncertain: long turns, different output shape | large | 3 |
+| B3 | Deep research as an optional step type | **HTTP** | captured and implemented 2026-09-20 | medium: research steps without a browser | done | 3 |
 | B4 | Attach arbitrary files to a send, such as a paper PDF | send | `_attach_prompt` exists for prompts | uncertain: attachments are retrieval-backed and may truncate | medium; measure first | 3 |
 | B5 | Temporary chat for workers | send | button seen | low: a temporary chat may not be readable afterwards, which breaks collection | small | not planned |
 | B6 | Regenerate, branch, edit, read aloud, canvas, voice, images | send | seen | none for runs | — | not planned |
