@@ -44,6 +44,7 @@ DEFAULT_NAMES = [
     "load average",
     "in-flight browsers",
     "browser tooling",
+    "keyring bus",
     "wireless link",
     "auth and read",
     "send gates",

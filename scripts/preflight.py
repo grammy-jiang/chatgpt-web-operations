@@ -17,7 +17,8 @@ Four groups of checks, always in this order -- host, link, account, run:
 
     host     available memory, load average, in-flight Playwright browsers,
              Xvfb / Google Chrome / the venv's playwright, cryptography and
-             dbus imports, and (with --workdir) free disk
+             dbus imports, the keyring bus reachable over D-Bus, and (with
+             --workdir) free disk
     link     the wireless interface(s) in /proc/net/wireless -- read before
              any session opens, because a dead link must never be reported
              as a blocked account (SKILL.md, "Name the path that failed").
@@ -50,6 +51,7 @@ warnings, 1 (DO NOT START) when anything blocks.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib.util
 import json
 import os
@@ -174,6 +176,63 @@ def tooling_check(
     )
 
 
+KEYRING_NO_BUS_FIX = (
+    "export XDG_RUNTIME_DIR=/run/user/<uid> (cron has no session bus address; "
+    "loginctl Linger keeps the bus alive without a login)"
+)
+KEYRING_NO_OWNER_FIX = "start the keyring service; Chrome's cookie key lives there"
+
+
+def keyring_bus_check(reachable: bool, has_secrets: bool, error: str) -> dict[str, Any]:
+    """Reaches the same session bus cookie decryption uses
+    (``chatgpt_session._keyring_password``), not just the ``dbus`` module
+    import ``tooling_check`` confirms above. Measured under cron, 2026-09-20:
+    the import alone reported ok, and two lines later the account check died
+    with ``Unable to autolaunch a dbus-daemon without a $DISPLAY for X11`` --
+    the failure this replaces."""
+    if not reachable:
+        return check("host", "keyring bus", "block", error, KEYRING_NO_BUS_FIX)
+    if not has_secrets:
+        return check(
+            "host",
+            "keyring bus",
+            "block",
+            "session bus reachable, but org.freedesktop.secrets has no owner",
+            KEYRING_NO_OWNER_FIX,
+        )
+    return check(
+        "host",
+        "keyring bus",
+        "ok",
+        "session bus reachable, org.freedesktop.secrets is owned",
+    )
+
+
+def fetch_keyring_bus(cc: Any) -> dict[str, Any]:
+    """Calls ``cc.ensure_desktop_env()`` first, so this reaches the bus over
+    exactly the path cookie decryption takes and never reports a failure
+    decryption would not have. Never unlocks, never reads a secret, never
+    prompts -- ``name_has_owner`` is a bus-level query, nothing more.
+
+    ``dbus.SessionBus()`` returns a shared, process-wide connection; closing
+    it here only drops it from dbus-python's cache, so the next call (the
+    real one ``_keyring_password`` makes, during the account group) opens a
+    fresh one -- confirmed offline, so this never leaves a broken shared bus
+    behind for the checks that run after it.
+    """
+    try:
+        cc.ensure_desktop_env()
+        import dbus  # lazy: a module import alone cannot tell the bus is dead
+
+        bus = dbus.SessionBus()
+        has = bus.name_has_owner("org.freedesktop.secrets")
+    except Exception as exc:
+        return keyring_bus_check(False, False, str(exc)[:200])
+    with contextlib.suppress(Exception):
+        bus.close()
+    return keyring_bus_check(True, has, "")
+
+
 def _existing_ancestor(path: Path) -> Path:
     """``path`` itself, or the nearest parent that already exists: a new
     research topic's workdir may not be created yet, but disk usage is a
@@ -207,6 +266,7 @@ def host_checks(cc: Any, workdir: Path | None) -> list[dict[str, Any]]:
             importlib.util.find_spec("cryptography") is not None,
             importlib.util.find_spec("dbus") is not None,
         ),
+        fetch_keyring_bus(cc),
     ]
     if workdir is not None:
         free = shutil.disk_usage(_existing_ancestor(workdir)).free

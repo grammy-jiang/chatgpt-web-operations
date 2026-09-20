@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import sys
+import types
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -130,15 +131,66 @@ def _fake_cc(
     sender_cls: type = _FakeSenderOK,
 ) -> SimpleNamespace:
     """A minimal stand-in for chatgpt_client: a healthy host by default, so
-    a main() test only has to override what it cares about."""
-    return SimpleNamespace(
+    a main() test only has to override what it cares about.
+    ``ensure_desktop_env`` records every call in ``ensure_desktop_env_calls``,
+    so a test can confirm ``fetch_keyring_bus`` calls it.
+    """
+    ns = SimpleNamespace(
         available_mb=lambda: available_mb,
         MIN_AVAILABLE_MB=min_available_mb,
         scripted_browser_pids=lambda: set(pids),
         MAX_BROWSERS=max_browsers,
         ChatGPTSession=lambda browser: session,
         BrowserSender=sender_cls,
+        ensure_desktop_env_calls=[],
     )
+    ns.ensure_desktop_env = lambda: ns.ensure_desktop_env_calls.append(True)
+    return ns
+
+
+class _FakeSecretsBusResult:
+    """A dbus.SessionBus() stand-in: ``name_has_owner`` is scripted to
+    return a fixed answer or raise, and ``close`` is tracked so a test can
+    confirm fetch_keyring_bus closes what it opens."""
+
+    def __init__(self, owner: bool = True, error: Exception | None = None) -> None:
+        self._owner = owner
+        self._error = error
+        self.closed = False
+
+    def name_has_owner(self, name: str) -> bool:
+        if self._error is not None:
+            raise self._error
+        return self._owner
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _FakeDBusException(Exception):
+    """Stands in for dbus.exceptions.DBusException: fetch_keyring_bus only
+    ever catches ``Exception``, so any exception type must be enough."""
+
+
+def _install_fake_dbus(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    bus: Any = None,
+    session_bus_error: Exception | None = None,
+) -> None:
+    """Put a fake ``dbus`` module in sys.modules so fetch_keyring_bus never
+    reaches the real session bus (mirrors tests/test_session.py's own
+    _install_fake_dbus, built there for chatgpt_session._keyring_password).
+    """
+    fake = types.ModuleType("dbus")
+
+    def session_bus() -> Any:
+        if session_bus_error is not None:
+            raise session_bus_error
+        return bus
+
+    fake.SessionBus = session_bus
+    monkeypatch.setitem(sys.modules, "dbus", fake)
 
 
 MODELS_PAYLOAD = {
@@ -243,11 +295,14 @@ def fake_psg(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 @pytest.fixture
 def clean_host(monkeypatch: pytest.MonkeyPatch) -> None:
     """A quiet, four-core, fully-tooled host for main() tests that are not
-    about the host group itself."""
+    about the host group itself -- including a reachable keyring bus, so
+    these tests never depend on this machine's real D-Bus session.
+    """
     monkeypatch.setattr(preflight.os, "getloadavg", lambda: (0.5,))
     monkeypatch.setattr(preflight.os, "cpu_count", lambda: 4)
     monkeypatch.setattr(preflight.shutil, "which", lambda name: "/usr/bin/" + name)
     monkeypatch.setattr(preflight.importlib.util, "find_spec", lambda name: object())
+    _install_fake_dbus(monkeypatch, bus=_FakeSecretsBusResult(owner=True))
 
 
 @pytest.fixture
@@ -354,6 +409,131 @@ def test_tooling_check_blocks_and_names_every_missing_item() -> None:
     assert "Google Chrome" not in c["detail"]
 
 
+def test_keyring_bus_check_blocks_when_not_reachable_and_names_the_error() -> None:
+    """The bus itself down (no $DISPLAY under cron) must block -- reading ok
+    just because the ``dbus`` module imported is the false-confidence bug
+    this check replaces."""
+    c = preflight.keyring_bus_check(
+        False, False, "Unable to autolaunch a dbus-daemon without a $DISPLAY"
+    )
+    assert c["group"] == "host"
+    assert c["name"] == "keyring bus"
+    assert c["state"] == "block"
+    assert c["detail"] == "Unable to autolaunch a dbus-daemon without a $DISPLAY"
+    assert c["fix"] == preflight.KEYRING_NO_BUS_FIX
+
+
+def test_keyring_bus_check_blocks_when_secrets_service_has_no_owner() -> None:
+    """A reachable bus with nobody owning org.freedesktop.secrets means the
+    keyring daemon is not running; that must still block, with its own fix
+    distinct from the no-bus-at-all case."""
+    c = preflight.keyring_bus_check(True, False, "")
+    assert c["state"] == "block"
+    assert "no owner" in c["detail"]
+    assert c["fix"] == preflight.KEYRING_NO_OWNER_FIX
+
+
+def test_keyring_bus_check_ok_when_reachable_and_owned() -> None:
+    c = preflight.keyring_bus_check(True, True, "")
+    assert c["state"] == "ok"
+    assert c["detail"] == "session bus reachable, org.freedesktop.secrets is owned"
+    assert c["fix"] is None
+
+
+def test_fetch_keyring_bus_calls_ensure_desktop_env_before_the_bus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cookie decryption only reaches the keyring because ensure_desktop_env
+    sets XDG_RUNTIME_DIR/DBUS_SESSION_BUS_ADDRESS first; this check must call
+    it in that same order, or a cron run could pass here for a reason
+    decryption does not share (the bug this check replaces)."""
+    calls: list[str] = []
+    client = _fake_cc(None)
+    client.ensure_desktop_env = lambda: calls.append("ensure_desktop_env")
+    bus = _FakeSecretsBusResult(owner=True)
+    fake = types.ModuleType("dbus")
+    fake.SessionBus = lambda: (calls.append("SessionBus"), bus)[1]
+    monkeypatch.setitem(sys.modules, "dbus", fake)
+    preflight.fetch_keyring_bus(client)
+    assert calls == ["ensure_desktop_env", "SessionBus"]
+
+
+def test_fetch_keyring_bus_ok_when_the_secrets_service_is_owned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _fake_cc(None)
+    bus = _FakeSecretsBusResult(owner=True)
+    _install_fake_dbus(monkeypatch, bus=bus)
+    c = preflight.fetch_keyring_bus(client)
+    assert c["state"] == "ok"
+    assert client.ensure_desktop_env_calls == [True]
+    assert bus.closed is True, "the bus must be closed after a successful check"
+
+
+def test_fetch_keyring_bus_blocks_when_the_secrets_service_has_no_owner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _fake_cc(None)
+    _install_fake_dbus(monkeypatch, bus=_FakeSecretsBusResult(owner=False))
+    c = preflight.fetch_keyring_bus(client)
+    assert c["state"] == "block"
+    assert "no owner" in c["detail"]
+
+
+def test_fetch_keyring_bus_blocks_when_name_has_owner_raises_a_dbus_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A mid-call bus error must be caught the same as any other: the code
+    only ever catches ``Exception``, and this proves that is not accidentally
+    narrower than what the real DBusException needs."""
+    boom = _FakeDBusException("org.freedesktop.DBus.Error.NoReply: no reply")
+    _install_fake_dbus(monkeypatch, bus=_FakeSecretsBusResult(error=boom))
+    client = _fake_cc(None)
+    c = preflight.fetch_keyring_bus(client)
+    assert c["state"] == "block"
+    assert "NoReply" in c["detail"]
+
+
+def test_fetch_keyring_bus_blocks_when_sessionbus_itself_raises_the_autolaunch_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The exact cron failure this check exists to catch early (measured
+    2026-09-20): SessionBus() itself fails with the autolaunch message
+    instead of returning a bus object, and the detail must carry it."""
+    autolaunch = _FakeDBusException(
+        "org.freedesktop.DBus.Error.NoServer: Failed to connect to socket "
+        "/tmp/dbus: Unable to autolaunch a dbus-daemon without a $DISPLAY "
+        "for X11"
+    )
+    _install_fake_dbus(monkeypatch, session_bus_error=autolaunch)
+    client = _fake_cc(None)
+    c = preflight.fetch_keyring_bus(client)
+    assert c["state"] == "block"
+    assert "autolaunch" in c["detail"]
+    assert c["fix"] == preflight.KEYRING_NO_BUS_FIX
+
+
+def test_fetch_keyring_bus_blocks_on_import_error_when_dbus_is_not_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """tooling_check already covers "dbus does not import" as its own
+    prerequisite check, but fetch_keyring_bus must still fail safely, not
+    crash, if it somehow runs anyway."""
+    monkeypatch.setitem(sys.modules, "dbus", None)  # import dbus -> ImportError
+    client = _fake_cc(None)
+    c = preflight.fetch_keyring_bus(client)
+    assert c["state"] == "block"
+
+
+def test_fetch_keyring_bus_truncates_a_long_error_to_200_chars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_fake_dbus(monkeypatch, session_bus_error=_FakeDBusException("x" * 500))
+    client = _fake_cc(None)
+    c = preflight.fetch_keyring_bus(client)
+    assert len(c["detail"]) == 200
+
+
 def test_disk_check_warns_under_2gb() -> None:
     workdir = Path("/tmp/example-topic")
     c = preflight.disk_check(1 * 1024**3, workdir)
@@ -387,7 +567,7 @@ def test_existing_ancestor_falls_back_to_the_anchor_when_nothing_exists(
     assert preflight._existing_ancestor(target) == Path(target.anchor)
 
 
-def test_host_checks_returns_four_checks_without_a_workdir(
+def test_host_checks_returns_five_checks_without_a_workdir(
     clean_host: None,
 ) -> None:
     client = _fake_cc(None)
@@ -397,6 +577,7 @@ def test_host_checks_returns_four_checks_without_a_workdir(
         "load average",
         "in-flight browsers",
         "browser tooling",
+        "keyring bus",
     ]
     assert all(c["state"] == "ok" for c in checks)
 
@@ -407,7 +588,7 @@ def test_host_checks_adds_disk_space_last_with_a_workdir(
     client = _fake_cc(None)
     checks = preflight.host_checks(client, tmp_path)
     assert [c["name"] for c in checks][-1] == "disk space"
-    assert len(checks) == 5
+    assert len(checks) == 6
 
 
 def test_host_checks_reflects_a_low_memory_client(clean_host: None) -> None:
