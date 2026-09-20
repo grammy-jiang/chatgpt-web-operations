@@ -64,7 +64,7 @@ and `discover_endpoints.py`) open a browser; everything else is plain HTTP.
 | `delete_project.py` | Delete a project and every chat in it over HTTP, after refusing a name mismatch or a non-`rp-test` name without `--force`. Dry run unless `--apply`. | 0 dry run or deleted and verified, 1 read or verify failed, 2 refused |
 | `project_settings.py` | Set a project's instructions and memory scope (`--memory project-only` keeps its chats out of your memory). Dry run unless `--apply`. | 0 dry run or verified, 1 apply failed, 2 refused |
 | `send_prompt.py` | Send one or more prompts: new chats (`--project` targets one) or a continuing one with `--chat`; `--effort`, `--model`, `--search` and `--system-hint HINT` (any composer "+" item's id, for example `plugin:connector_openai_deep_research`) pin the send by rewriting the `f/conversation` POST body in flight; `--record-send-body PATH` records it and the response stream (`PATH.stream.txt`, where a Deep research `session_id` is read back into `--json`; the window then stays open until the reply stream has ended), `--attach FILE ...` uploads before the fill, `--title` renames once the reply arrived, `--json` records the send. Several PROMPT_FILEs share one browser window and are waited on after it closes; `--no-wait` skips the wait. | 0 every prompt sent and replied, 1 a send, resolve, wait or rename failed, 2 bad arguments |
-| `deep_research.py` | Run and collect a Deep research: `start` sends with the connector hint (the only browser part) and records the session and message ids; `status` polls `get_state` (`--wait` loops, one poll a minute); `export` writes the finished report as docx or pdf, `--text` extracts plain text. HTTP after the send. | `start` 0 written, 1 failed, 2 bad argument; `status` 0 done, 3 still running, 1 failed; `export` 0 written, 3 not done yet, 1 failed |
+| `deep_research.py` | Start, poll and collect a Deep research run, hosted by a carrier conversation: `start` is headless by default (`--conversation`, a plain MCP call, no browser); `--project` instead opens a fresh carrier conversation through the browser first, the only reason to use it; `status` polls `get_state` (`--wait` loops, one poll a minute) and names the carrier; `export` writes the report as docx or pdf, `--text` extracts plain text. | `start` 0 written, 1 failed, 2 bad argument; `status` 0 done, 3 running, 1 failed, 2 no conversation id; `export` 0 written, 3 not done yet, 1 failed, 2 no conversation id |
 | `read_chat.py` | One conversation: is the turn finished, and what did it say? | 0 turn finished |
 | `pin_chat.py` | Pin or unpin a chat (`is_starred`). Dry run unless `--apply`. | 0 dry run or verified, 1 apply failed, 2 bad id |
 | `clean_chats.py` | Archive, delete or unarchive worker chats. Dry run unless `--apply`. | 0 always |
@@ -249,22 +249,25 @@ rate limits.
 
 ## Deep research is a connector, and its report is a file
 
-Measured 2026-09-20 over six runs. A send whose body carries
-`system_hints: ["plugin:connector_openai_deep_research"]` makes the model
-call the Deep Research connector (an MCP app); the research runs in a
-hidden "backing conversation" whose id travels only in the send's SSE
-stream, so `send_prompt.py --record-send-body` records that stream and
-`deep_research.py start` reads the id out of it. After that everything is
-plain HTTP through `POST /backend-api/ecosystem/call_mcp`: `status` calls
-`get_state` and reports DONE once a progress title starts with "Generated
-report" (about 40 s for a two-paragraph prompt); `export` returns the
-report as a base64 docx or pdf. The front conversation never receives the
-report (60 minutes observed), and the backing conversation is not readable
-as a conversation. Poll once a minute at most: ten minutes at 30 s
-intervals earned a 429 on the conversation-read path.
+Deep research is **headless**: `start` calls the connector's own `start`
+tool directly over `POST /backend-api/ecosystem/call_mcp` on a carrier
+conversation the caller owns. No browser, no send gate, and no message is
+ever posted (a six-turn conversation still had six turns afterwards; only
+its title was regenerated). `status` polls `get_state`, DONE once a
+progress title starts with "Generated report"; `export` returns the
+finished report as a base64 docx or pdf. Both key on the **carrier
+conversation's id**, never on the session id, so one research runs at a
+time per conversation and the id must be one the user owns. `--project`
+remains only to mint a fresh carrier through the old browser send.
+
+Measured 2026-09-20 over eight runs: a three-paragraph prompt finished in
+about four minutes and exported as a 15 kB docx holding 8,141 characters
+with an executive summary, sections and numbered citations. Poll once a
+minute at most; ten minutes at 30 s intervals earned a 429 on the
+conversation-read path, and a 429 means back off two minutes.
 
 ```bash
-python3 $S/deep_research.py start prompt.md --project g-p-<id> --run run.json
+python3 $S/deep_research.py start prompt.md --conversation <chat-id> --run run.json
 python3 $S/deep_research.py status --run run.json --wait --timeout 1800
 python3 $S/deep_research.py export --run run.json --out report.docx --text report.md
 ```

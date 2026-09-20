@@ -1,0 +1,16 @@
+{
+  "isError": false,
+  "structuredContent": {
+    "session_id": "sess-live-9f2c",
+    "connector_settings": {
+      "effort": "standard",
+      "notify_on_completion": true
+    }
+  },
+  "content": [],
+  "_meta": {
+    "async_task_conversation_id": "conv-async-7e21",
+    "openai/widgetSessionId": "widget-4b7a",
+    "websocket_url": "wss://chatgpt.com/backend-api/deep_research/ws/placeholder"
+  }
+}

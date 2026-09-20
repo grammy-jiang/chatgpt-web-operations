@@ -1,7 +1,9 @@
 """Tests for scripts/deep_research.py (ROADMAP.md, Stage 3 item 4, "Deep
-research through system_hints" and the entries that follow it): everything
-that happens *after* ``send_prompt.py`` has posted the message -- reading
-back the connector session id, polling ``get_state`` and exporting the
+research through system_hints" and the entries that follow it, plus the
+headless ``start`` measured 2026-09-20): ``start`` calling the connector
+directly over MCP (no browser, no ``send_prompt.py``) is exercised
+alongside the original ``--project`` send path, and everything that
+happens after either one -- polling ``get_state`` and exporting the
 finished report -- all plain HTTP over a fake session.
 
 ``main()`` is exercised with ``send_prompt.main`` and ``open_session``
@@ -21,6 +23,7 @@ from __future__ import annotations
 import base64
 import json
 import sys
+import uuid
 import zipfile
 from io import BytesIO
 from pathlib import Path
@@ -96,6 +99,31 @@ NO_TITLES_STATE = {
     },
     "content": [],
     "isError": False,
+}
+
+# A headless "start" MCP result (module docstring, THE MEASURED FACTS
+# 2026-09-20): the new session id rides in structuredContent.
+START_RESULT = {
+    "isError": False,
+    "structuredContent": {
+        "session_id": "sess-new-1",
+        "connector_settings": {"effort": "standard"},
+    },
+    "content": [],
+    "_meta": {
+        "async_task_conversation_id": "conv-async-1",
+        "openai/widgetSessionId": "widget-1",
+        "websocket_url": "wss://example.invalid/ws",
+    },
+}
+
+# The same shape, but structuredContent carries no session_id at all --
+# neither the direct read nor the find_key fallback can find one.
+NO_SESSION_ID_START_RESULT = {
+    "isError": False,
+    "structuredContent": {"connector_settings": {"effort": "standard"}},
+    "content": [],
+    "_meta": {},
 }
 
 
@@ -361,6 +389,37 @@ def test_state_summary_reads_the_recorded_get_state_fixture() -> None:
         "done": True,
         "error": None,
     }
+
+
+# ---------------------------------------------------------------------------
+# start_session_id
+# ---------------------------------------------------------------------------
+
+
+def test_start_session_id_reads_structured_content_directly() -> None:
+    assert deep_research.start_session_id(START_RESULT) == "sess-new-1"
+
+
+def test_start_session_id_reads_the_recorded_start_fixture() -> None:
+    resp = _fixture("deep_research_start.json")
+    assert deep_research.start_session_id(resp) == "sess-live-9f2c"
+
+
+def test_start_session_id_falls_back_to_find_key_when_the_shape_moves() -> None:
+    resp = {
+        "isError": False,
+        "result": {"deeply": {"nested": {"session_id": "sess-fallback"}}},
+    }
+    assert deep_research.start_session_id(resp) == "sess-fallback"
+
+
+def test_start_session_id_returns_none_when_absent_from_both_places() -> None:
+    assert deep_research.start_session_id(NO_SESSION_ID_START_RESULT) is None
+
+
+@pytest.mark.parametrize("resp", [None, "oops", 42, [], {}])
+def test_start_session_id_returns_none_for_malformed_input(resp: Any) -> None:
+    assert deep_research.start_session_id(resp) is None
 
 
 # ---------------------------------------------------------------------------
@@ -639,6 +698,19 @@ def test_status_done_exits_0(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     assert deep_research.main(["status", "--run", str(run_path)]) == 0
 
 
+def test_status_names_the_carrier_conversation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: Any
+) -> None:
+    run_path = _write_run(tmp_path)
+    backend = _Backend([(200, DONE_STATE)])
+    monkeypatch.setattr(
+        deep_research, "open_session", lambda *a, **kw: _Session(backend)
+    )
+    deep_research.main(["status", "--run", str(run_path)])
+    out = capsys.readouterr().out
+    assert f"carrier conversation: {RUN['conversation_id']}" in out
+
+
 def test_status_running_exits_3(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -695,6 +767,16 @@ def test_status_missing_run_file_exits_2_before_opening_a_session(
     monkeypatch.setattr(deep_research, "open_session", _boom)
     rc = deep_research.main(["status", "--run", str(tmp_path / "missing.json")])
     assert rc == 2
+
+
+def test_status_run_without_conversation_id_exits_2_before_opening_a_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: Any
+) -> None:
+    monkeypatch.setattr(deep_research, "open_session", _boom)
+    run_path = _write_run(tmp_path, conversation_id="")
+    rc = deep_research.main(["status", "--run", str(run_path)])
+    assert rc == 2
+    assert "conversation_id" in capsys.readouterr().out
 
 
 def test_status_wait_dispatches_with_the_given_timeout_and_interval(
@@ -840,6 +922,18 @@ def test_export_missing_run_file_exits_2_before_opening_a_session(
         ]
     )
     assert rc == 2
+
+
+def test_export_run_without_conversation_id_exits_2_before_opening_a_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: Any
+) -> None:
+    monkeypatch.setattr(deep_research, "open_session", _boom)
+    run_path = _write_run(tmp_path, conversation_id="")
+    rc = deep_research.main(
+        ["export", "--run", str(run_path), "--out", str(tmp_path / "r.docx")]
+    )
+    assert rc == 2
+    assert "conversation_id" in capsys.readouterr().out
 
 
 def test_export_refuses_when_not_done_and_never_calls_export_itself(
@@ -1005,6 +1099,7 @@ def test_start_writes_run_json_with_the_ids(
     assert run_doc["message_id"] == "toolcall-1"
     assert run_doc["prompt_file"] == str(prompt)
     assert run_doc["title"] == "rp-test deep research"
+    assert run_doc["mode"] == "send"
     assert "started_at" in run_doc
     assert fake_session.requested == ["conv-123"]
 
@@ -1221,6 +1316,185 @@ def test_start_reports_a_send_record_that_is_not_valid_json(
 
 
 # ---------------------------------------------------------------------------
+# main "start" -- headless (--conversation), the default path
+# ---------------------------------------------------------------------------
+
+
+def test_start_headless_writes_run_json_from_a_fake_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: Any
+) -> None:
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("Research the thing.", encoding="utf-8")
+    run_path = tmp_path / "run.json"
+    fixed_uuid = uuid.UUID("12345678-1234-5678-1234-567812345678")
+    monkeypatch.setattr(deep_research.uuid, "uuid4", lambda: fixed_uuid)
+    backend = _Backend([(200, START_RESULT)])
+    monkeypatch.setattr(
+        deep_research, "open_session", lambda *a, **kw: _Session(backend)
+    )
+    monkeypatch.setattr(send_prompt, "main", _boom)
+
+    rc = deep_research.main(
+        [
+            "start",
+            str(prompt),
+            "--conversation",
+            "conv-carrier-1",
+            "--run",
+            str(run_path),
+            "--title",
+            "headless test",
+        ]
+    )
+
+    assert rc == 0
+    run_doc = json.loads(run_path.read_text())
+    assert run_doc == {
+        "conversation_id": "conv-carrier-1",
+        "session_id": "sess-new-1",
+        "message_id": str(fixed_uuid),
+        "started_at": run_doc["started_at"],
+        "prompt_file": str(prompt),
+        "title": "headless test",
+        "mode": "headless",
+    }
+    assert backend.calls == [
+        (
+            "POST",
+            deep_research.CALL_MCP,
+            {
+                "app_uri": deep_research.APP_URI,
+                "method": "tools/call",
+                "params": {
+                    "name": "start",
+                    "arguments": {"user_query": "Research the thing."},
+                },
+                "conversation_id": "conv-carrier-1",
+                "message_id": str(fixed_uuid),
+            },
+        )
+    ]
+    assert "written to" in capsys.readouterr().out
+
+
+def test_start_headless_isError_exits_1(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: Any
+) -> None:
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("hi", encoding="utf-8")
+    backend = _Backend([(200, ERROR_RESULT)])
+    monkeypatch.setattr(
+        deep_research, "open_session", lambda *a, **kw: _Session(backend)
+    )
+    monkeypatch.setattr(send_prompt, "main", _boom)
+
+    rc = deep_research.main(
+        [
+            "start",
+            str(prompt),
+            "--conversation",
+            "conv-1",
+            "--run",
+            str(tmp_path / "run.json"),
+        ]
+    )
+
+    assert rc == 1
+    assert "This conversation is not allowed." in capsys.readouterr().out
+
+
+def test_start_headless_http_failure_exits_1(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: Any
+) -> None:
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("hi", encoding="utf-8")
+    backend = _Backend([(500, {"error": "boom"})])
+    monkeypatch.setattr(
+        deep_research, "open_session", lambda *a, **kw: _Session(backend)
+    )
+    monkeypatch.setattr(send_prompt, "main", _boom)
+
+    rc = deep_research.main(
+        [
+            "start",
+            str(prompt),
+            "--conversation",
+            "conv-1",
+            "--run",
+            str(tmp_path / "run.json"),
+        ]
+    )
+
+    assert rc == 1
+    assert "start failed" in capsys.readouterr().out
+
+
+def test_start_headless_no_session_id_exits_1(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: Any
+) -> None:
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("hi", encoding="utf-8")
+    backend = _Backend([(200, NO_SESSION_ID_START_RESULT)])
+    monkeypatch.setattr(
+        deep_research, "open_session", lambda *a, **kw: _Session(backend)
+    )
+    monkeypatch.setattr(send_prompt, "main", _boom)
+
+    rc = deep_research.main(
+        [
+            "start",
+            str(prompt),
+            "--conversation",
+            "conv-1",
+            "--run",
+            str(tmp_path / "run.json"),
+        ]
+    )
+
+    assert rc == 1
+    assert "no session id" in capsys.readouterr().out
+
+
+def test_start_both_conversation_and_project_exits_2_before_anything_else(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: Any
+) -> None:
+    monkeypatch.setattr(deep_research, "open_session", _boom)
+    monkeypatch.setattr(send_prompt, "main", _boom)
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("hi", encoding="utf-8")
+
+    rc = deep_research.main(
+        [
+            "start",
+            str(prompt),
+            "--conversation",
+            "conv-1",
+            "--project",
+            "g-p-x",
+            "--run",
+            str(tmp_path / "run.json"),
+        ]
+    )
+
+    assert rc == 2
+    assert "never both" in capsys.readouterr().out
+
+
+def test_start_neither_conversation_nor_project_exits_2_before_anything_else(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: Any
+) -> None:
+    monkeypatch.setattr(deep_research, "open_session", _boom)
+    monkeypatch.setattr(send_prompt, "main", _boom)
+    prompt = tmp_path / "prompt.md"
+    prompt.write_text("hi", encoding="utf-8")
+
+    rc = deep_research.main(["start", str(prompt), "--run", str(tmp_path / "run.json")])
+
+    assert rc == 2
+    assert "give --conversation" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
 # --help, and the required arguments each subcommand claims to enforce
 # ---------------------------------------------------------------------------
 
@@ -1240,11 +1514,34 @@ def test_help_exits_0_and_never_opens_a_session(
     assert "usage:" in capsys.readouterr().out
 
 
-def test_start_requires_project_and_run(tmp_path: Path) -> None:
+def test_module_help_states_the_carrier_conversation_facts(capsys: Any) -> None:
+    with pytest.raises(SystemExit):
+        deep_research.main(["--help"])
+    out = " ".join(capsys.readouterr().out.split())
+    assert "carrier conversation" in out
+    assert "one research" in out
+    assert "never added to or changed" in out
+
+
+@pytest.mark.parametrize(
+    "argv", [["start", "--help"], ["status", "--help"], ["export", "--help"]]
+)
+def test_each_subcommand_help_states_the_carrier_conversation_facts(
+    argv: list[str], capsys: Any
+) -> None:
+    with pytest.raises(SystemExit):
+        deep_research.main(argv)
+    out = " ".join(capsys.readouterr().out.split())
+    assert "carrier conversation" in out
+    assert "one research runs at a time per conversation" in out
+    assert "conversation's own messages are never added to or changed" in out
+
+
+def test_start_requires_run(tmp_path: Path) -> None:
     prompt = tmp_path / "p.md"
     prompt.write_text("hi", encoding="utf-8")
     with pytest.raises(SystemExit):
-        deep_research.main(["start", str(prompt)])
+        deep_research.main(["start", str(prompt), "--conversation", "conv-1"])
 
 
 def test_status_requires_run() -> None:
