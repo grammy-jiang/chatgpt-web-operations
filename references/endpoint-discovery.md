@@ -455,6 +455,20 @@ see unless it records them from the window that sent.
 - Measured: a three-paragraph research took about four minutes from `start`
   to a "Generated report" title; its export was a 15 kB docx holding 8,141
   characters with an executive summary, sections and numbered citations.
+- **The research's topic comes from the carrier conversation, not from
+  `user_query`.** A carrier whose only turn was "reply with the single word
+  OK" produced a report titled "Handling 'Reply with the Single Word OK'
+  Test Prompts" while `user_query` asked about tide gauges; three runs
+  agree. So the prompt must be *in* the conversation: post it as an
+  ordinary message first, then `start` on that conversation.
+- **One research per carrier, for the life of that conversation.** A second
+  `start` on a conversation that already hosts one returns a session id
+  whose state is never reachable; `get_state` keeps returning the first
+  research. A fresh random uuid as `conversation_id` is refused
+  (`isError`), so the carrier must be a real conversation the user owns.
+- Consequence for the skill: the send stays (it mints the carrier and
+  states the topic), but nothing afterwards needs a browser, and the
+  session id is never needed -- `conversation_id` is the key.
 
 ## Re-run this when
 
