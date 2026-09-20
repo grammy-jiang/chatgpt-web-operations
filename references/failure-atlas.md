@@ -126,6 +126,29 @@ makes the workdir, re-execs into Playwright and dispatches. Every
 precondition is discovered by crashing into it, which is what
 `preflight.py` exists to end.
 
+## Looking for something in the wrong place all afternoon
+
+The Deep research report was hunted through `get_state`, the carrier
+conversation, `/conversations/<id>/messages`, the backing conversation, MCP
+`resources/list`, four unsupported `export` types, a hand-written websocket
+client, and the page's own JavaScript bundles, before it turned up in
+`metadata.chatgpt_sdk.widget_state` on a tool message in the conversation
+-- as native Markdown, over plain HTTP, exactly where the user had said a
+normal chat keeps its results.
+
+Two clues had been in hand from the start. The page bundle contained
+`applyRemoteWidgetState$`, which stores a widget's state per message; it
+was read and passed over. And when a tool-call message's metadata keys
+were printed, `chatgpt_sdk` was in the list beside `connector_tool_payload`;
+only the second was opened.
+
+The lesson is not "look harder". It is that every one of those searches ran
+against researches started by calling the connector's API directly, which
+never attach a widget and never store a report. The question "where is the
+report" had no answer for that path, and no amount of searching would have
+produced one. When a search keeps coming up empty, check that the thing
+being searched for was ever put there.
+
 ## Measurements worth keeping
 
 Composer fill, the real 89 kB review prompt, on an idle host:

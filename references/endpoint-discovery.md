@@ -470,6 +470,38 @@ see unless it records them from the window that sent.
   states the topic), but nothing afterwards needs a browser, and the
   session id is never needed -- `conversation_id` is the key.
 
+**The Deep research report, found 2026-09-20 after a long detour.** A Deep
+research is an ordinary chat that runs longer. Start it the way the page
+does -- one send carrying `system_hints:
+["plugin:connector_openai_deep_research"]` -- and ChatGPT attaches a widget
+whose entire state is stored server-side on a message, so the result is
+fetched later over plain HTTP like any other chat:
+
+```
+GET /backend-api/conversations/<conversation-id>      (plural, no /messages)
+  -> messages[N] with author.role == "tool"
+     metadata.chatgpt_sdk.widget_state                (a JSON string, ~105 kB)
+        .status                       "completed" when the research is done
+        .plan                         {plan_id, version, title, steps[{id, text, status}]}
+        .research_started_at / .research_stopped_at
+        .report_message               a whole assistant message
+           .content.parts[0]          THE REPORT, native Markdown
+           .metadata.search_result_groups / .citations / .safe_urls
+```
+
+The browser is needed only for the send (about 19 s with `--no-wait`);
+nothing stays open, and the sample was readable 194 s later. The report
+needs no conversion of any kind: it is the Markdown ChatGPT wrote.
+
+What made this take a whole afternoon, recorded so the next reader is
+spared it: a research started by calling the connector's MCP `start` tool
+directly attaches **no** widget, stores **no** report, and is reachable
+only through `export` as docx or pdf. Every "the report is nowhere"
+measurement on this page came from that path. The two clues that pointed
+the right way were in hand early and were walked past: the page bundle's
+`applyRemoteWidgetState$`, which stores widget state per message, and
+`chatgpt_sdk` sitting in a tool message's own metadata key list.
+
 ## Re-run this when
 
 - a send starts failing in a way `probe_account.py` says is not the account
