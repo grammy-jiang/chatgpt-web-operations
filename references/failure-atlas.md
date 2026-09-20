@@ -101,6 +101,31 @@ none of its own. And a test that asks for the value the profile already
 uses proves nothing, which is why the live check picks a level that
 differs from the account's current default.
 
+## What actually failed, across eight finished topics
+
+Mined 2026-09-20 from the ledgers of the real msgloom runs
+(`*/chatgpt/conversations.json`, 353 entries, 340 done): eleven failures
+and two replies that were generated and never collected.
+
+| What failed | Times | Caught before a run starts? |
+|-------------|------:|-----------------------------|
+| Rate limit: a 429 on the conversations listing, and the account notice | 2 | yes, a cheap read says so |
+| Host contention: a composer click timing out, a 600 s fill timing out | 2 | yes, memory and load |
+| "message was not posted (no new user turn / conversation URL)" | 2 | partly; one cause was found on 2026-09-20 to be a send clicked before an upload finished |
+| "The read operation timed out" | 2 | no, transient; retry once |
+| "composer did not appear (logged out or challenged)" | 1 | yes, but only by opening a window |
+| The assistant never finished within 1500 s | 1 | no, it is a run-time budget |
+| A reply missing its required block | 1 | no, that is the model |
+
+Two entries sit at `status: "sent"` to this day: the work was done and the
+reply was never fetched. That is free evidence lying on the floor, and the
+reason a preflight reports it with the command that collects it.
+
+The orchestrator checks none of this at startup: it parses arguments,
+makes the workdir, re-execs into Playwright and dispatches. Every
+precondition is discovered by crashing into it, which is what
+`preflight.py` exists to end.
+
 ## Measurements worth keeping
 
 Composer fill, the real 89 kB review prompt, on an idle host:
