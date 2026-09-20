@@ -7,63 +7,120 @@ session that ran in `~/Projects/research-pipeline-chatgpt` on 2026-09-19 and
 `VENDORED.md`. Everything below was measured on the user's live ChatGPT Pro
 account or in this directory; nothing is assumed.
 
-## 0. Update, 2026-09-20, second session
+## 0. Update, 2026-09-20, end of the second session
 
 Read this section, then `ROADMAP.md` ("Decisions of 2026-09-20" and the
-stage notes), `TESTING.md` and `SKILL.md`; the sections below are the
-first session's handover and are kept as history.
+stage notes), `TESTING.md` and `SKILL.md`; sections 1 onward are the first
+session's handover and are kept as history. Where this section and a later
+one disagree, this one is what was measured last.
 
-**State.** This directory is a git repository (`main`); every change since
-the handover is a commit with a message that says what was measured. The
-user's decisions: all work stays in this skill (the research-pipeline
-repository is not modified any more); the agent performs every recorded
-action itself; live tests run only against the sandbox project; test
-conversations are deleted afterwards; **everything that can be plain HTTP
-is plain HTTP, the browser only for the gated send** (three gates,
-re-probed the same day: proof-of-work, Turnstile, the behavioural `so`; no
-solver, ever).
+**State.** This directory is a git repository on `main`, 49 commits, tree
+clean. 20 commands in `scripts/`, 1,195 offline tests, a per-module
+coverage gate (95% core, 90% other) and four opt-in live tiers that pass:
+4 read, 3 write, 1 browser, 2 send.
 
-**Commands and transport now.** HTTP: `probe_account.py`,
-`probe_cookies.py` (local), `probe_send_gates.py`, `model_settings.py`,
-`profile_context.py`, `list_chats.py`, `list_projects.py`,
-`create_project.py`, `project_settings.py`, `delete_project.py`,
-`pin_chat.py`, `read_chat.py`, `clean_chats.py`, `round_status.py`,
-`review_topic.py` (offline). Browser: `send_prompt.py` (the send),
-`measure_window.py` and `discover_endpoints.py` (measuring).
+**The user's standing decisions.** All work stays in this skill. The agent
+performs every recorded action itself and never asks the user to click
+through ChatGPT. Live tests touch only the sandbox project and delete their
+conversations afterwards. Everything that can be plain HTTP is plain HTTP;
+the browser is for the gated send and nothing else (three gates, re-probed
+the same day: proof-of-work, Turnstile, the behavioural `so`; never build a
+solver). Only the Chat surface is in scope: never Work, Sites or Codex, and
+the file library is out of this skill entirely.
 
-**Findings that changed the code.** The `oai-last-model-config` cookie
-never pinned a send's effort: two recorded sends posted `thinking_effort:
-max` with the cookie at `standard`; the page follows the account's
-`last_used_model_config`. The fix rewrites the `f/conversation` POST body
-in flight (`rewrite_send_body`: `thinking_effort`, `model`,
-`system_hints`), verified by the reply's metadata, which records
-`thinking_effort`, `search_result_groups` and `citations`
-(`read_chat.py --effort`). The composer's "+" click never reached the
-body either; `system_hints: ["search"]` does. Attachments ride in
-`messages[0].metadata.attachments`; the upload must be waited for (busy
-indicator appears ~2.5 s after the input is set). Captured and reproduced
-over HTTP: project instructions and memory scope (`PATCH
-/backend-api/projects/<id>`), pin / unpin / archive / unarchive (`PATCH
-/backend-api/conversation/<id>`), project create (`POST
-/backend-api/projects`) and delete (`DELETE /backend-api/gizmos/<id>`).
-A chat inside a project-only project reports `memory_scope: project_v2`.
+**Transport per command.** Plain HTTP, no browser: `preflight.py` (unless
+`--browser`), `probe_account.py`, `probe_cookies.py` (local only),
+`probe_send_gates.py`, `model_settings.py`, `profile_context.py`,
+`list_chats.py`, `list_projects.py`, `create_project.py`,
+`project_settings.py`, `delete_project.py`, `pin_chat.py`, `read_chat.py`,
+`clean_chats.py`, `round_status.py`, `deep_research.py` except its `start`,
+`review_topic.py` (offline, reads a run directory). Browser:
+`send_prompt.py` for the send itself, `deep_research.py start` through it,
+`preflight.py --browser` for one composer check, and the two measuring
+commands `measure_window.py` and `discover_endpoints.py`.
+
+**Three commands were added or rewritten this session.**
+
+- `preflight.py`, new. One go/no-go verdict before a run starts, over one
+  reused session, in four groups: host, link, account, run. Link is checked
+  before account on purpose, so a dead wireless interface is never reported
+  as a blocked account. Exit 0 GO, 2 GO WITH WARNINGS, 1 DO NOT START. It
+  was built from a census of eleven real failures across eight topic
+  ledgers on this account, none of which the orchestrator checked for.
+- `deep_research.py`, rewritten around what a Deep research run actually
+  is: an ordinary chat that runs longer. `start` sends the prompt the way
+  the page does, one message carrying the system hint
+  `plugin:connector_openai_deep_research`, and ChatGPT attaches a widget to
+  that same conversation. Nothing has to stay open and no MCP call is made.
+  `status` and `fetch` then read it back over plain HTTP from
+  `GET /backend-api/conversations/<id>`, where exactly one message with
+  `author.role == "tool"` carries `metadata.chatgpt_sdk.widget_state` -- a
+  JSON string whose `report_message.content.parts[0]` is the finished
+  report as **native Markdown**, written out byte for byte. No format
+  conversion anywhere. The browser pays about 19 s for the send; the
+  measured run was readable 194 s later.
+- `round_status.py --collect [--apply]`, new. A ledger entry stuck at
+  status "sent" means four different things, and the orchestrator could
+  not tell them apart: resumable, superseded, collectable, lost. This
+  classifies each one and, with `--apply`, archives a collectable reply and
+  reclassifies a superseded or lost entry. It never touches a resumable
+  entry and refuses while an orchestrator is running.
+
+**The defect that shaped the session.** For two months the research
+orchestrator pinned a send's reasoning effort by rewriting the
+`oai-last-model-config` cookie. That never worked: two recorded sends
+posted `thinking_effort: max` while the cookie said `standard`, because the
+page follows the account's own `last_used_model_config`, not that cookie.
+Effort, model, search and system hints are now pinned by rewriting the
+outgoing `f/conversation` POST body in flight (`rewrite_send_body`), which
+is the only thing that reaches the server, and the reply's own metadata is
+what verifies it. The root cause was two copies of the client drifting
+apart, so there is now exactly one: the repository's
+`.github/scripts/chatgpt_client.py` was deleted and
+`chatgpt_research.py` imports this skill's copy through `CHATGPT_SKILL_DIR`
+(repository commit `91dfe062`, its 186 tests pass). **Rule: one client. If
+a second copy appears, delete it rather than sync it.**
+
+**Tests.** `make test` runs the offline suite and the coverage gate;
+`make lint`; `make live-read` / `live-write` / `live-browser` /
+`live-send` for the opt-in tiers, each needing both its marker and a
+matching `CHATGPT_LIVE`. A live test that needs a conversation mints one
+(`tests/live/minting.py`) and deletes it; it must never wait for one an
+earlier run left, because the session-end sweep empties the sandbox. That
+mistake made the pin and archive test skip every run from the day it was
+written until it was fixed, and a skip reads like a pass. The T4 send cap
+`CHATGPT_LIVE_SENDS` (default 4) is enforced now and fails rather than
+skips, for the same reason.
 
 **Sandbox.** `rp-test-sandbox` = `g-p-6aaea9da2bc881918d6f9eb5177cf904`
-(`tests/live/sandbox.json`), project-only memory, kept empty; the live
-tiers (`CHATGPT_LIVE=read|write|browser|send`, `tests/live/guard.py`) can
-write only there, create only `rp-test` projects and delete only the ones
-they created; a session-end sweep deletes `rp-test` chats.
+(`tests/live/sandbox.json`), project-only memory, left empty. The live
+tiers (`tests/live/guard.py`) can write only inside it, create only
+`rp-test` projects and delete only the ones they created; a session-end
+sweep deletes every conversation in it, whatever its title, because
+ChatGPT renames a chat itself once the first reply lands.
 
-**Tests.** `make test` runs the offline suite and the per-module coverage
-gate (95% core, 90% other); `make lint`; `make live-read` /
-`live-write` / `live-browser` / `live-send` for the opt-in tiers.
+**Facts that cost time, so they are written down.** The first click after a
+page load is often swallowed, so click again. The extension's network log
+never shows a request body; hook `fetch` and read `input.clone().text()`,
+because the page passes bodies inside `Request` objects. The composer's
+"+" click never reaches the send body; `system_hints` does. An attachment
+must be waited for, and the busy indicator appears about 2.5 s after the
+input is set, so waiting for it to clear without first waiting for it to
+appear returns too early. `--title` must be applied after the reply
+arrives, or ChatGPT's own auto-title overwrites it. When killing a
+background script, use the bracket form (`"deep_follow_onl[y].py"`) or
+`pkill -f` matches its own shell.
 
-**Chrome facts that cost time.** The first click after a page load is
-often swallowed (click again); the extension's network log never shows a
-request body (use a `fetch` hook and read `input.clone().text()`, the page
-passes bodies inside `Request` objects); Project settings saves only on
-its Save button; the Archived chats dialog lists your own archived chats
-too, so target by exact title.
+**Where the wrong turns are recorded, so they are not repeated.**
+`references/failure-atlas.md` has one entry per real failure and
+`references/endpoint-discovery.md` one row per endpoint, both with the date
+measured. The Deep research hunt cost most of an afternoon searching MCP
+`get_state`, a carrier conversation, `/messages`, MCP resources, four
+export types, a hand-written websocket client and the page bundles, all
+empty, because they targeted researches started through the MCP `start`
+tool, which attach no widget. Two clues to the right answer were in hand
+early and walked past: `applyRemoteWidgetState$` in the page bundle, and
+`chatgpt_sdk` in a tool message's metadata keys.
 
 ## 1. What was done
 
@@ -168,6 +225,11 @@ extension's tab group removes the group; recreate it with
 
 ## 3. What the skill supports now
 
+**Superseded by section 0.** This table is the first session's list of
+twelve commands. There are twenty now, and `SKILL.md`'s own table is the
+current one; a T0 test fails if that table and `scripts/*.py` disagree, so
+`SKILL.md` cannot go stale the way this one did.
+
 | Command | Transport | Does |
 |---------|-----------|------|
 | `probe_account.py` | HTTP | auth, `/backend-api/me`, one listing; exit 0 when reads work |
@@ -189,7 +251,9 @@ The bundled client (`chatgpt_client.py`) also provides the send path used by
 the orchestrator: `BrowserSender` (new chat, continue, inside a project,
 effort pinned through the `oai-last-model-config` cookie, large prompts as
 an attached file, budgeted window), `wait_for_reply`, `rename`, `archive`,
-`delete`, transcript helpers.
+`delete`, transcript helpers. **The cookie part is wrong and was removed**
+(section 0): it never pinned anything, and `rewrite_send_body` does the job
+now. `with_effort`, `with_model` and `EFFORT_COOKIE` no longer exist.
 
 ## 4. Findings that changed the docs
 
@@ -199,8 +263,10 @@ an attached file, budgeted window), `wait_for_reply`, `rename`, `archive`,
   Medium (`standard`), High (`extended`), Extra High (`max`), Pro (switches
   the model to `gpt-6-pro`). "Ultra" is a setting
   (`model_picker_persists_ultra_effort`), not a level; do not add it. The
-  orchestrator already pins effort per step through `TASK_EFFORT`. The
-  `SKILL.md` section "Reasoning effort" was rewritten from this evidence.
+  orchestrator already pins effort per step through `TASK_EFFORT` -- which
+  reached the wire for the first time on 2026-09-20; before that the cookie
+  it used was ignored (section 0). The `SKILL.md` section "Reasoning
+  effort" was rewritten from this evidence.
 - **Pinned is `is_starred`.** `GET /backend-api/pins` lists pinned chats;
   the same chats carry `is_starred: true` in the conversations listing.
   `hide_snorlax=true` hides project chats, which is what the sidebar does.
