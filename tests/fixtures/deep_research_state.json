@@ -1,0 +1,83 @@
+{
+  "_meta": {
+    "deep_research_widget_messages": [
+      {
+        "author": {"role": "assistant", "name": null},
+        "content": {
+          "content_type": "thoughts",
+          "thoughts": [
+            {
+              "summary": "Planning the research",
+              "content": "Breaking the question into sub-questions and picking sources to check first."
+            }
+          ]
+        },
+        "metadata": {
+          "reasoning_title": "Planning the research",
+          "reasoning_status": "is_reasoning"
+        },
+        "end_turn": false,
+        "status": "in_progress"
+      },
+      {
+        "author": {"role": "tool", "name": "web.run"},
+        "content": {"content_type": "text", "parts": []},
+        "metadata": {
+          "search_model_queries": {"queries": ["placeholder search query one"]},
+          "search_result_groups": [
+            {
+              "domain": "example.invalid",
+              "entries": [{"title": "Example placeholder result", "url": "https://example.invalid/a"}]
+            }
+          ]
+        },
+        "end_turn": false,
+        "status": "finished_successfully"
+      },
+      {
+        "author": {"role": "assistant", "name": null},
+        "content": {"content_type": "reasoning_recap", "content": "Worked for 42 seconds"},
+        "metadata": {
+          "reasoning_title": "Worked for 42 seconds",
+          "reasoning_status": "reasoning_ended"
+        },
+        "end_turn": false,
+        "status": "finished_successfully"
+      },
+      {
+        "author": {"role": "tool", "name": "web.run"},
+        "content": {"content_type": "text", "parts": []},
+        "metadata": {
+          "search_model_queries": {"queries": ["placeholder search query two"]},
+          "search_result_groups": [
+            {
+              "domain": "example.invalid",
+              "entries": [{"title": "Another placeholder result", "url": "https://example.invalid/b"}]
+            }
+          ]
+        },
+        "end_turn": false,
+        "status": "finished_successfully"
+      },
+      {
+        "author": {"role": "assistant", "name": null},
+        "content": {"content_type": "text", "parts": []},
+        "metadata": {
+          "reasoning_title": "Generated report on Placeholder Topic",
+          "reasoning_status": "reasoning_ended"
+        },
+        "end_turn": true,
+        "status": "finished_successfully"
+      }
+    ],
+    "source_searches": [
+      {"title": "Example placeholder result", "url": "https://example.invalid/a"},
+      {"title": "Another placeholder result", "url": "https://example.invalid/b"}
+    ]
+  },
+  "content": [],
+  "structuredContent": null,
+  "isError": false,
+  "result": "",
+  "meta": {}
+}
