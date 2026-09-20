@@ -68,8 +68,8 @@ and `discover_endpoints.py`) open a browser; everything else is plain HTTP.
 | `deep_research.py` | Start, poll and collect a Deep research run hosted by a carrier conversation whose own content decides the topic (not `user_query`). `start` has three modes: `--conversation` (direct MCP call, no browser), `--from-send SEND.json` (second half of the two-step flow), `--project` (one command, mints the carrier first). RUN.json needs only `conversation_id`. `status` polls `get_state` (`--wait`, one poll a minute); `export` writes the report as docx or pdf, `--text` extracts plain text. | `start` 0 written, 1 failed, 2 bad argument; `status` 0 done, 3 running, 1 failed, 2 no conversation id; `export` 0 written, 3 not done yet, 1 failed, 2 no conversation id |
 | `read_chat.py` | One conversation: is the turn finished, and what did it say? | 0 turn finished |
 | `pin_chat.py` | Pin or unpin a chat (`is_starred`). Dry run unless `--apply`. | 0 dry run or verified, 1 apply failed, 2 bad id |
-| `clean_chats.py` | Archive, delete or unarchive worker chats. Dry run unless `--apply`. | 0 always |
-| `round_status.py` | A research round: admitted, read, written off, unread. | 0 nothing unread |
+| `clean_chats.py` | Archive, delete or unarchive worker chats; `--project g-p-<id>` selects from the project's own listing (every chat when `--match` is absent), so a chat ChatGPT renamed is still found. Dry run unless `--apply`. | 0 always, 2 refused |
+| `round_status.py` | A research round: admitted, read, written off, unread; `--collect [--apply]` classifies every entry stuck at "sent" (resumable, superseded, collectable, lost) and archives a collectable reply. | 0 nothing unread; with `--collect` 0 nothing to do or all collected, 1 a fetch or write failed, 2 refused |
 | `review_topic.py` | A finished topic, offline: six integrity invariants per round, review verdicts, gaps, cost. | 0 nothing wrong |
 | `measure_window.py` | What a send window costs in memory and fill time. | 0 always |
 | `discover_endpoints.py` | Record what endpoints the page calls, and with `--bodies` what they sent. | 0 always |
@@ -113,6 +113,16 @@ project's instructions. Without it the archive cannot say which profile
 produced a round. The summary prints lengths and counts only; the text goes
 to the JSON. `review_topic.py` warns, without failing, when a topic has no
 such file or the newest one predates the newest round.
+
+**A run was interrupted.** Run `round_status.py <workdir>`. An entry stuck
+at "sent" in the round the run is on needs nothing: the orchestrator's own
+`--resume` collects it. For older rounds it never will, so
+`round_status.py <workdir> --collect` classifies each one: *superseded*
+means a retry already succeeded, *collectable* means the reply is still
+there, *lost* means the conversation is gone. `--collect --apply` archives
+a collectable reply beside the orchestrator's own transcripts and marks the
+entry; it refuses while a run is in flight, because the orchestrator
+rewrites that ledger wholesale and would drop the change.
 
 **ChatGPT changed something.** `discover_endpoints.py`, then
 `references/endpoint-discovery.md` for how to read the output.
