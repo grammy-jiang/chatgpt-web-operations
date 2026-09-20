@@ -1,0 +1,45 @@
+{
+  "messages": [
+    {
+      "author": {
+        "role": "user",
+        "name": null
+      },
+      "content": {
+        "content_type": "text",
+        "parts": [
+          "Research the placeholder topic and report the findings."
+        ]
+      },
+      "metadata": {}
+    },
+    {
+      "author": {
+        "role": "assistant",
+        "name": null
+      },
+      "content": {
+        "content_type": "text",
+        "parts": [
+          "Starting the research now."
+        ]
+      },
+      "metadata": {}
+    },
+    {
+      "author": {
+        "role": "tool",
+        "name": "web.run"
+      },
+      "content": {
+        "content_type": "text",
+        "parts": []
+      },
+      "metadata": {
+        "search_result_groups": []
+      }
+    }
+  ],
+  "conversation_id": "conv-no-widget-1",
+  "title": "An Ordinary Chat"
+}

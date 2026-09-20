@@ -1,139 +1,110 @@
 #!/usr/bin/env python3
-"""Start, poll and collect a Deep research run.
+"""Start a Deep research chat, poll it, and collect its report.
 
-    deep_research.py start PROMPT_FILE --conversation CONV_ID --run RUN.json
-    deep_research.py start PROMPT_FILE --from-send SEND.json --run RUN.json
     deep_research.py start PROMPT_FILE --project g-p-<id> --run RUN.json
                      [--title T] [--effort LEVEL]
     deep_research.py status --run RUN.json [--wait] [--timeout 1800]
                      [--interval 60]
+    deep_research.py fetch --run RUN.json --out REPORT.md
+                     [--sources FILE] [--json FILE]
     deep_research.py export --run RUN.json --out FILE.docx
                      [--text FILE.md] [--type docx|pdf] [--force]
 
-A Deep research run lives inside a "carrier conversation": an ordinary
-conversation the caller owns, named by its id. ``start``, ``status`` and
-``export`` all key on that id (RUN.json's ``conversation_id``, the only
-key RUN.json must carry); only one research runs at a time per carrier
-conversation, because a later ``start`` there replaces the state a later
-``get_state`` -- so also ``status`` and ``export`` -- will return for it
-(THE MEASURED FACTS, 2026-09-20, twelve live runs: "a second start on it
-yields a session id whose state is unreachable"). The carrier
-conversation's own messages are never added to or changed by any of
-this, not by ``start``, not by polling, not by exporting (a six-turn
-conversation still had six turns after a headless ``start``, though its
-title was regenerated).
+THE DESIGN THIS REPLACES, measured 2026-09-20: a Deep research run is an
+ordinary chat that runs longer, not a connector session hosted by a
+separate "carrier conversation". ``start`` sends the prompt exactly the
+way the chatgpt.com page does -- one message carrying the system hint
+``plugin:connector_openai_deep_research`` -- and ChatGPT attaches a
+widget to that same conversation. The widget's whole state then lives
+server-side on one of the conversation's own messages, so the result is
+read back later over plain HTTP like any other chat: nothing has to stay
+open, and no MCP call is made at all. The browser is needed only for
+that one send (about 19 s with ``--no-wait``); a result was readable
+194 s later in the run measured.
 
-THE TOPIC COMES FROM THE CARRIER, NEVER FROM AN ARGUMENT: ``start``'s own
-``user_query`` argument is sent, because the tool takes it, but twelve
-live runs agree it is not what decides the research question -- the
-carrier conversation's own content does. A carrier whose only turn was
-"reply with the single word OK" produced a report titled "Handling
-'Reply with the Single Word OK' Test Prompts" even though ``user_query``
-asked about tide gauges. So before any ``start``, the carrier must
-already contain the prompt to research, and a fresh random uuid as
-``--conversation`` is refused outright (``isError``): it must be a real
-conversation the caller owns. This is why ``start`` has three ways to
-reach a carrier that already qualifies:
+THE EXACT SHAPES, measured on one completed run: ``GET
+/backend-api/conversations/<conversation-id>`` (plural "conversations",
+no ``/messages`` suffix -- this is not ``chatgpt_client.get_conversation``'s
+singular, mapping-tree endpoint) returns ``{"messages": [...], ...}``.
+Exactly one message, ``author.role == "tool"``, carries
+``metadata.chatgpt_sdk.widget_state``: a JSON *string* (about 105 kB)
+that parses to an object with keys ``status``, ``plan``,
+``report_message``, ``research_started_at``, ``research_stopped_at``,
+``step_statuses_by_plan``, ``last_updated_at``,
+``waiting_for_user_response_on_plan_until``.
 
-``--conversation CONV_ID`` calls the connector's own ``start`` tool
-directly over ``POST /backend-api/ecosystem/call_mcp`` on a conversation
-the caller says already contains the prompt --
-``mcp_body("start", {"user_query": <PROMPT_FILE's text>}, conversation_id,
-message_id)``, with ``message_id`` a fresh ``uuid4`` minted here, never
-read back from anywhere. No browser opens and no message is ever posted;
-use this once a qualifying carrier already exists -- one ``--project`` or
-``--from-send`` minted earlier, or any other conversation of the
-caller's own that already states the question.
+``status`` was ``"completed"`` on the finished run; anything else means
+still running. ``waiting_for_user_response_on_plan_until`` being set
+means the research is waiting for the user to confirm its plan, not
+running yet. ``plan`` is ``{plan_id, version, title, steps: [{id, text,
+status, reason?}]}``; step statuses seen so far: ``in_progress``,
+``pending`` (a finished step's own status string was not among them --
+this module never interprets one, only displays it). ``report_message``
+is a whole assistant message: ``content.content_type == "text"``,
+``content.parts[0]`` is the finished report as native Markdown (a
+"# Title", "## Executive summary", **bold**, [links](url) -- 5,297 chars
+in the sample), plus ``metadata.search_result_groups`` (43 groups in the
+sample), ``metadata.citations``, ``metadata.safe_urls``,
+``metadata.resolved_model_slug``, and ``end_turn: true``.
+``research_started_at`` / ``research_stopped_at`` are ISO strings, 80 s
+apart in the sample.
 
-``--from-send SEND.json`` is the two-step flow's second half: run
-``send_prompt.py PROMPT_FILE --project g-p-<id> --json SEND.json``
-first (an ordinary send -- no system hint needed, since posting the
-prompt as a normal message already mints a carrier that contains it),
-then point this at that document. It reads SEND.json's
-``conversation_id`` (required) and ``session_id`` (carried through when
-present, though ``start`` mints its own and that supersedes it -- kept
-only as a fallback for the unlikely case that call answers with none),
-then calls the same MCP ``start`` that ``--conversation`` does, on that
-conversation.
+``start`` sends PROMPT_FILE through ``send_prompt.main`` with
+``--system-hint plugin:connector_openai_deep_research`` and ``--no-wait``
+(only the conversation's existence and content matter here, never a
+reply), then writes RUN.json: ``{"conversation_id", "started_at",
+"prompt_file", "title", "mode": "widget"}``. No MCP call is made at all.
+Exit 0 once written; 1 when the send itself fails (its own exit code
+passes through, so this covers a bad argument inside the send too, e.g.
+an unknown ``--effort``); 2 for a bad argument caught here first (no such
+PROMPT_FILE, or an argparse error such as a missing ``--project``).
 
-``--project g-p-<id>`` is the one-command path: it posts PROMPT_FILE with
-``send_prompt.py`` (``--no-wait``, since only the carrier's existence and
-content matter here, never any reply -- a plain send, not the old
-system-hinted one: a hint is what makes a turn invoke the connector as a
-tool, and this no longer relies on that, so none is sent) to mint a fresh
-carrier conversation containing PROMPT_FILE, records that send's own
-document at ``RUN.json.send.json``, then calls the same MCP ``start`` on
-the conversation ``send_prompt.py`` resolved. Minting a brand new carrier
-in one command is the only reason to reach for ``--project``; once a
-carrier exists, run later research on it through ``--conversation``
-instead.
+``status`` fetches the conversation and finds its widget state
+(``find_widget_state``), then prints the plan's title, each step with
+its status, the research's started/stopped times, and one of DONE
+(``status`` ``"completed"``), WAITING FOR PLAN CONFIRMATION
+(``waiting_for_user_response_on_plan_until`` set) or RUNNING. Exit 0
+done, 3 running or waiting (so a caller can loop it), 1 on a failed read
+-- RUN.json unreadable, the HTTP GET failing, or the conversation
+carrying no widget state at all, reported plainly as the research not
+having been started the page way (see ``export`` below for that other
+case). ``--wait`` polls every ``--interval`` seconds (minimum 60,
+enforced) until done or ``--timeout`` runs out, printing a status block
+only when it changes; a 429 backs off 120 s and tries again rather than
+counting as a change or a failure (carried over from the older polling
+loop this replaces; not re-measured against this endpoint specifically).
 
-Give exactly one of ``--conversation``, ``--from-send`` or ``--project``.
-``--title`` (a label recorded in RUN.json) and ``--effort`` (``min``,
-``standard``, ``extended`` or ``max``) act only through ``--project``'s
-own send -- ``--title`` renames the new chat once sent, ``--effort`` pins
-the send's reasoning effort -- and do nothing for a ``start`` that never
-sends anything, so both are refused with ``--conversation`` or
-``--from-send``.
+``fetch`` writes the finished report's Markdown -- ``report_message.
+content.parts[0]``, the same field ``status`` reads the widget state
+from -- to ``--out``, verbatim: no conversion of any kind, byte for
+byte what ChatGPT wrote, nothing added or stripped. ``--sources`` writes
+``report_message.metadata.search_result_groups`` as a readable,
+deduplicated list, one source per line ("domain | title | url").
+``--json`` writes the whole widget state. Exit 0 written, 3 when the
+research is not finished yet (``status`` is not ``"completed"``), 1 on a
+failed read (the same cases as ``status``'s, plus a "completed" state
+whose ``report_message`` does not resolve to report text).
 
-The new session id comes from the ``start`` result's own
-``structuredContent.session_id``; a recursive ``chatgpt_client.find_key``
-search over the whole result is the fallback, in case that shape moves
-later. RUN.json then records ``conversation_id``, ``session_id``,
-``message_id``, ``started_at``, ``prompt_file``, ``title`` and ``"mode"``
-(``"headless"``, ``"send"`` or ``"from_send"``, one per ``start`` mode).
-Exit 0 once RUN.json is written. Exit 1 when the start call fails over
-HTTP, answers ``isError``, or carries no session id at all (each prints
-what came back, truncated); also when ``--project``'s own send fails
-(its exit code passes through unchanged: 1 a send, resolve or wait
-failure; 2 a bad argument such as an unknown ``--effort``) or its record
-cannot be read back afterwards. Exit 2 for a bad argument: no such
-PROMPT_FILE, none or more than one of
-``--conversation``/``--from-send``/``--project`` given, ``--title`` or
-``--effort`` given without ``--project``, or ``--from-send``'s SEND.json
-missing, unreadable, not valid JSON, or missing its own
-``conversation_id``.
-
-``status`` polls ``get_state`` for the run named by RUN.json and prints
-the carrier conversation, the number of progress messages, the last
-three reasoning titles, and DONE (a message's ``metadata.reasoning_title``
-starts with "Generated report") or RUNNING. Exit 0 when done, 3 when
-still running (so a caller can loop it), 1 on an MCP error or an HTTP
-failure, 2 when RUN.json cannot be read or carries no ``conversation_id``
-(the only key it must carry). ``--wait`` polls every ``--interval``
-seconds (minimum 60, enforced -- three calls every 30 s for ten minutes
-earned an HTTP 429) until done or ``--timeout`` runs out, printing a line
-only when the summary changes; a 429 sleeps 120 s and tries again rather
-than counting as either a change or a failure.
-
-``export`` calls ``get_state`` first and refuses with exit 3 when no
-"Generated report" title exists yet, unless ``--force`` skips that check
-entirely. It then calls ``export`` (``docx`` by default, or ``pdf``),
-decodes ``_meta.encoded_data`` and writes it to ``--out``; with ``--text``
+``export`` is the *fallback*, kept for a research that was started the
+older way -- calling the connector's own MCP ``start`` tool directly,
+which leaves no widget on the conversation and so nothing for
+``status``/``fetch`` to find. That older result is reachable only
+through the MCP ``export`` tool, as a base64 docx or pdf; this
+subcommand is unchanged from before: it calls ``get_state`` first and
+refuses (exit 3) until some message's ``reasoning_title`` starts with
+"Generated report", unless ``--force`` skips that check, then calls
+``export`` (``docx`` by default, or ``pdf``), decodes
+``_meta.encoded_data`` and writes it to ``--out``; with ``--text``
 (``docx`` only) it also extracts the report's plain text from
-``word/document.xml`` with ``zipfile`` and a regex -- paragraphs on their
-own lines, tags stripped, entities unescaped -- and writes that to
-``--text``. Prints the filename ``_meta.content_disposition`` names, the
-byte count, and with ``--text`` the character count. Exit 0 once written,
-1 on an MCP error or HTTP failure, 3 on the not-done refusal, 2 when
-RUN.json cannot be read, carries no ``conversation_id``, or ``--text``
-was given with ``--type pdf``.
-
-The front conversation never receives the report (60 minutes observed);
-``export`` is the only way to read it. ``get_state`` and ``export`` key
-on RUN.json's ``conversation_id``, never ``session_id`` (THE MEASURED
-FACTS, 2026-09-20: ``get_state`` called with one conversation's id and
-another run's session id still returned the first conversation's own
-research) -- ``session_id`` is kept for the record when a caller has it,
-never required, and never used to pick which research comes back:
-``status`` and ``export`` send whatever RUN.json recorded, or the
-conversation id itself when RUN.json has none, since the server ignores
-the value either way. ``message_id`` is treated just as loosely -- "a
-message_id may be any uuid" -- so a RUN.json written by hand with only
-``conversation_id`` still works: a freshly minted ``uuid4`` stands in for
-a missing ``message_id``, minted once per command and reused across
-every MCP call that command makes (every poll of one ``--wait``, or both
-calls one ``export`` makes), never regenerated mid-command.
+``word/document.xml``. It still keys on RUN.json's ``conversation_id``
+alone, and still takes a ``session_id`` from RUN.json when one happens
+to be recorded there (never required, and ignored by the server either
+way) -- a ``mode: "widget"`` RUN.json from ``start`` above has neither,
+so both fall back to a freshly minted ``uuid4`` / the conversation id
+itself, exactly as before. Exit 0 once written, 1 on an MCP error or
+HTTP failure, 3 on the not-done refusal, 2 when RUN.json cannot be read,
+carries no ``conversation_id``, or ``--text`` was given with
+``--type pdf``.
 """
 
 from __future__ import annotations
@@ -153,63 +124,249 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-import chatgpt_client
 import send_prompt
 from _common import ensure_venv, open_session
 
-# Every tool call goes through this one endpoint, naming the connector by
-# app_uri (references/endpoint-discovery.md, "Runs 4 to 6").
+# What the page itself sends: the composer "+" item that makes a send
+# invoke the Deep Research connector as a tool and attach its widget
+# (module docstring, THE EXACT SHAPES).
+DEEP_RESEARCH_SYSTEM_HINT = "plugin:connector_openai_deep_research"
+
+# The one place the widget's whole state lives (module docstring, THE
+# EXACT SHAPES): plural "conversations", no "/messages" suffix, unlike
+# chatgpt_client's own singular /backend-api/conversation/<id>.
+CONVERSATIONS_PATH = "/backend-api/conversations/{id}"
+
+# status/fetch's shared answer when a conversation carries no widget
+# state at all: either it was never started the page way, or (the
+# export fallback's own territory) it was started through the older MCP
+# start tool, which leaves nothing here to find.
+NO_WIDGET_STATE_MESSAGE = (
+    "no widget state in this conversation: the research was not started "
+    "the page way (start sends --system-hint "
+    f"{DEEP_RESEARCH_SYSTEM_HINT} to mint one); if it was started "
+    "through the older MCP start tool instead, use 'export' to collect it"
+)
+
+# Repeated in start/status/fetch's own --help (module docstring, same facts).
+WIDGET_NOTE = (
+    "A Deep research run is an ordinary chat that runs longer. Its widget "
+    "state lives on one of the conversation's own messages and is read "
+    "back over plain HTTP -- see 'export' for the older, MCP-only fallback."
+)
+
+# Repeated in export's own --help (module docstring, same facts).
+EXPORT_FALLBACK_NOTE = (
+    "Fallback only: for a research started the older way, calling the "
+    "connector's MCP start tool directly, which leaves no widget state "
+    "for status/fetch to find."
+)
+
+# Every tool call export makes goes through this one endpoint, naming the
+# connector by app_uri (references/endpoint-discovery.md, "Runs 4 to 6").
 APP_URI = "connectors://connector_openai_deep_research"
 CALL_MCP = "/backend-api/ecosystem/call_mcp"
 
-# get_state's own signal that the report is ready (THE MEASURED FACTS:
-# observed "Generated report on Python 3 Minor-Release Scheduling").
+# export's own get_state's signal that the report is ready (THE MEASURED
+# FACTS of the design this replaces: observed "Generated report on Python 3
+# Minor-Release Scheduling").
 DONE_TITLE_PREFIX = "Generated report"
 
-# Three polls every 30 s for ten minutes earned an HTTP 429; --wait refuses
-# to go faster than this.
+# Shared by status --wait and, historically, export's own polling: do not
+# go faster than once a minute, and a 429 backs off two minutes.
 MIN_INTERVAL = 60.0
 RATE_LIMIT_BACKOFF = 120.0
 
 EXPORT_TYPES = ("docx", "pdf")
 
-# The one key every RUN.json and every send_prompt.py --json document
-# ("start --from-send", and this module's own intermediate send record)
-# must carry (module docstring, THE MEASURED FACTS: get_state and export
-# key on conversation_id alone).
+# The one key every RUN.json must carry, whichever path wrote it (module
+# docstring): start's own mode: "widget" RUN.json, or an export-only one
+# written for the older MCP fallback.
 REQUIRED_CONVERSATION_KEYS: tuple[str, ...] = ("conversation_id",)
-
-# Repeated in every subcommand's --help (module docstring, same facts).
-CARRIER_NOTE = (
-    "The research is hosted by the carrier conversation named by "
-    "--conversation, --from-send or --project. Only one research runs at "
-    "a time per conversation: a later start there replaces the state "
-    "that get_state -- so also status and export -- will return. The "
-    "conversation's own messages are never added to or changed."
-)
-
-# Repeated in "start"'s own --help (module docstring, same facts, rule 2:
-# say plainly that the carrier's content, not user_query, decides the topic).
-START_TOPIC_NOTE = (
-    "The research topic comes from the carrier conversation's own "
-    "content, never from user_query: the API accepts user_query, but "
-    "measurement shows the carrier decides the topic regardless of what "
-    "user_query says, so the carrier must already contain the prompt you "
-    "want researched. --title and --effort act only through --project's "
-    "send; they do nothing, and are refused, with --conversation or "
-    "--from-send."
-)
 
 
 # ---------------------------------------------------------------------------
-# Pure helpers
+# Pure helpers -- the widget path (start / status / fetch)
+# ---------------------------------------------------------------------------
+
+
+def find_widget_state(conversation: Any) -> dict[str, Any] | None:
+    """The Deep research widget's own state, parsed out of the one tool
+    message that carries it (module docstring, THE EXACT SHAPES: exactly
+    one message, ``author.role == "tool"``, carries
+    ``metadata.chatgpt_sdk.widget_state``, a JSON *string* that parses to
+    the widget's state object).
+
+    ``None`` when ``conversation`` is not shaped like one, no message
+    carries a ``widget_state`` string, or that string is not valid JSON,
+    or does not parse to a JSON object -- this never raises. When more
+    than one message carries one, the last in the list wins (the most
+    recently posted).
+    """
+    if not isinstance(conversation, dict):
+        return None
+    messages = conversation.get("messages")
+    if not isinstance(messages, list):
+        return None
+
+    found: dict[str, Any] | None = None
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+        author = message.get("author")
+        if not isinstance(author, dict) or author.get("role") != "tool":
+            continue
+        metadata = message.get("metadata")
+        if not isinstance(metadata, dict):
+            continue
+        chatgpt_sdk = metadata.get("chatgpt_sdk")
+        if not isinstance(chatgpt_sdk, dict):
+            continue
+        raw = chatgpt_sdk.get("widget_state")
+        if not isinstance(raw, str) or not raw:
+            continue
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            found = parsed
+    return found
+
+
+def state_verdict(state: Any) -> dict[str, Any]:
+    """``{"status", "done", "waiting", "started_at", "stopped_at",
+    "steps": [...], "title"}`` out of one parsed widget state --
+    everything ``status`` prints, and what ``--wait`` compares between
+    polls to decide whether to print again.
+
+    ``done`` is ``status == "completed"``; ``waiting`` is
+    ``waiting_for_user_response_on_plan_until`` being set (module
+    docstring: that means the research is waiting for the user to
+    confirm the plan, not that it is running). ``steps`` is
+    ``plan.steps``, reduced to ``{"id", "text", "status"}`` (plus
+    "reason" when the step itself carries one) -- a step's own status
+    string is only ever displayed here, never interpreted, since
+    "completed" (or whatever a finished step reads) was not among the
+    statuses this module's own measurements confirmed. ``title`` is
+    ``plan.title``. A non-dict ``state``, or one missing any of these
+    fields, still returns a full verdict with those fields empty or
+    ``None`` rather than raising.
+    """
+    if not isinstance(state, dict):
+        state = {}
+    plan = state.get("plan")
+    if not isinstance(plan, dict):
+        plan = {}
+    raw_steps = plan.get("steps")
+    steps: list[dict[str, Any]] = []
+    for step in raw_steps if isinstance(raw_steps, list) else []:
+        if not isinstance(step, dict):
+            continue
+        entry: dict[str, Any] = {
+            "id": step.get("id"),
+            "text": step.get("text", ""),
+            "status": step.get("status", ""),
+        }
+        if step.get("reason"):
+            entry["reason"] = step["reason"]
+        steps.append(entry)
+
+    status = state.get("status")
+    return {
+        "status": status,
+        "done": status == "completed",
+        "waiting": bool(state.get("waiting_for_user_response_on_plan_until")),
+        "started_at": state.get("research_started_at"),
+        "stopped_at": state.get("research_stopped_at"),
+        "steps": steps,
+        "title": plan.get("title"),
+    }
+
+
+def report_markdown(state: Any) -> str | None:
+    """The finished report's Markdown, exactly as ChatGPT wrote it --
+    ``report_message.content.parts[0]``, with no conversion of any kind
+    (module docstring).
+
+    ``None`` when the research has not produced a report yet, or the
+    shape does not resolve to a string -- a missing or malformed
+    ``report_message`` never raises. The string is returned exactly as
+    found, including an empty one or one with no trailing newline: this
+    is the one place in this module that must not "clean up" its input.
+    """
+    if not isinstance(state, dict):
+        return None
+    report_message = state.get("report_message")
+    if not isinstance(report_message, dict):
+        return None
+    content = report_message.get("content")
+    if not isinstance(content, dict):
+        return None
+    parts = content.get("parts")
+    if not isinstance(parts, list) or not parts:
+        return None
+    part = parts[0]
+    return part if isinstance(part, str) else None
+
+
+def sources_lines(state: Any) -> list[str]:
+    """One readable ``"domain | title | url"`` line per source,
+    deduplicated and in first-seen order, out of
+    ``report_message.metadata.search_result_groups`` (module docstring:
+    43 groups in the sample).
+
+    Deduplication is on the exact ``(domain, title, url)`` triple, so two
+    groups that both surfaced the same result collapse to one line
+    without silently dropping a same-URL entry that carries a different
+    title. Tolerates a missing or malformed ``report_message`` /
+    ``metadata`` / ``search_result_groups`` -- an empty list, never a
+    raised exception.
+    """
+    if not isinstance(state, dict):
+        return []
+    report_message = state.get("report_message")
+    metadata = (
+        report_message.get("metadata") if isinstance(report_message, dict) else None
+    )
+    groups = (
+        metadata.get("search_result_groups") if isinstance(metadata, dict) else None
+    )
+    if not isinstance(groups, list):
+        return []
+
+    lines: list[str] = []
+    seen: set[tuple[str, str, str]] = set()
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        domain = str(group.get("domain") or "")
+        entries = group.get("entries")
+        if not isinstance(entries, list):
+            continue
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            title = str(entry.get("title") or "")
+            url = str(entry.get("url") or "")
+            key = (domain, title, url)
+            if key in seen:
+                continue
+            seen.add(key)
+            lines.append(f"{domain} | {title} | {url}")
+    return lines
+
+
+# ---------------------------------------------------------------------------
+# Pure helpers -- the export fallback (the older MCP start/get_state/export)
 # ---------------------------------------------------------------------------
 
 
 def mcp_body(
     tool: str, arguments: dict[str, Any], conversation_id: str, message_id: str
 ) -> dict[str, Any]:
-    """The ``call_mcp`` POST body for one Deep research connector tool call."""
+    """The ``call_mcp`` POST body for one Deep research connector tool
+    call (export's fallback path only)."""
     return {
         "app_uri": APP_URI,
         "method": "tools/call",
@@ -232,15 +389,16 @@ def _error_text(resp: dict[str, Any]) -> str:
 
 
 def state_summary(resp: Any) -> dict[str, Any]:
-    """``{"messages": n, "titles": [...], "done": bool, "error": str | None}``
-    out of one ``get_state`` MCP result.
+    """``{"messages": n, "titles": [...], "done": bool, "error": str |
+    None}`` out of one ``get_state`` MCP result -- export's own fallback
+    not-done check, unrelated to the widget path's ``state_verdict``.
 
     ``resp`` is the call's parsed body, whatever its own ``isError``: an
-    error or malformed result answers with zeroed counts and ``error`` set
-    rather than raising, so a caller always has something to print. Done
-    means some message's ``metadata.reasoning_title`` starts with
+    error or malformed result answers with zeroed counts and ``error``
+    set rather than raising, so a caller always has something to print.
+    Done means some message's ``metadata.reasoning_title`` starts with
     "Generated report" (``DONE_TITLE_PREFIX``); ``titles`` keeps only the
-    last three, in order, which is what ``status`` prints.
+    last three, in order.
     """
     if not isinstance(resp, dict):
         return {
@@ -267,43 +425,26 @@ def state_summary(resp: Any) -> dict[str, Any]:
     }
 
 
-def start_session_id(resp: Any) -> str | None:
-    """The new session id out of one ``start`` MCP result.
-
-    ``structuredContent.session_id`` is where THE MEASURED FACTS
-    (2026-09-20) put it, so that is read directly first. A recursive
-    ``chatgpt_client.find_key`` search over the whole result is the
-    fallback alone, in case the connector's own response shape moves the
-    id elsewhere later. ``None`` when neither finds a non-empty string,
-    or ``resp`` is not shaped like a result at all -- this never raises.
-    """
-    if isinstance(resp, dict):
-        structured = resp.get("structuredContent")
-        if isinstance(structured, dict):
-            session_id = structured.get("session_id")
-            if isinstance(session_id, str) and session_id:
-                return session_id
-    return chatgpt_client.find_key([resp], "session_id")
-
-
 def run_session_arg(run: dict[str, Any]) -> str:
-    """The value ``status``/``export`` send as the MCP call's own
-    ``session_id`` argument: the recorded one when RUN.json has it, else
-    the carrier conversation's own id.
+    """The value export sends as the MCP call's own ``session_id``
+    argument: the recorded one when RUN.json has it, else the
+    conversation's own id.
 
-    THE MEASURED FACTS, 2026-09-20: the server keys ``get_state`` and
-    ``export`` on ``conversation_id`` alone and ignores this argument's
-    value entirely, so any non-empty string satisfies it and the
-    conversation id always qualifies as a stand-in.
+    THE MEASURED FACTS (the design this replaces): the server keys
+    ``get_state`` and ``export`` on ``conversation_id`` alone and ignores
+    this argument's value entirely, so any non-empty string satisfies it
+    and the conversation id always qualifies as a stand-in -- which is
+    what a ``mode: "widget"`` RUN.json (no ``session_id`` at all) always
+    falls back to.
     """
     return run.get("session_id") or run["conversation_id"]
 
 
 def run_message_id(run: dict[str, Any]) -> str:
-    """The value ``status``/``export`` send as the MCP call's own
-    ``message_id`` argument: the recorded one when RUN.json has it, else a
-    freshly minted ``uuid4`` (THE MEASURED FACTS: "A message_id may be
-    any uuid.")."""
+    """The value export sends as the MCP call's own ``message_id``
+    argument: the recorded one when RUN.json has it, else a freshly
+    minted ``uuid4`` (THE MEASURED FACTS: "A message_id may be any
+    uuid.")."""
     return run.get("message_id") or str(uuid.uuid4())
 
 
@@ -367,6 +508,34 @@ def docx_text(data: bytes) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _get_widget_state(
+    session: Any, conversation_id: str
+) -> tuple[int, dict[str, Any] | None, str | None]:
+    """``(http_status, state, error)`` for one ``GET
+    /backend-api/conversations/<id>``: the raw HTTP status, the widget
+    state found inside it (``find_widget_state``), and an error line
+    ready to print when ``state`` is ``None``.
+
+    A non-200 status and a conversation with no widget state are the two
+    ways this can fail, both described as "a failed read" (module
+    docstring) by every caller except ``_wait_for_status``, which keeps
+    the raw status to treat 429 specially.
+    """
+    http_status, data = session.session.call(
+        CONVERSATIONS_PATH.format(id=conversation_id)
+    )
+    if http_status != 200:
+        return (
+            http_status,
+            None,
+            f"could not read the conversation: HTTP {http_status} {str(data)[:200]}",
+        )
+    state = find_widget_state(data)
+    if state is None:
+        return http_status, None, NO_WIDGET_STATE_MESSAGE
+    return http_status, state, None
+
+
 def _call_mcp(
     session: Any,
     tool: str,
@@ -374,8 +543,8 @@ def _call_mcp(
     conversation_id: str,
     message_id: str,
 ) -> tuple[int, Any]:
-    """POST ``call_mcp`` for one tool call; the raw ``(status, data)``,
-    the same shape every other command in this skill calls
+    """POST ``call_mcp`` for one export tool call; the raw ``(status,
+    data)``, the same shape every other command in this skill calls
     ``session.session.call`` for."""
     return session.session.call(
         CALL_MCP,
@@ -388,9 +557,8 @@ def _load_json_object(path: str, required: tuple[str, ...]) -> dict[str, Any] | 
     """A JSON object read from ``path``, checked for ``required`` keys;
     prints why and returns ``None`` instead of raising.
 
-    One parser and one set of error messages, shared by RUN.json (for
-    ``status``/``export``), a ``--from-send`` SEND.json, and this
-    module's own intermediate ``*.send.json`` record.
+    One parser and one set of error messages, shared by RUN.json and
+    ``start``'s own intermediate ``*.send.json`` record.
     """
     try:
         text = Path(path).read_text(encoding="utf-8")
@@ -414,9 +582,10 @@ def _load_json_object(path: str, required: tuple[str, ...]) -> dict[str, Any] | 
 
 def _load_run(path: str) -> dict[str, Any] | None:
     """RUN.json, parsed and checked for ``conversation_id`` -- the only
-    key ``status`` and ``export`` need (module docstring, THE MEASURED
-    FACTS): ``run_session_arg``/``run_message_id`` supply a safe stand-in
-    for ``session_id``/``message_id`` when RUN.json carries neither."""
+    key every subcommand here needs (module docstring): ``run_session_arg``
+    / ``run_message_id`` supply a safe stand-in for ``session_id`` /
+    ``message_id`` when RUN.json (as ``start`` now writes it) carries
+    neither."""
     return _load_json_object(path, REQUIRED_CONVERSATION_KEYS)
 
 
@@ -430,67 +599,84 @@ def _write_run_doc(run_path: str, run_doc: dict[str, Any]) -> Path:
     return out
 
 
-def _print_summary(summary: dict[str, Any]) -> None:
-    print(f"messages: {summary['messages']}")
-    if summary["titles"]:
-        print("last reasoning titles:")
-        for title in summary["titles"]:
-            print(f"  - {title}")
+def _print_status(verdict: dict[str, Any]) -> None:
+    print(f"plan: {verdict['title'] or '(untitled)'}")
+    if verdict["steps"]:
+        for step in verdict["steps"]:
+            line = f"  [{step['status'] or '?'}] {step['text']}"
+            if step.get("reason"):
+                line += f" -- {step['reason']}"
+            print(line)
     else:
-        print("last reasoning titles: (none yet)")
-    print("DONE" if summary["done"] else "RUNNING")
+        print("  (no steps yet)")
+    print(f"started: {verdict['started_at'] or '(not started)'}")
+    print(f"stopped: {verdict['stopped_at'] or '(not stopped)'}")
+    if verdict["done"]:
+        print("DONE")
+    elif verdict["waiting"]:
+        print("WAITING FOR PLAN CONFIRMATION")
+    else:
+        print("RUNNING")
 
 
-def _wait_for_done(
+def _wait_for_status(
     session: Any,
-    run: dict[str, Any],
+    conversation_id: str,
     *,
     timeout: float,
     interval: float,
     sleep: Any = time.sleep,
 ) -> int:
-    """Poll ``get_state`` until DONE, an MCP error, or ``timeout`` runs out.
+    """Poll the conversation until DONE, a failed read, or ``timeout``
+    runs out.
 
-    ``run_session_arg(run)`` and ``run_message_id(run)`` are each resolved
-    once, before the loop starts, and reused for every poll -- a RUN.json
-    missing either still works, and does not mint a new ``message_id`` on
-    every poll. Prints a summary line only when it changes, not on every
-    poll. A 429 sleeps ``RATE_LIMIT_BACKOFF`` seconds and tries again
-    instead of counting as either a change or a failure; any other
-    non-200 status ends the wait at once.
+    Prints a status block only when the verdict changes since the last
+    poll, not on every poll -- running and waiting both keep polling, only
+    DONE stops it. A 429 sleeps ``RATE_LIMIT_BACKOFF`` seconds and tries
+    again instead of counting as either a change or a failure; any other
+    non-200 status ends the wait at once (exit 1).
+
+    A conversation with no widget state yet is **not** a failure while
+    waiting: ChatGPT attaches the widget a little after the send, measured
+    at under 60 s but not instantly, so a wait that started right after
+    `start` would otherwise fail on its first poll (it did, 2026-09-20).
+    The wait reports it once and keeps polling; only a wait that runs out
+    of time with no widget ever appearing gives up, and a single
+    (non-waiting) status still fails at once, because there is nothing to
+    wait for.
     """
-    session_arg = run_session_arg(run)
-    message_id = run_message_id(run)
     deadline = time.monotonic() + timeout
     prev: dict[str, Any] | None = None
+    printed_pending = False
     while True:
-        status, data = _call_mcp(
-            session,
-            "get_state",
-            {"session_id": session_arg},
-            run["conversation_id"],
-            message_id,
-        )
-        if status == 429:
+        http_status, state, error = _get_widget_state(session, conversation_id)
+        if http_status == 429:
             print(f"HTTP 429: backing off {RATE_LIMIT_BACKOFF:g} s before the next try")
             sleep(RATE_LIMIT_BACKOFF)
         else:
-            if status != 200:
-                print(f"get_state failed: HTTP {status} {str(data)[:200]}")
+            if error:
+                if state is None and http_status == 200:
+                    if prev is not None or not printed_pending:
+                        print("no widget state yet; the send was just made")
+                        printed_pending = True
+                        prev = None
+                    if time.monotonic() >= deadline:
+                        print(error)
+                        return 1
+                    sleep(interval)
+                    continue
+                print(error)
                 return 1
-            summary = state_summary(data)
-            if summary["error"]:
-                print(f"MCP error: {summary['error']}")
-                return 1
-            if summary != prev:
-                _print_summary(summary)
-                prev = summary
-            if summary["done"]:
+            verdict = state_verdict(state)
+            if verdict != prev:
+                _print_status(verdict)
+                prev = verdict
+            if verdict["done"]:
                 return 0
         if time.monotonic() >= deadline:
             print(f"status: still running after {timeout:g} s")
             return 3
-        if status != 429:
+        if http_status != 429:
             sleep(interval)
 
 
@@ -499,97 +685,21 @@ def _wait_for_done(
 # ---------------------------------------------------------------------------
 
 
-def _start_headless(
-    args: argparse.Namespace,
-    prompt_path: Path,
-    started_at: str,
-    *,
-    conversation_id: str = "",
-    fallback_session_id: str | None = None,
-    mode: str = "headless",
-) -> int:
-    """Call the connector's own ``start`` tool directly -- the one MCP
-    call every ``start`` mode ends in (module docstring, THE MEASURED
-    FACTS 2026-09-20). ``conversation_id`` defaults to ``args.conversation``
-    (the ``--conversation`` path); ``--project`` and ``--from-send`` pass
-    their own resolved conversation id instead. ``user_query`` is
-    PROMPT_FILE's text, sent because the tool takes it, though measurement
-    shows the carrier's own content, not this argument, decides the
-    topic. ``fallback_session_id`` is used only when the start call
-    itself carries none: ``--project`` and ``--from-send`` pass through
-    whatever their own JSON document already recorded, when it did.
-    """
-    conversation_id = conversation_id or args.conversation
-    prompt_text = prompt_path.read_text(encoding="utf-8")
-    message_id = str(uuid.uuid4())
+def _cmd_start(args: argparse.Namespace) -> int:
+    prompt_path = Path(args.prompt_file)
+    if not prompt_path.is_file():
+        print(f"no such prompt file: {prompt_path}")
+        return 2
 
-    session = open_session()
-    status, data = _call_mcp(
-        session, "start", {"user_query": prompt_text}, conversation_id, message_id
-    )
-    if status != 200:
-        print(f"start failed: HTTP {status} {str(data)[:200]}")
-        return 1
-    if isinstance(data, dict) and data.get("isError"):
-        print(f"MCP error: {_error_text(data)}")
-        return 1
-
-    session_id = start_session_id(data) or fallback_session_id
-    if not session_id:
-        print(f"the start call carried no session id: {str(data)[:200]}")
-        return 1
-
-    run_doc = {
-        "conversation_id": conversation_id,
-        "session_id": session_id,
-        "message_id": message_id,
-        "started_at": started_at,
-        "prompt_file": str(prompt_path),
-        "title": args.title,
-        "mode": mode,
-    }
-    out = _write_run_doc(args.run, run_doc)
-    print(f"written to {out}")
-    return 0
-
-
-def _start_from_doc(
-    args: argparse.Namespace,
-    prompt_path: Path,
-    started_at: str,
-    doc: dict[str, Any],
-    mode: str,
-) -> int:
-    """The shared tail of ``--project`` and ``--from-send``: both resolve
-    a ``conversation_id`` (and maybe a ``session_id``) from someone
-    else's JSON document, then start on it exactly like ``--conversation``
-    does. ``doc`` is already validated to carry ``conversation_id``
-    (``_load_json_object`` / ``REQUIRED_CONVERSATION_KEYS``)."""
-    return _start_headless(
-        args,
-        prompt_path,
-        started_at,
-        conversation_id=doc["conversation_id"],
-        fallback_session_id=doc.get("session_id") or None,
-        mode=mode,
-    )
-
-
-def _start_send(args: argparse.Namespace, prompt_path: Path, started_at: str) -> int:
-    """``--project``, the one-command path: ``send_prompt.py`` posts
-    PROMPT_FILE as an ordinary message (``--no-wait``, since only the
-    carrier's existence and content matter here) to mint a fresh carrier
-    conversation containing it -- no system hint, since none is needed to
-    mint a conversation with content in it. Its own exit code passes
-    through unchanged. Once that carrier exists, ``_start_from_doc`` does
-    the same MCP ``start`` the headless path does, on the conversation it
-    resolved."""
+    started_at = datetime.now(UTC).isoformat(timespec="seconds")
     doc_path = f"{args.run}.send.json"
 
     argv = [
         str(prompt_path),
         "--project",
         args.project,
+        "--system-hint",
+        DEEP_RESEARCH_SYSTEM_HINT,
         "--no-wait",
         "--json",
         doc_path,
@@ -606,93 +716,35 @@ def _start_send(args: argparse.Namespace, prompt_path: Path, started_at: str) ->
     doc = _load_json_object(doc_path, REQUIRED_CONVERSATION_KEYS)
     if doc is None:
         return 1
-    return _start_from_doc(args, prompt_path, started_at, doc, mode="send")
 
-
-def _start_from_send(
-    args: argparse.Namespace, prompt_path: Path, started_at: str
-) -> int:
-    """``--from-send``, the two-step flow's second half: read the
-    ``send_prompt.py --json`` document named by ``--from-send`` (a prior,
-    separate ``send_prompt.py`` call already minted the carrier and put
-    the prompt in it), then start on the conversation it names exactly
-    like ``--conversation`` does. A missing, unreadable, invalid or
-    conversation_id-less document is a bad argument here (exit 2, before
-    any session opens), unlike the internal document ``--project`` writes
-    for itself, which is a runtime failure (exit 1) at that point."""
-    doc = _load_json_object(args.from_send, REQUIRED_CONVERSATION_KEYS)
-    if doc is None:
-        return 2
-    return _start_from_doc(args, prompt_path, started_at, doc, mode="from_send")
-
-
-def _cmd_start(args: argparse.Namespace) -> int:
-    modes = [
-        flag
-        for flag, value in (
-            ("--conversation", args.conversation),
-            ("--from-send", args.from_send),
-            ("--project", args.project),
-        )
-        if value
-    ]
-    if len(modes) != 1:
-        detail = f" (got {' and '.join(modes)})" if modes else ""
-        print(
-            "give exactly one of --conversation CONV_ID (direct, no "
-            "browser), --from-send SEND.json (the two-step flow's second "
-            "half) or --project g-p-<id> (one command: send_prompt.py "
-            "mints the carrier, then the same MCP start)" + detail
-        )
-        return 2
-
-    if (args.title or args.effort) and not args.project:
-        print(
-            "--title and --effort act only through --project's send; "
-            "they do nothing for --conversation or --from-send and are "
-            "refused there"
-        )
-        return 2
-
-    prompt_path = Path(args.prompt_file)
-    if not prompt_path.is_file():
-        print(f"no such prompt file: {prompt_path}")
-        return 2
-
-    started_at = datetime.now(UTC).isoformat(timespec="seconds")
-    if args.project:
-        return _start_send(args, prompt_path, started_at)
-    if args.from_send:
-        return _start_from_send(args, prompt_path, started_at)
-    return _start_headless(args, prompt_path, started_at)
+    run_doc = {
+        "conversation_id": doc["conversation_id"],
+        "started_at": started_at,
+        "prompt_file": str(prompt_path),
+        "title": args.title,
+        "mode": "widget",
+    }
+    out = _write_run_doc(args.run, run_doc)
+    print(f"written to {out}")
+    return 0
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
     run = _load_run(args.run)
     if run is None:
-        return 2
-
-    print(f"carrier conversation: {run['conversation_id']}")
+        return 1
+    print(f"conversation: {run['conversation_id']}")
 
     session = open_session()
 
     if not args.wait:
-        status, data = _call_mcp(
-            session,
-            "get_state",
-            {"session_id": run_session_arg(run)},
-            run["conversation_id"],
-            run_message_id(run),
-        )
-        if status != 200:
-            print(f"get_state failed: HTTP {status} {str(data)[:200]}")
+        _http_status, state, error = _get_widget_state(session, run["conversation_id"])
+        if error:
+            print(error)
             return 1
-        summary = state_summary(data)
-        if summary["error"]:
-            print(f"MCP error: {summary['error']}")
-            return 1
-        _print_summary(summary)
-        return 0 if summary["done"] else 3
+        verdict = state_verdict(state)
+        _print_status(verdict)
+        return 0 if verdict["done"] else 3
 
     interval = args.interval
     if interval < MIN_INTERVAL:
@@ -700,7 +752,61 @@ def _cmd_status(args: argparse.Namespace) -> int:
             f"--interval {interval:g} s is below the minimum; using {MIN_INTERVAL:g} s"
         )
         interval = MIN_INTERVAL
-    return _wait_for_done(session, run, timeout=args.timeout, interval=interval)
+    return _wait_for_status(
+        session, run["conversation_id"], timeout=args.timeout, interval=interval
+    )
+
+
+def _cmd_fetch(args: argparse.Namespace) -> int:
+    run = _load_run(args.run)
+    if run is None:
+        return 1
+
+    session = open_session()
+    _http_status, state, error = _get_widget_state(session, run["conversation_id"])
+    if error:
+        print(error)
+        return 1
+
+    verdict = state_verdict(state)
+    if not verdict["done"]:
+        if verdict["waiting"]:
+            print("refused: waiting for plan confirmation, not finished yet")
+        else:
+            print(
+                "refused: the research is not finished yet "
+                f"(status: {verdict['status']!r})"
+            )
+        return 3
+
+    report = report_markdown(state)
+    if report is None:
+        print("done, but report_message carries no report text")
+        return 1
+
+    out_path = Path(args.out).expanduser()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(report, encoding="utf-8", newline="")
+    print(f"{len(report)} characters -> {out_path}")
+
+    if args.sources:
+        lines = sources_lines(state)
+        sources_path = Path(args.sources).expanduser()
+        sources_path.parent.mkdir(parents=True, exist_ok=True)
+        sources_path.write_text(
+            "".join(f"{line}\n" for line in lines), encoding="utf-8"
+        )
+        print(f"{len(lines)} source(s) -> {sources_path}")
+
+    if args.json:
+        json_path = Path(args.json).expanduser()
+        json_path.parent.mkdir(parents=True, exist_ok=True)
+        json_path.write_text(
+            json.dumps(state, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        print(f"widget state -> {json_path}")
+
+    return 0
 
 
 def _cmd_export(args: argparse.Namespace) -> int:
@@ -779,58 +885,33 @@ def _build_parser() -> argparse.ArgumentParser:
 
     start = sub.add_parser(
         "start",
-        help="start a Deep research run (--conversation, --from-send or --project)",
-        description="Start a Deep research run. "
-        + START_TOPIC_NOTE
-        + " "
-        + CARRIER_NOTE,
+        help="send PROMPT_FILE with the Deep research hint and record the run",
+        description="Start a Deep research run: an ordinary send carrying "
+        "the system hint plugin:connector_openai_deep_research, the "
+        "browser's only part. No MCP call is made. " + WIDGET_NOTE,
     )
     start.add_argument(
         "prompt_file",
         metavar="PROMPT_FILE",
-        help="the text sent as user_query; the carrier's own content, not "
-        "this, decides the topic",
-    )
-    start.add_argument(
-        "--conversation",
-        default="",
-        metavar="CONVERSATION_ID",
-        help="a conversation you own that already states the research "
-        "question (direct MCP call, no browser). Give this, --from-send "
-        "or --project, never more than one",
-    )
-    start.add_argument(
-        "--from-send",
-        default="",
-        metavar="SEND.json",
-        help="start on the conversation named by a prior send_prompt.py "
-        "--json document's conversation_id (the two-step flow's second "
-        "half: send that prompt yourself first, so the carrier already "
-        "contains it). Give this, --conversation or --project, never "
-        "more than one",
+        help="the research prompt, sent exactly as the page would send it",
     )
     start.add_argument(
         "--project",
-        default="",
+        required=True,
         metavar="g-p-ID",
-        help="mint a fresh carrier by sending PROMPT_FILE there first "
-        "(send_prompt.py), then start on it -- the one-command path, and "
-        "the only reason to use this. Give this, --conversation or "
-        "--from-send, never more than one",
+        help="compose inside this project (send_prompt.py --project); a new chat only",
     )
     start.add_argument(
         "--title",
         default="",
         metavar="T",
-        help="a label recorded in RUN.json, and the chat's new name once "
-        "sent -- --project only, refused otherwise",
+        help="rename the chat once sent, and record it in RUN.json",
     )
     start.add_argument(
         "--effort",
         default="",
         metavar="LEVEL",
-        help="min|standard|extended|max, pins --project's own send -- "
-        "--project only, refused otherwise",
+        help="min|standard|extended|max; blank inherits the account's own",
     )
     start.add_argument(
         "--run", required=True, metavar="RUN.json", help="write the run record here"
@@ -838,8 +919,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     status = sub.add_parser(
         "status",
-        help="poll get_state and print progress plus DONE or RUNNING",
-        description="Poll get_state for the run named by RUN.json. " + CARRIER_NOTE,
+        help="fetch the conversation, find the widget state, print progress",
+        description="Fetch the conversation named by RUN.json's "
+        "conversation_id and print the widget's plan, steps and DONE / "
+        "WAITING FOR PLAN CONFIRMATION / RUNNING. " + WIDGET_NOTE,
     )
     status.add_argument(
         "--run", required=True, metavar="RUN.json", help="the run written by start"
@@ -862,13 +945,41 @@ def _build_parser() -> argparse.ArgumentParser:
         help="with --wait, seconds between polls (minimum 60, enforced)",
     )
 
+    fetch = sub.add_parser(
+        "fetch",
+        help="write the finished report's Markdown, byte for byte",
+        description="Write report_message.content.parts[0] verbatim to "
+        "--out: no conversion of any kind, byte for byte what ChatGPT "
+        "wrote. " + WIDGET_NOTE,
+    )
+    fetch.add_argument(
+        "--run", required=True, metavar="RUN.json", help="the run written by start"
+    )
+    fetch.add_argument(
+        "--out", required=True, metavar="REPORT.md", help="write the report here"
+    )
+    fetch.add_argument(
+        "--sources",
+        default="",
+        metavar="FILE",
+        help="also write a deduplicated 'domain | title | url' list, one "
+        "source per line",
+    )
+    fetch.add_argument(
+        "--json",
+        default="",
+        metavar="FILE",
+        help="also write the whole widget state as JSON",
+    )
+
     export = sub.add_parser(
         "export",
-        help="export the finished report and write it to a file",
-        description="Export the finished report named by RUN.json. " + CARRIER_NOTE,
+        help="fallback: export a report started without the widget hint",
+        description="Export the finished report named by RUN.json over "
+        "MCP, as a base64 docx or pdf. " + EXPORT_FALLBACK_NOTE,
     )
     export.add_argument(
-        "--run", required=True, metavar="RUN.json", help="the run written by start"
+        "--run", required=True, metavar="RUN.json", help="the run to export"
     )
     export.add_argument(
         "--out", required=True, metavar="FILE", help="write the exported file here"
@@ -897,6 +1008,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_start(args)
     if args.command == "status":
         return _cmd_status(args)
+    if args.command == "fetch":
+        return _cmd_fetch(args)
     return _cmd_export(args)
 
 

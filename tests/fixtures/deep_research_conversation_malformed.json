@@ -1,0 +1,49 @@
+{
+  "messages": [
+    {
+      "author": {
+        "role": "user",
+        "name": null
+      },
+      "content": {
+        "content_type": "text",
+        "parts": [
+          "Research the placeholder topic and report the findings."
+        ]
+      },
+      "metadata": {}
+    },
+    {
+      "author": {
+        "role": "assistant",
+        "name": null
+      },
+      "content": {
+        "content_type": "text",
+        "parts": [
+          "Starting the research now."
+        ]
+      },
+      "metadata": {}
+    },
+    {
+      "author": {
+        "role": "tool",
+        "name": "chatgpt_sdk_widget"
+      },
+      "content": {
+        "content_type": "text",
+        "parts": [
+          ""
+        ]
+      },
+      "metadata": {
+        "chatgpt_sdk": {
+          "widget_state": "{not valid json"
+        }
+      }
+    }
+  ],
+  "conversation_id": "conv-malformed-1",
+  "title": "A Broken Widget"
+}

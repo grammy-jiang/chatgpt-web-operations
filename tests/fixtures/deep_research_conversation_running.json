@@ -1,0 +1,49 @@
+{
+  "messages": [
+    {
+      "author": {
+        "role": "user",
+        "name": null
+      },
+      "content": {
+        "content_type": "text",
+        "parts": [
+          "Research the placeholder topic and report the findings."
+        ]
+      },
+      "metadata": {}
+    },
+    {
+      "author": {
+        "role": "assistant",
+        "name": null
+      },
+      "content": {
+        "content_type": "text",
+        "parts": [
+          "Starting the research now."
+        ]
+      },
+      "metadata": {}
+    },
+    {
+      "author": {
+        "role": "tool",
+        "name": "chatgpt_sdk_widget"
+      },
+      "content": {
+        "content_type": "text",
+        "parts": [
+          ""
+        ]
+      },
+      "metadata": {
+        "chatgpt_sdk": {
+          "widget_state": "{\"status\": \"in_progress\", \"plan\": {\"plan_id\": \"plan-2\", \"version\": 1, \"title\": \"Research Plan: Another Placeholder Topic\", \"steps\": [{\"id\": \"step-1\", \"text\": \"Survey background sources\", \"status\": \"completed\"}, {\"id\": \"step-2\", \"text\": \"Cross-check contested claims\", \"status\": \"in_progress\"}, {\"id\": \"step-3\", \"text\": \"Draft the executive summary\", \"status\": \"pending\"}]}, \"report_message\": null, \"research_started_at\": \"2026-09-20T10:00:00+00:00\", \"research_stopped_at\": null, \"step_statuses_by_plan\": {\"plan-2\": {\"step-1\": \"completed\", \"step-2\": \"in_progress\", \"step-3\": \"pending\"}}, \"last_updated_at\": \"2026-09-20T10:00:45+00:00\", \"waiting_for_user_response_on_plan_until\": null}"
+        }
+      }
+    }
+  ],
+  "conversation_id": "conv-running-1",
+  "title": "Another Placeholder Topic Research"
+}

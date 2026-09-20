@@ -65,7 +65,7 @@ and `discover_endpoints.py`) open a browser; everything else is plain HTTP.
 | `delete_project.py` | Delete a project and every chat in it over HTTP, after refusing a name mismatch or a non-`rp-test` name without `--force`. Dry run unless `--apply`. | 0 dry run or deleted and verified, 1 read or verify failed, 2 refused |
 | `project_settings.py` | Set a project's instructions and memory scope (`--memory project-only` keeps its chats out of your memory). Dry run unless `--apply`. | 0 dry run or verified, 1 apply failed, 2 refused |
 | `send_prompt.py` | Send one or more prompts: new chats (`--project` targets one) or a continuing one with `--chat`; `--effort`, `--model`, `--search` and `--system-hint HINT` (any composer "+" item's id, for example `plugin:connector_openai_deep_research`) pin the send by rewriting the `f/conversation` POST body in flight; `--record-send-body PATH` records it and the response stream (`PATH.stream.txt`, where a Deep research `session_id` is read back into `--json`; the window then stays open until the reply stream has ended), `--attach FILE ...` uploads before the fill, `--title` renames once the reply arrived, `--json` records the send. Several PROMPT_FILEs share one browser window and are waited on after it closes; `--no-wait` skips the wait. | 0 every prompt sent and replied, 1 a send, resolve, wait or rename failed, 2 bad arguments |
-| `deep_research.py` | Start, poll and collect a Deep research run hosted by a carrier conversation whose own content decides the topic (not `user_query`). `start` has three modes: `--conversation` (direct MCP call, no browser), `--from-send SEND.json` (second half of the two-step flow), `--project` (one command, mints the carrier first). RUN.json needs only `conversation_id`. `status` polls `get_state` (`--wait`, one poll a minute); `export` writes the report as docx or pdf, `--text` extracts plain text. | `start` 0 written, 1 failed, 2 bad argument; `status` 0 done, 3 running, 1 failed, 2 no conversation id; `export` 0 written, 3 not done yet, 1 failed, 2 no conversation id |
+| `deep_research.py` | Start a Deep research chat with the page's own hint (`start`, no MCP call), poll its widget state over plain HTTP (`status`, `--wait`), and collect the finished report's native Markdown byte for byte plus its sources (`fetch`). `export` is the fallback for a research started the older way, returning docx or pdf. | `start` 0 written, 1 send failed, 2 bad argument; `status` and `fetch` 0 done or written, 3 running or not finished, 1 failed read; `export` 0 written, 3 not done yet, 1 failed, 2 bad argument |
 | `read_chat.py` | One conversation: is the turn finished, and what did it say? | 0 turn finished |
 | `pin_chat.py` | Pin or unpin a chat (`is_starred`). Dry run unless `--apply`. | 0 dry run or verified, 1 apply failed, 2 bad id |
 | `clean_chats.py` | Archive, delete or unarchive worker chats; `--project g-p-<id>` selects from the project's own listing (every chat when `--match` is absent), so a chat ChatGPT renamed is still found. Dry run unless `--apply`. | 0 always, 2 refused |
@@ -266,33 +266,36 @@ restate or bound settled work. Raising every step is not free, because longer
 turns mean more polling and polling volume is what earns this account its
 rate limits.
 
-## Deep research is a connector, and the carrier decides the topic
+## Deep research is an ordinary chat that runs longer
 
-Deep research runs through the connector's own MCP tools over plain HTTP:
-`POST /backend-api/ecosystem/call_mcp`. Twelve live runs on 2026-09-20
-proved the topic comes from the **carrier conversation's own content**,
-never from the `user_query` argument: a carrier whose only turn was "reply
-with the single word OK" produced a report about that prompt while
-`user_query` asked about something else. So the carrier must already state
-the question before `start` runs, which is what the ordinary send is for.
-One research runs per carrier conversation for its whole life; a second
-`start` there returns a session id whose state is never reachable. A random
-uuid as the carrier is refused, so it must be a conversation the user owns.
+A Deep research run is not a separate connector session: it is an ordinary
+chat that runs longer. `start` sends the prompt the way the page does, one
+message carrying the system hint
+`plugin:connector_openai_deep_research`. **That send is the browser's only
+part, about 19 seconds**; nothing stays open. ChatGPT attaches a widget to
+that same conversation and stores the widget's whole state server-side on
+one of the conversation's own messages, a tool message whose
+`metadata.chatgpt_sdk.widget_state` is a JSON string. `status` reads it
+back later over plain HTTP (`GET /backend-api/conversations/<id>`, plural,
+no `/messages`): the plan and its steps, `research_started_at` and
+`research_stopped_at`, and `status`, which reads `completed` when the
+report is ready. The sample was readable 194 seconds after the send.
 
-`status` polls `get_state`, DONE once a progress title starts with
-"Generated report"; `export` returns the report as a base64 docx or pdf.
-Both key on the **carrier conversation's id alone**: the session id is
-recorded when known, never required, and never selects the research. Poll
-once a minute at most; ten minutes at 30 s intervals earned a 429 on the
-conversation-read path, and a 429 means back off two minutes. Measured: a
-three-paragraph prompt finished in about four minutes and exported as a
-15 kB docx holding 8,141 characters with sections and numbered citations.
+The report is `widget_state.report_message.content.parts[0]`, **native
+Markdown**, and `fetch` writes it out byte for byte. Nothing is converted,
+because nothing needs to be: it is what ChatGPT wrote. `--sources` writes
+the search result groups beside it.
+
+`export` remains for a research started the older way, by calling the
+connector's MCP `start` tool directly. That path attaches no widget and
+stores no report, so its only output is a docx or pdf; every earlier search
+for "the report" came up empty because it was looking at that path. See
+`references/endpoint-discovery.md`.
 
 ```bash
-python3 $S/send_prompt.py prompt.md --project g-p-<id> --no-wait --json send.json
-python3 $S/deep_research.py start prompt.md --from-send send.json --run run.json
+python3 $S/deep_research.py start prompt.md --project g-p-<id> --run run.json
 python3 $S/deep_research.py status --run run.json --wait --timeout 1800
-python3 $S/deep_research.py export --run run.json --out report.docx --text report.md
+python3 $S/deep_research.py fetch --run run.json --out report.md --sources sources.txt
 ```
 
 ## Memory is a hidden input too
