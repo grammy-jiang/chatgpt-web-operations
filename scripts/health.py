@@ -15,14 +15,21 @@ that a dead link skips account, run and (here) health rather than let a
 doomed HTTP call read like a blocked account (SKILL.md, "Name the path that
 failed"). Then a fifth group, "health", over the same session:
 
-    session token   the cookie jar's own session-token expiry, read without
-                     decrypting anything (probe_cookies.read_jar /
-                     session_horizon). Measured 2026-09-20: it is the one
-                     load-bearing cookie in the jar and it is issued for 90
-                     days, so it is the one thing that fails slowly enough
-                     for a once-a-day check to catch before it fails
-                     outright -- nothing refreshes it but the user's own
-                     Chrome visiting chatgpt.com.
+    session token   the LATER of two session-token horizons: the cookie
+                     jar's own expiry, read without decrypting anything
+                     (probe_cookies.read_jar / session_horizon), and this
+                     machine's own keyring, which chatgpt_session.py's
+                     Session.__init__ renews on every session it builds --
+                     including the one this very check just opened
+                     (chatgpt_session.py, "Session token renewal"). Measured
+                     2026-09-20: it is the one load-bearing cookie in the
+                     jar and it is issued for 90 days, so it is the one
+                     thing that fails slowly enough for a once-a-day check
+                     to catch before it fails outright. Before the renewal
+                     existed, nothing refreshed it but the user's own
+                     Chrome visiting chatgpt.com; now this check, run daily,
+                     keeps it alive by itself, and Chrome is only needed
+                     again after an actual logout or password change.
     sandbox         tests/live/sandbox.json's project still answers to its
                      own name -- a wrong sandbox would let a live test
                      write to a real project -- and carries no conversation
@@ -76,7 +83,10 @@ PINS = "/backend-api/pins"
 
 SESSION_WARN_DAYS = 14
 SESSION_TOKEN_FIX = (
-    "open chatgpt.com in this machine's own Chrome; only that refreshes the token"
+    "open chatgpt.com in this machine's own Chrome, or run any command that "
+    "builds a session (this check included) -- either renews the token; "
+    "reaching this warning despite that likely means the login itself needs "
+    "refreshing (logout or a password change)"
 )
 
 SANDBOX_WRONG_FIX = (
@@ -104,37 +114,96 @@ def _sandbox() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def _read_session_horizon(cc_mod: Any, browser: str) -> tuple[str, float] | None:
-    """The session token's expiry from the cookie jar alone, undecrypted --
-    ``probe_cookies.read_jar`` + ``session_horizon``, exactly
-    ``probe_cookies.py``'s own reasoning: expiry is not a secret, so
-    nothing here needs decrypting. Raises on an unknown browser name, a
-    missing cookie database, or a read failure; ``fetch_session_token``
-    below is what turns that into a check instead of a crash.
+def _read_session_horizon(
+    cc_mod: Any, browser: str
+) -> tuple[tuple[str, float] | None, tuple[str, float] | None]:
+    """Both session-token horizons, as ``(chrome, keyring)``: Chrome's own
+    jar, read without decrypting anything (``probe_cookies.read_jar`` /
+    ``session_horizon``, exactly ``probe_cookies.py``'s own reasoning --
+    expiry is not a secret), and this machine's own keyring
+    (``cs.load_stored_session()``, converted to the same ``(date,
+    days_left)`` shape). Raises on an unknown browser name, a missing
+    cookie database, or a jar read failure -- that is Chrome's side; the
+    keyring side never raises on its own (``load_stored_session``'s own
+    contract is to fail inward to ``None``), so a keyring problem alone
+    never takes this whole check down. ``fetch_session_token`` below is
+    what turns a raised exception into a check instead of a crash.
     """
     cs = cc_mod._helpers()
     db, _app = cs.BROWSERS[browser]
     rows = probe_cookies.read_jar(Path(db))
-    return probe_cookies.session_horizon(rows, time.time())
+    now = time.time()
+    chrome = probe_cookies.session_horizon(rows, now)
+    keyring = _stored_session_horizon(cs.load_stored_session(), now)
+    return chrome, keyring
+
+
+def _stored_session_horizon(
+    stored: dict[str, Any] | None, now: float
+) -> tuple[str, float] | None:
+    """The keyring's stored session record in ``probe_cookies.session_horizon``'s
+    own ``(date, days_left)`` shape -- ``None`` when nothing is stored yet,
+    or its expiry is unknown."""
+    if not stored:
+        return None
+    expires = stored.get("expires")
+    if expires is None:
+        return None
+    day = datetime.fromtimestamp(expires, UTC).date().isoformat()
+    return day, (expires - now) / 86400
+
+
+def _later_horizon(
+    chrome: tuple[str, float] | None, keyring: tuple[str, float] | None
+) -> tuple[tuple[str, float], tuple[str, float] | None, str]:
+    """``(winner, the other one or None, "chrome"|"keyring")`` -- the later
+    of the two horizons (comparing ``days_left`` is equivalent to comparing
+    expiry epochs, since both were read at the same "now"). Callers handle
+    "both None" themselves; this is never called with both.
+    """
+    if keyring is not None and (chrome is None or keyring[1] > chrome[1]):
+        return keyring, chrome, "keyring"
+    return chrome, keyring, "chrome"  # type: ignore[return-value]
 
 
 def session_token_check(
-    horizon: tuple[str, float] | None, error: str = ""
+    chrome: tuple[str, float] | None,
+    keyring: tuple[str, float] | None,
+    error: str = "",
 ) -> dict[str, Any]:
-    """Block when the jar holds no persistent session token, or it has
-    already expired -- both mean this machine cannot prove who is signed
-    in. Warn inside the last two weeks, so there is time to open Chrome
-    before it does. ``SESSION_WARN_DAYS`` and the 90-day issue window were
-    measured 2026-09-20 (probe_cookies.py)."""
-    if horizon is None:
-        detail = "no persistent session token in the cookie jar"
+    """Block when NEITHER the cookie jar nor the keyring holds a usable
+    session token, or the LATER of the two has already expired -- both
+    mean this machine cannot prove who is signed in. Warn inside the last
+    two weeks of the later one, so there is time before it does. Judging
+    the later of the two (chatgpt_session.py, "Session token renewal") is
+    what makes this catch a renewal the keyring has but Chrome's own jar
+    has not caught up to yet, and vice versa. ``SESSION_WARN_DAYS`` and the
+    90-day issue window were measured 2026-09-20 (probe_cookies.py).
+    """
+    if chrome is None and keyring is None:
+        detail = "no persistent session token in the cookie jar or the keyring"
         if error:
             detail += f": {error}"
         return preflight.check(
             "health", "session token", "block", detail, SESSION_TOKEN_FIX
         )
-    expires, days_left = horizon
+    winner, other, source = _later_horizon(chrome, keyring)
+    expires, days_left = winner
     detail = f"expires {expires}, {days_left:.1f} days left"
+    if source == "keyring" and other is not None:
+        detail += (
+            f" (from keyring; Chrome's copy expires {other[0]}, "
+            f"{other[1]:.1f} days left)"
+        )
+    elif source == "keyring":
+        detail += " (from keyring; Chrome's own jar has none)"
+    elif keyring is None:
+        detail += " (no renewed copy in the keyring yet)"
+    else:
+        detail += (
+            f" (from Chrome; keyring's copy expires {other[0]}, "
+            f"{other[1]:.1f} days left)"
+        )
     if days_left <= 0:
         return preflight.check(
             "health", "session token", "block", detail, SESSION_TOKEN_FIX
@@ -149,13 +218,13 @@ def session_token_check(
 def fetch_session_token(cc_mod: Any, browser: str) -> dict[str, Any]:
     """Never raises: a missing cookie DB, an unknown browser name or an
     unreadable jar becomes the same "no persistent session token" block a
-    truly empty jar would, since all of them mean this machine cannot prove
-    who is signed in."""
+    jar and keyring both empty would, since all of them mean this machine
+    cannot prove who is signed in."""
     try:
-        horizon = _read_session_horizon(cc_mod, browser)
+        chrome, keyring = _read_session_horizon(cc_mod, browser)
     except Exception as exc:
-        return session_token_check(None, error=str(exc)[:200])
-    return session_token_check(horizon)
+        return session_token_check(None, None, error=str(exc)[:200])
+    return session_token_check(chrome, keyring)
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +374,9 @@ def _empty_facts(sandbox: dict[str, str]) -> dict[str, Any]:
     return {
         "session_expires": None,
         "session_days_left": None,
+        "session_source": None,
+        "chrome_session_expires": None,
+        "keyring_session_expires": None,
         "model": "",
         "effort": "",
         "preset": None,
@@ -364,12 +436,18 @@ def facts_of(
     sandbox_id = sandbox["id"]
 
     try:
-        horizon = _read_session_horizon(cc_mod, browser)
+        chrome, keyring = _read_session_horizon(cc_mod, browser)
     except Exception:
-        horizon = None
-    if horizon is not None:
-        facts["session_expires"], days_left = horizon
+        chrome, keyring = None, None
+    if chrome is not None:
+        facts["chrome_session_expires"] = chrome[0]
+    if keyring is not None:
+        facts["keyring_session_expires"] = keyring[0]
+    if chrome is not None or keyring is not None:
+        winner, _other, source = _later_horizon(chrome, keyring)
+        facts["session_expires"], days_left = winner
         facts["session_days_left"] = round(days_left, 2)
+        facts["session_source"] = source
 
     facts.update(_model_effort_facts(session))
     facts["gates"] = _gates_facts(session)

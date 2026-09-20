@@ -42,6 +42,25 @@ not an origin. The table records where each file came from.
   thin delegate to the one above, so the HTTP read path and the browser path
   share one defaulting rule instead of the browser path being the only one
   that had it.
+- 2026-09-21 (session token renewal): `chatgpt_session.py` gained a
+  keyring-backed store (`load_stored_session`/`store_session`, over raw
+  D-Bus like `_keyring_password`; service `org.freedesktop.secrets`,
+  attributes `{"application": "chatgpt-web-operations", "purpose":
+  "chatgpt-session-token"}`) and the pure functions that decide what to do
+  with it (`renewed_session`, `choose_session`, `apply_session`,
+  `apply_session_to_jar`, `chrome_session_record`). `_cookie_header` is now
+  a thin wrapper over a new `_cookie_pairs`, which also reports Chrome's
+  own session-token expiry; `Session.__init__` and `Session.call` share one
+  HTTP path through a new `Session._request`, and `__init__` now renews the
+  stored token as a side effect of authenticating (module docstring,
+  "Session token renewal"; SKILL.md, the same heading). `chatgpt_cookies.py`'s
+  `export()` and `chatgpt_client.py`'s `_patch_cookie_export` both apply the
+  same choice through the new `apply_session_to_jar`, so the scripted
+  browser and the plain-HTTP client never disagree about which session is
+  live. `scripts/health.py`'s "session token" check now judges the later of
+  Chrome's jar and the keyring copy. None of this existed in the binnacle
+  origin above; the sha256 in the table is still the 2026-09-19 origin
+  snapshot and is not re-taken, per "owned here" above.
 
 ## Provenance check
 

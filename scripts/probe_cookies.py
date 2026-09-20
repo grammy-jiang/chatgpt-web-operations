@@ -12,20 +12,23 @@ was perfectly readable.
 
 Values are never printed. Names, lengths and expiry dates only.
 
-The expiry column is the other way a session dies: nothing in this skill
-refreshes a cookie -- the scripted browser has its own profile and never
-writes back to Chrome's jar -- so only the user's own Chrome visiting
-chatgpt.com does. Measured 2026-09-20 by removing cookies from the jar in
-memory: only ``__Secure-next-auth.session-token`` (issued for 90 days) is
-load-bearing, for the HTTP reads and for the compose page alike; ``_puid``
-(7 days) and ``__Secure-oai-is`` (30 days) are reissued by the page when
-missing and change nothing. So the one horizon worth a warning is the
-session token's, and ``session_horizon`` reads it from the jar without
-decrypting anything. One caveat: the scripted browser's shared profile
-keeps its own copy of the jar and may outlive this one; this reads the
-source. ``--json PATH`` writes the counts and that horizon for a caller
-that wants a number (the daily health check); the text output says the
-same.
+The expiry column is the other way a session dies. This reads Chrome's own
+jar, which nothing in this skill writes. Since 2026-09-21 the client also
+keeps a renewed copy of the session token in the keyring: every
+authentication re-issues it for 90 days (``chatgpt_session.store_session``),
+so the horizon that matters for the scripts is the later of the two, and
+``health.py`` reports both. What this command shows is Chrome's copy.
+
+Measured 2026-09-20 by removing cookies from the jar in memory: only
+``__Secure-next-auth.session-token`` (issued for 90 days) is load-bearing, for
+the HTTP reads and for the compose page alike; ``_puid`` (7 days) and
+``__Secure-oai-is`` (30 days) are reissued by the page when missing and change
+nothing. So the one horizon worth a warning is the session token's, and
+``session_horizon`` reads it from the jar without decrypting anything. One
+caveat: the scripted browser's shared profile keeps its own copy of the jar
+and may outlive this one; this reads the source. ``--json PATH`` writes the
+counts and that horizon for a caller that wants a number (the daily health
+check); the text output says the same.
 
 Exit 0 when the session cookie is readable, 1 when it is not.
 """

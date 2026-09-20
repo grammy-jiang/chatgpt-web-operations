@@ -55,6 +55,20 @@ def _wire_db(monkeypatch, db: Path, decrypt=lambda enc: f"DEC[{enc.decode()}]") 
     monkeypatch.setattr(cs, "_make_decryptor", lambda app: decrypt)
 
 
+@pytest.fixture(autouse=True)
+def _no_stored_session(monkeypatch):
+    """export() now also applies chatgpt_session's session-token renewal
+    choice (chatgpt_session.py, "Session token renewal"): after 2026-09-21
+    it calls cs.load_stored_session() itself. A T0 test must never reach
+    the real keyring (tests/conftest.py's network guard does not cover
+    D-Bus), and a test that is not about the substitution should see no
+    behaviour change at all -- with nothing "stored", choose_session always
+    keeps Chrome's own record, so apply_session_to_jar substitutes each
+    cookie's already-current value back onto itself.
+    """
+    monkeypatch.setattr(cs, "load_stored_session", lambda: None)
+
+
 # ---------------------------------------------------------------------------
 # export() -- field by field
 # ---------------------------------------------------------------------------
@@ -155,6 +169,60 @@ def test_export_decrypts_encrypted_values_and_keeps_plain_ones_as_is(
     out = {c["name"]: c for c in chatgpt_cookies.export("testbrowser")}
     assert out[SESSION_COOKIE]["value"] == "DEC[ENCBLOB]"
     assert out["plain_cookie"]["value"] == "plain-value"
+
+
+# ---------------------------------------------------------------------------
+# export() -- session token renewal substitution
+# ---------------------------------------------------------------------------
+
+
+def test_export_replaces_the_token_with_the_keyrings_copy_when_it_is_fresher(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A stored session that outlives Chrome's own jar must end up in the
+    exported jar: value and expires both come from the keyring, not from
+    Chrome's own (still valid, just staler) cookie."""
+    db = tmp_path / "cookies.db"
+    exp = 13_403_397_058_000_000  # Chrome epoch microseconds
+    _make_cookie_db(
+        db, [("chatgpt.com", SESSION_COOKIE, "", b"ENCBLOB", "/", exp, 1, 1, 1)]
+    )
+    _wire_db(monkeypatch, db)
+    chrome_expires = exp / 1_000_000 - 11_644_473_600
+    stored = {
+        "cookies": {SESSION_COOKIE: "keyring-value"},
+        "expires": chrome_expires + 1000,
+    }
+    monkeypatch.setattr(cs, "load_stored_session", lambda: stored)
+    out = {c["name"]: c for c in chatgpt_cookies.export("testbrowser")}
+    assert out[SESSION_COOKIE]["value"] == "keyring-value"
+    assert out[SESSION_COOKIE]["expires"] == chrome_expires + 1000
+    # shape besides value/expires must survive untouched
+    assert out[SESSION_COOKIE]["domain"] == "chatgpt.com"
+    assert out[SESSION_COOKIE]["secure"] is True
+
+
+def test_export_keeps_chromes_own_token_when_it_is_fresher(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A stored session that is not fresher must leave the exported jar
+    exactly as Chrome's own jar has it -- the substitution must never make
+    the jar worse."""
+    db = tmp_path / "cookies.db"
+    exp = 13_403_397_058_000_000
+    _make_cookie_db(
+        db, [("chatgpt.com", SESSION_COOKIE, "", b"ENCBLOB", "/", exp, 1, 1, 1)]
+    )
+    _wire_db(monkeypatch, db)
+    chrome_expires = exp / 1_000_000 - 11_644_473_600
+    stored = {
+        "cookies": {SESSION_COOKIE: "stale-keyring-value"},
+        "expires": chrome_expires - 1000,
+    }
+    monkeypatch.setattr(cs, "load_stored_session", lambda: stored)
+    out = {c["name"]: c for c in chatgpt_cookies.export("testbrowser")}
+    assert out[SESSION_COOKIE]["value"] == "DEC[ENCBLOB]"
+    assert out[SESSION_COOKIE]["expires"] == chrome_expires
 
 
 def test_export_fails_when_the_db_file_is_missing(tmp_path: Path, monkeypatch) -> None:

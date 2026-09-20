@@ -8,6 +8,14 @@ the live browser profile. Nothing is written to disk by this module; the
 caller decides where the JSON goes (stdout by default).
 
     chatgpt_cookies.py [--browser chromium|chrome|auto] > cookies.json
+
+Session token renewal (chatgpt_session.py, "Session token renewal"): after
+building the jar, export() applies the same choice between Chrome's own
+copy and a fresher one in this machine's keyring that Session.__init__
+applies to a plain Cookie header, through
+chatgpt_session.apply_session_to_jar -- so a scripted browser send never
+carries a session token staler than what the plain-HTTP client would use.
+Chrome's own cookie database is still only ever read, never written.
 """
 
 import argparse
@@ -51,10 +59,16 @@ def export(browser: str) -> list[dict]:
         if exp:
             cookie["expires"] = exp / 1_000_000 - _EPOCH_DELTA_S
         out.append(cookie)
-    if not any(c["name"].startswith("__Secure-next-auth.session-token") for c in out):
+    if not any(c["name"].startswith(cs.SESSION_COOKIE_PREFIX) for c in out):
         cs.fail(
             f"no ChatGPT session cookie in {browser} (is it logged in to chatgpt.com?)"
         )
+    chrome_record = cs.chrome_session_record(
+        (c["name"], c["value"], c.get("expires")) for c in out
+    )
+    chosen, _source = cs.choose_session(chrome_record, cs.load_stored_session())
+    if chosen is not None:
+        cs.apply_session_to_jar(out, chosen)
     return out
 
 

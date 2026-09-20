@@ -905,7 +905,13 @@ def _patch_cookie_header(cs: Any) -> None:
 
 
 def _patch_cookie_export(cs: Any, mod: Any) -> None:
-    """Make ``chatgpt_cookies.export`` skip unreadable cookies."""
+    """Make ``chatgpt_cookies.export`` skip unreadable cookies, and apply
+    the same session-token renewal choice the plain-HTTP client makes
+    (``cs.choose_session`` between Chrome's own jar and this machine's
+    keyring, through ``cs.apply_session_to_jar`` -- one shared rule with
+    ``chatgpt_cookies.export`` itself, not two that could drift apart), so
+    a scripted send never carries a session token staler than what
+    ``ChatGPTSession`` would use."""
     if getattr(mod, "_rp_tolerant", False):
         return
 
@@ -947,6 +953,12 @@ def _patch_cookie_export(cs: Any, mod: Any) -> None:
             raise TransportError(
                 f"no readable ChatGPT session cookie in {browser} (is it logged in?)"
             )
+        chrome_record = cs.chrome_session_record(
+            (c["name"], c["value"], c.get("expires")) for c in out
+        )
+        chosen, _source = cs.choose_session(chrome_record, cs.load_stored_session())
+        if chosen is not None:
+            cs.apply_session_to_jar(out, chosen)
         return out
 
     mod.export = export

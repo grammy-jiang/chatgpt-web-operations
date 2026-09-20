@@ -422,3 +422,29 @@ check whether a send is in flight (`dispatching` with no matching `done`).
 - Kill with `pkill -f "chatgpt_researc[h].py"` so the pattern does not match
   the calling shell.
 - Report progress as position/total (`14/18`), never a bare stage name.
+
+### Session token renewal
+
+`Session.__init__` (`chatgpt_session.py`) renews the persistent session
+token on every session it builds. Measured 2026-09-21: `GET
+/api/auth/session` answers 200 and re-issues
+`__Secure-next-auth.session-token.*` with `Max-Age=7776000` (90 days)
+every single time, so the client compares whatever it just sent (Chrome's
+own jar, or an earlier renewal) against what the server just re-issued and
+stores the later one in this machine's own keyring -- service
+`org.freedesktop.secrets`, attributes `{"application":
+"chatgpt-web-operations", "purpose": "chatgpt-session-token"}`, findable
+and deletable by those two attributes alone.
+
+Because every session build renews it, **no new cron job was added for
+this**: the existing daily health check (`health.py`) already builds one
+session a day, and that alone keeps the token alive indefinitely, long
+after the browser that first logged in stops being visited. Chrome's own
+cookie database is only ever read, never written, exactly as everywhere
+else in this skill. Set `CHATGPT_SESSION_STORE=0` to disable the keyring
+side entirely and fall back to Chrome's own jar, as before this existed.
+
+The one remaining way to lose the session is an actual logout or password
+change on the account -- nothing here can renew a login that no longer
+exists. The daily health check's "session token" group reports that as an
+ALERT once both Chrome's jar and the keyring copy have run out.

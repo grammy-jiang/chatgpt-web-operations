@@ -26,6 +26,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import chatgpt_client as cc  # noqa: E402
+import chatgpt_session as real_cs  # noqa: E402
 
 
 class _FakeClock:
@@ -195,9 +196,22 @@ def _make_cookie_db(path: Path, rows: list[tuple]) -> None:
 
 
 def _fake_cs(db: Path) -> types.SimpleNamespace:
+    """Stands in for the ``chatgpt_session`` module ``_patch_cookie_header``/
+    ``_patch_cookie_export`` are handed. The session-token renewal pieces
+    (``chrome_session_record``, ``choose_session``, ``apply_session_to_jar``)
+    are the real, already-unit-tested pure functions from
+    ``chatgpt_session.py`` itself -- only ``load_stored_session`` is a fake,
+    defaulting to "nothing stored" so a test that does not care about the
+    substitution sees export() behave exactly as it did before that
+    existed (chatgpt_session.py, "Session token renewal").
+    """
     return types.SimpleNamespace(
         BROWSERS={"chrome": (db, "chrome")},
         _keyring_password=lambda app: _KEYRING_PW,
+        chrome_session_record=real_cs.chrome_session_record,
+        choose_session=real_cs.choose_session,
+        apply_session_to_jar=real_cs.apply_session_to_jar,
+        load_stored_session=lambda: None,
     )
 
 
@@ -399,6 +413,57 @@ def test_cookie_export_raises_when_no_session_cookie_survives(tmp_path: Path) ->
     cc._patch_cookie_export(cs, mod)
     with pytest.raises(cc.TransportError, match="no readable ChatGPT session cookie"):
         mod.export("chrome")
+
+
+def test_cookie_export_replaces_the_token_with_the_keyrings_copy_when_fresher(
+    tmp_path: Path,
+) -> None:
+    """The tolerant export() must apply the same renewal choice the
+    plain-HTTP client does (chatgpt_session.py, "Session token renewal"),
+    through the same apply_session_to_jar -- one rule, not two."""
+    db = tmp_path / "Cookies"
+    session_cookie = real_cs.SESSION_COOKIE_PREFIX + ".0"
+    session_enc = _encrypt(b"chrome-value", b"v10", b"peanuts")
+    exp = 13_360_000_000_000_000
+    _make_cookie_db(
+        db, [("chatgpt.com", session_cookie, "", session_enc, "/", exp, 1, 1, 1)]
+    )
+    cs = _fake_cs(db)
+    chrome_expires = exp / 1_000_000 - 11_644_473_600
+    cs.load_stored_session = lambda: {
+        "cookies": {session_cookie: "keyring-value"},
+        "expires": chrome_expires + 1000,
+    }
+    mod = types.SimpleNamespace(_EPOCH_DELTA_S=11_644_473_600)
+    cc._patch_cookie_export(cs, mod)
+    out = {c["name"]: c for c in mod.export("chrome")}
+    assert out[session_cookie]["value"] == "keyring-value"
+    assert out[session_cookie]["expires"] == chrome_expires + 1000
+
+
+def test_cookie_export_keeps_chromes_own_token_when_it_is_fresher(
+    tmp_path: Path,
+) -> None:
+    """A stored session that is not fresher must leave the exported jar
+    exactly as Chrome's own jar has it."""
+    db = tmp_path / "Cookies"
+    session_cookie = real_cs.SESSION_COOKIE_PREFIX + ".0"
+    session_enc = _encrypt(b"chrome-value", b"v10", b"peanuts")
+    exp = 13_360_000_000_000_000
+    _make_cookie_db(
+        db, [("chatgpt.com", session_cookie, "", session_enc, "/", exp, 1, 1, 1)]
+    )
+    cs = _fake_cs(db)
+    chrome_expires = exp / 1_000_000 - 11_644_473_600
+    cs.load_stored_session = lambda: {
+        "cookies": {session_cookie: "stale-keyring-value"},
+        "expires": chrome_expires - 1000,
+    }
+    mod = types.SimpleNamespace(_EPOCH_DELTA_S=11_644_473_600)
+    cc._patch_cookie_export(cs, mod)
+    out = {c["name"]: c for c in mod.export("chrome")}
+    assert out[session_cookie]["value"] == "chrome-value"
+    assert out[session_cookie]["expires"] == chrome_expires
 
 
 def test_patch_cookie_export_is_idempotent() -> None:

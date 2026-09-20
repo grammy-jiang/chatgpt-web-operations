@@ -11,7 +11,7 @@ case it removes what it created.
 | Tier | Marker | Opt-in variable | May touch | In `make test` |
 |------|--------|-----------------|-----------|----------------|
 | T0 | none | — | nothing outside this directory: no network, no browser, no cookie DB, no keyring | yes |
-| T1 | `live_read` | `CHATGPT_LIVE=read` | the real account, `GET` only | no |
+| T1 | `live_read` | `CHATGPT_LIVE=read` | the real account, `GET` only; also this machine's own keyring (session-token renewal, `chatgpt_session.py` "Session token renewal") -- the one local write any live tier makes, tests/live/test_read_session_renewal.py | no |
 | T2 | `live_write` | `CHATGPT_LIVE=write` | the sandbox project only: its own gizmo id and conversations inside it | no |
 | T3 | `live_browser` | `CHATGPT_LIVE=browser` | one Chrome window on the sandbox project; the composer is filled, send is never clicked | no |
 | T4 | `live_send` | `CHATGPT_LIVE=send` | real sends inside the sandbox project, deleted in teardown, at most `CHATGPT_LIVE_SENDS` per run (default 4) | no |

@@ -129,12 +129,24 @@ class _FakeSenderBlocked:
 
 
 class _FakeCS:
-    """Stands in for the vendored chatgpt_session module: only ``BROWSERS``,
+    """Stands in for the vendored chatgpt_session module: ``BROWSERS``,
     which fetch_session_token/facts_of reach through ``cc_mod._helpers()``,
-    exactly ``probe_cookies.py``'s own ``cs = cc._helpers()`` pattern."""
+    exactly ``probe_cookies.py``'s own ``cs = cc._helpers()`` pattern, and
+    ``load_stored_session`` for the keyring side of the session-token
+    horizon (chatgpt_session.py, "Session token renewal"), defaulting to
+    "nothing stored" so a test that does not care about it sees the
+    pre-renewal, Chrome-only behaviour."""
 
-    def __init__(self, browsers: dict[str, tuple[str, str]]) -> None:
+    def __init__(
+        self,
+        browsers: dict[str, tuple[str, str]],
+        stored_session: dict[str, Any] | None = None,
+    ) -> None:
         self.BROWSERS = browsers
+        self._stored_session = stored_session
+
+    def load_stored_session(self) -> dict[str, Any] | None:
+        return self._stored_session
 
 
 def _fake_cc(
@@ -146,18 +158,21 @@ def _fake_cc(
     max_browsers: int = 1,
     sender_cls: type = _FakeSenderOK,
     browsers: dict[str, tuple[str, str]] | None = None,
+    stored_session: dict[str, Any] | None = None,
 ) -> SimpleNamespace:
     """A minimal chatgpt_client stand-in, a healthy host by default -- the
     same shape tests/test_preflight.py's own ``_fake_cc`` uses, plus
-    ``_helpers().BROWSERS`` for fetch_session_token/facts_of. The default
-    browser entry points at a file that does not exist, so a test that does
-    not care about the session-token check gets a deliberate, visible
-    "block" rather than a silent, accidental "ok".
+    ``_helpers().BROWSERS``/``load_stored_session`` for
+    fetch_session_token/facts_of. The default browser entry points at a
+    file that does not exist, so a test that does not care about the
+    session-token check gets a deliberate, visible "block" rather than a
+    silent, accidental "ok".
     """
     cs = _FakeCS(
         browsers
         if browsers is not None
-        else {"chrome": ("/nonexistent/Cookies", "chrome")}
+        else {"chrome": ("/nonexistent/Cookies", "chrome")},
+        stored_session=stored_session,
     )
     ns = SimpleNamespace(
         available_mb=lambda: available_mb,
@@ -382,53 +397,98 @@ def _happy_backend(
 # ---------------------------------------------------------------------------
 
 
-def test_session_token_check_blocks_when_the_jar_has_no_token_at_all() -> None:
-    """No persistent session token, and no read error either -- the jar was
-    read fine, it simply holds none (probe_cookies.session_horizon's own
-    ``None`` case)."""
-    c = health.session_token_check(None)
+def test_session_token_check_blocks_when_neither_side_has_a_token_at_all() -> None:
+    """No persistent session token anywhere, and no read error either --
+    the jar was read fine, it simply holds none, and the keyring holds
+    nothing either (probe_cookies.session_horizon's own ``None`` case,
+    load_stored_session's own ``None`` case)."""
+    c = health.session_token_check(None, None)
     assert c["group"] == "health"
     assert c["state"] == "block"
-    assert c["detail"] == "no persistent session token in the cookie jar"
+    assert c["detail"] == "no persistent session token in the cookie jar or the keyring"
     assert c["fix"] == health.SESSION_TOKEN_FIX
 
 
 def test_session_token_check_appends_the_read_error_when_given() -> None:
-    c = health.session_token_check(None, error="no such table: cookies")
+    c = health.session_token_check(None, None, error="no such table: cookies")
     assert c["state"] == "block"
     assert c["detail"].endswith(": no such table: cookies")
 
 
 def test_session_token_check_blocks_when_already_expired() -> None:
-    c = health.session_token_check(("2020-01-01", -3.0))
+    """Chrome-only (no keyring copy at all) -- the pre-renewal shape."""
+    c = health.session_token_check(("2020-01-01", -3.0), None)
     assert c["state"] == "block"
-    assert c["detail"] == "expires 2020-01-01, -3.0 days left"
+    assert c["detail"] == (
+        "expires 2020-01-01, -3.0 days left (no renewed copy in the keyring yet)"
+    )
 
 
 def test_session_token_check_blocks_exactly_at_zero_days_left() -> None:
-    c = health.session_token_check(("2026-09-21", 0.0))
+    c = health.session_token_check(("2026-09-21", 0.0), None)
     assert c["state"] == "block"
 
 
 def test_session_token_check_warns_inside_the_two_week_window() -> None:
-    c = health.session_token_check(("2026-10-01", 5.2))
+    c = health.session_token_check(("2026-10-01", 5.2), None)
     assert c["state"] == "warn"
-    assert c["detail"] == "expires 2026-10-01, 5.2 days left"
+    assert c["detail"] == (
+        "expires 2026-10-01, 5.2 days left (no renewed copy in the keyring yet)"
+    )
     assert c["fix"] == health.SESSION_TOKEN_FIX
 
 
 def test_session_token_check_is_ok_at_exactly_the_warn_threshold() -> None:
     """SESSION_WARN_DAYS itself must not warn: the warn test is strictly
     "<", so 14.0 days left is still ok."""
-    c = health.session_token_check(("2026-10-05", float(health.SESSION_WARN_DAYS)))
+    c = health.session_token_check(
+        ("2026-10-05", float(health.SESSION_WARN_DAYS)), None
+    )
     assert c["state"] == "ok"
     assert c["fix"] is None
 
 
 def test_session_token_check_is_ok_well_before_expiry() -> None:
-    c = health.session_token_check(("2026-12-01", 60.0))
+    c = health.session_token_check(("2026-12-01", 60.0), None)
     assert c["state"] == "ok"
-    assert c["detail"] == "expires 2026-12-01, 60.0 days left"
+    assert c["detail"] == (
+        "expires 2026-12-01, 60.0 days left (no renewed copy in the keyring yet)"
+    )
+
+
+def test_session_token_check_judges_the_keyring_when_it_is_later() -> None:
+    """A renewal the keyring has but Chrome's own jar has not caught up to
+    yet must win -- both the verdict and the detail line."""
+    chrome = ("2026-09-25", 4.0)  # inside the warn window on its own
+    keyring = ("2026-12-19", 89.5)
+    c = health.session_token_check(chrome, keyring)
+    assert c["state"] == "ok"
+    assert c["detail"] == (
+        "expires 2026-12-19, 89.5 days left (from keyring; Chrome's copy "
+        "expires 2026-09-25, 4.0 days left)"
+    )
+
+
+def test_session_token_check_judges_chrome_when_it_is_later_than_a_stale_keyring() -> (
+    None
+):
+    """The keyring can also be the stale one -- e.g. right after the user's
+    own Chrome refreshed its cookie by hand, before the next run catches
+    the keyring up."""
+    chrome = ("2026-12-19", 89.5)
+    keyring = ("2026-09-25", 4.0)
+    c = health.session_token_check(chrome, keyring)
+    assert c["state"] == "ok"
+    assert c["detail"] == (
+        "expires 2026-12-19, 89.5 days left (from Chrome; keyring's copy "
+        "expires 2026-09-25, 4.0 days left)"
+    )
+
+
+def test_session_token_check_keeps_chrome_on_an_exact_tie() -> None:
+    same = ("2026-12-19", 89.5)
+    c = health.session_token_check(same, same)
+    assert "from Chrome" in c["detail"]
 
 
 def test_read_session_horizon_reads_a_real_jar_through_probe_cookies(
@@ -436,18 +496,54 @@ def test_read_session_horizon_reads_a_real_jar_through_probe_cookies(
 ) -> None:
     """Proves the integration, not just the mock: a real sqlite cookie jar
     with a session-token row produces the same (date, days-left) shape
-    probe_cookies.py itself would print."""
+    probe_cookies.py itself would print, as the first of the two
+    horizons; with nothing in the (fake) keyring, the second is None."""
     cc_mod = _fake_cc(None, browsers={"chrome": (str(cookie_db), "chrome")})
-    horizon = health._read_session_horizon(cc_mod, "chrome")
-    assert horizon is not None
-    _date, days_left = horizon
+    chrome, keyring = health._read_session_horizon(cc_mod, "chrome")
+    assert chrome is not None
+    _date, days_left = chrome
     assert days_left == pytest.approx(45.0, abs=0.01)
+    assert keyring is None
+
+
+def test_read_session_horizon_reads_the_keyrings_stored_copy_too(
+    cookie_db: Path,
+) -> None:
+    stored = {"cookies": {"x": "y"}, "expires": time.time() + 90 * 86400}
+    cc_mod = _fake_cc(
+        None,
+        browsers={"chrome": (str(cookie_db), "chrome")},
+        stored_session=stored,
+    )
+    _chrome, keyring = health._read_session_horizon(cc_mod, "chrome")
+    assert keyring is not None
+    _date, days_left = keyring
+    assert days_left == pytest.approx(90.0, abs=0.01)
 
 
 def test_read_session_horizon_raises_for_an_unknown_browser_name() -> None:
     cc_mod = _fake_cc(None, browsers={"chrome": ("/nonexistent", "chrome")})
     with pytest.raises(KeyError):
         health._read_session_horizon(cc_mod, "firefox")
+
+
+def test_stored_session_horizon_is_none_with_nothing_stored() -> None:
+    assert health._stored_session_horizon(None, time.time()) is None
+
+
+def test_stored_session_horizon_is_none_when_expires_is_missing() -> None:
+    assert health._stored_session_horizon({"cookies": {}}, time.time()) is None
+
+
+def test_stored_session_horizon_matches_probe_cookies_shape() -> None:
+    now = time.time()
+    horizon = health._stored_session_horizon(
+        {"cookies": {}, "expires": now + 10 * 86400}, now
+    )
+    assert horizon is not None
+    date, days_left = horizon
+    assert days_left == pytest.approx(10.0, abs=0.01)
+    assert len(date) == 10  # YYYY-MM-DD
 
 
 def test_fetch_session_token_is_ok_over_a_real_healthy_jar(cookie_db: Path) -> None:
@@ -656,6 +752,9 @@ def test_empty_facts_has_the_full_documented_shape() -> None:
     assert facts == {
         "session_expires": None,
         "session_days_left": None,
+        "session_source": None,
+        "chrome_session_expires": None,
+        "keyring_session_expires": None,
         "model": "",
         "effort": "",
         "preset": None,
@@ -724,6 +823,9 @@ def test_facts_of_reflects_every_fetch_on_a_clean_sandbox(
     facts = health.facts_of(cc_mod, session, "chrome", SANDBOX)
     assert facts["session_expires"] is not None
     assert facts["session_days_left"] == pytest.approx(45.0, abs=0.01)
+    assert facts["session_source"] == "chrome"
+    assert facts["chrome_session_expires"] == facts["session_expires"]
+    assert facts["keyring_session_expires"] is None  # nothing stored in this test
     assert facts["model"] == "gpt-5-6-thinking"
     assert facts["effort"] == "max"
     assert facts["preset"] == "Extra High"
@@ -740,6 +842,22 @@ def test_facts_of_reflects_every_fetch_on_a_clean_sandbox(
     }
 
 
+def test_facts_of_reports_the_keyring_when_it_is_fresher(
+    sandbox_file: dict, cookie_db: Path, fake_psg: SimpleNamespace
+) -> None:
+    stored = {"cookies": {"x": "y"}, "expires": time.time() + 90 * 86400}
+    cc_mod = _fake_cc(
+        None, browsers={"chrome": (str(cookie_db), "chrome")}, stored_session=stored
+    )
+    session = _FakeSession(_happy_backend(SANDBOX))
+    facts = health.facts_of(cc_mod, session, "chrome", SANDBOX)
+    assert facts["session_source"] == "keyring"
+    assert facts["session_days_left"] == pytest.approx(90.0, abs=0.01)
+    assert facts["chrome_session_expires"] is not None
+    assert facts["keyring_session_expires"] is not None
+    assert facts["session_expires"] == facts["keyring_session_expires"]
+
+
 def test_facts_of_leaves_session_fields_null_when_the_jar_is_unreadable(
     sandbox_file: dict, fake_psg: SimpleNamespace
 ) -> None:
@@ -748,6 +866,9 @@ def test_facts_of_leaves_session_fields_null_when_the_jar_is_unreadable(
     facts = health.facts_of(cc_mod, session, "chrome", SANDBOX)
     assert facts["session_expires"] is None
     assert facts["session_days_left"] is None
+    assert facts["session_source"] is None
+    assert facts["chrome_session_expires"] is None
+    assert facts["keyring_session_expires"] is None
 
 
 def test_facts_of_never_reads_conversations_when_the_gizmo_is_wrong(
@@ -872,6 +993,9 @@ def test_main_writes_the_documented_json_shape(
     assert set(facts.keys()) == {
         "session_expires",
         "session_days_left",
+        "session_source",
+        "chrome_session_expires",
+        "keyring_session_expires",
         "model",
         "effort",
         "preset",

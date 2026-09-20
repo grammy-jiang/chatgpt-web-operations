@@ -509,6 +509,26 @@ the right way were in hand early and were walked past: the page bundle's
 | `POST /backend-api/global/search` | search conversations by content, not just title |
 | `GET /backend-api/automations?filter=scheduled`, `?filter=paused`, `?filter=finished` | scheduled tasks ("automations"), the three tabs of `chatgpt.com/scheduled`; see `list_automations.py` |
 | `GET /backend-api/suggested_automations` | three template suggestions for creating a *new* automation; not used by any command here |
+| `GET /api/auth/session` | mints the bearer token from the session cookie; also re-issues `__Secure-next-auth.session-token.*` with a fresh 90-day `Max-Age` on every call -- see "session token renewal" below and `chatgpt_session.py` |
+
+**Captured 2026-09-21**, session token renewal. `GET /api/auth/session`
+answers 200 and carries 5 `Set-Cookie` headers, among them
+`__Secure-next-auth.session-token.0` and `.1`, both re-issued with
+`Max-Age=7776000` (90 days) and `Expires` = now + 90 d. `GET
+/backend-api/me` sets only `_cfuvid`, so this renewal is specific to the
+auth handshake, not to every read. A re-issue does not invalidate an
+older copy: Chrome's own cookie kept authenticating all day after a
+scripted browser profile received a later one, and after this
+handshake's own re-issue -- multiple valid copies of the token can
+coexist. Only `__Secure-next-auth.session-token*` is load-bearing
+(measured 2026-09-20 by removing cookies); `_account` and
+`oai-client-session-epoch` are also re-issued here but nothing reads them
+by name. The token is chunked (`.0`, `.1`); a future response may carry a
+different number of chunks. `chatgpt_session.py`'s `Session.__init__`
+reads these headers and stores the fresher of Chrome's jar or the
+existing keyring copy into this machine's own keyring on every session it
+builds (module docstring, "Session token renewal"; SKILL.md, the same
+heading).
 
 **Captured 2026-09-21** from the page's own search box and replayed over
 plain HTTP: `POST /backend-api/global/search`, body `{"query": "<text>",
