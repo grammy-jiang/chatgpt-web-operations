@@ -260,9 +260,16 @@ orchestrator is not modified.
    says the report is generated within a minute; but the backing
    conversation is not readable through `conversation/<id>` (404), the
    state carries no report text, and the front conversation had no new
-   turn 48 minutes after the send. Untried: `export` (pdf or docx) and
-   `subscribe`. A ten-minute poll at 30 s intervals earned a 429; poll
-   once a minute at most.
+   turn 48 minutes after the send. **Solved the same hour**: `export`
+   (docx or pdf) returns the finished report as a base64 file in
+   `_meta.encoded_data`; `subscribe` returns the page's websocket URL.
+   The report never lands in the front conversation (60 minutes observed);
+   it is a widget. So a Deep research step is: send with the hint (the
+   only browser part, ~20 s including the stream), read `session_id` from
+   the stream, poll `get_state` once a minute until a "Generated report"
+   title appears, then `export`. `deep_research.py` (start / status /
+   export) is next; the 429 rule stands: one poll a minute, back off on
+   429.
 
 Exit criterion: `send_prompt.py` exposes the four choices, the client's
 tests cover them offline, and one measured send per feature is recorded in

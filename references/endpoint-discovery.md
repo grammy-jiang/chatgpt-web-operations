@@ -427,6 +427,18 @@ see unless it records them from the window that sent.
 - Polling three endpoints every 30 s for ten minutes earned the
   conversation-read 429 ("Too many requests"); a collector must poll once a
   minute at most and back off on 429.
+- **The report is served by `export`.** `tools/call export {"session_id":
+  …, "export_type": "docx"}` (also `pdf`) answers 200 with
+  `_meta.content_disposition` (`attachment; filename="<title>.docx"; …`)
+  and `_meta.encoded_data`, the file in base64 (the observed docx: 12 kB,
+  2,890 characters of report with an executive summary, sections and
+  numbered citations, decoded with `zipfile` + `word/document.xml`), and
+  `structuredContent {"ok": true}`. `subscribe {"session_id": …}` answers
+  with `_meta.websocket_url`, a `wss://ws.chatgpt.com/…/ws/user/<user id>`
+  URL carrying a per-user token: the page's push channel, never to be
+  stored. So after the send everything is plain HTTP: `get_state` for
+  progress (done when a `reasoning_title` starts with "Generated report"),
+  `export` for the report. The front conversation never receives it.
 
 ## Re-run this when
 
