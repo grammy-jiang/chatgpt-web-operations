@@ -272,8 +272,13 @@ orchestrator is not modified.
    the send; 81 T0 tests over two synthetic fixtures, 100% coverage; the
    429 rule is built in (one poll a minute, two minutes back-off).
    `subscribe` stays unimplemented (its websocket URL carries a per-user
-   token). Verified live on a running session: `status` DONE, `export`
-   12 kB docx, 2,891 characters of report.
+   token). **Verified end to end 2026-09-20**: `start --project` minted a
+   carrier and started the research in 22 s (16 s of it the send), the
+   research finished in about four minutes with the carrier's own topic,
+   and `export` wrote a 12.5 kB docx holding 3,308 characters. One export
+   failed first with "could not open a session: The read operation timed
+   out" and succeeded on a retry: the session mint is worth retrying
+   before believing anything is wrong.
 
 Exit criterion: `send_prompt.py` exposes the four choices, the client's
 tests cover them offline, and one measured send per feature is recorded in

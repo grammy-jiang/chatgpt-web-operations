@@ -71,6 +71,12 @@ and the pill goes with it. Two earlier "the click did not work" readings
 were this. Verify the state right before the click on send, not right
 after the selection.
 
+One transient worth recognising: `deep_research.py export` failed once with
+"could not open a session: The read operation timed out" and worked on a
+retry twenty seconds later. That is the session mint (`/api/auth/session`)
+timing out, not the account and not the connector. Retry once before
+diagnosing anything.
+
 ## Measurements worth keeping
 
 Composer fill, the real 89 kB review prompt, on an idle host:
