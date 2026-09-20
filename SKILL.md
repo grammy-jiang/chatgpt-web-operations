@@ -53,6 +53,7 @@ and `discover_endpoints.py`) open a browser; everything else is plain HTTP.
 
 | Command | Purpose | Exit code means |
 |---------|---------|-----------------|
+| `preflight.py` | One go/no-go check before a run starts: host, link, account and run over one session; `--browser` adds a composer check, `--project` and `--workdir` add their own. | 0 GO, 1 DO NOT START (n blocking), 2 GO WITH WARNINGS (n) |
 | `probe_account.py` | Does the account answer at all? Auth, `/me`, one listing, plan window and credits. | 0 reads work |
 | `probe_cookies.py` | Which cookies decrypt. Never prints a value. | 0 session cookie readable |
 | `probe_send_gates.py` | What a send requires right now: proof-of-work, Turnstile, `so`. | 0 no browser needed |
@@ -96,6 +97,14 @@ simply too slow on a loaded host.
 `clean_chats.py --match "rp " --delete` to review, and `--apply` to act.
 
 **Keep them out of the main list in the first place.** See Projects below.
+
+**Before a run starts, check everything at once.** `preflight.py [--workdir
+DIR] [--project g-p-<id>] [--browser]` runs the host, link, account and run
+checks over one session and prints `GO`, `GO WITH WARNINGS (n)` or
+`DO NOT START (n blocking)`. It reads the wireless link before opening any
+session, so a dead link is never reported as a blocked account. `--browser`
+also confirms the composer appears, which costs a browser slot and about
+twenty seconds; `--json PATH` records every check.
 
 **Before a run starts.** `profile_context.py --project g-p-<id> --json
 <workdir>/chatgpt/profile_context.json` records what the workers will
