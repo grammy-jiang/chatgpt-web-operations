@@ -39,15 +39,16 @@ level, rather than inside the test function, precisely so
 tests/test_effort_verdict.py can import and exercise it without ever
 touching the network; ``chatgpt_client``, the only network-capable name
 this module uses, is imported inside the test function below, never at
-module level, the same rule tests/live/test_browser_upload.py and
-tests/live/conftest.py follow -- importing it must never become something
-that happens merely by collecting this file.
+module level, the same rule tests/live/test_browser_upload.py,
+tests/live/minting.py and tests/live/conftest.py follow -- importing it
+must never become something that happens merely by collecting this file.
 
 Kept to a single short send so it stays inside the browser budget: one
 window, no attachments, and no long wait, because "reply with the single
 word OK" only ever produces a short reply. The conversation is deleted in
-a ``finally`` block; the session-scoped sandbox sweep
-(tests/live/conftest.py) is a backstop, not something this relies on.
+a ``finally`` block (``minting.delete_sandbox_chat``); the session-scoped
+sandbox sweep (tests/live/conftest.py) is a backstop, not something this
+relies on.
 
 Not run by this agent (see the skill's HARD RULES); collect-only proves it
 is wired up without touching the account:
@@ -65,6 +66,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+from live.minting import GuardedConversationReader, delete_sandbox_chat
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -138,37 +141,6 @@ def effort_verdict(turn_facts: list[dict[str, Any]], asked: str) -> tuple[bool, 
     return passed, f"asked={asked!r}, recorded={recorded!r}: {verb}"
 
 
-class _GuardedConversationReader:
-    """Adapts a guarded ``live_session``'s ``.call`` to the
-    ``get_conversation`` / ``list_conversations`` shape
-    ``chatgpt_client.wait_for_reply`` and
-    ``chatgpt_client.resolve_new_conversation`` expect from a
-    ``ChatGPTSession`` -- both call only these two methods, so this is
-    enough to reuse them unchanged over the same guarded plain-HTTP session
-    the rest of this test uses, instead of opening a second, unguarded one.
-    """
-
-    def __init__(self, guarded: Any, cc: Any) -> None:
-        self._guarded = guarded
-        self._cc = cc
-
-    def get_conversation(self, chat: str) -> dict[str, Any]:
-        status, body = self._guarded.call(f"/backend-api/conversation/{chat}")
-        if status != 200 or not isinstance(body, dict):
-            raise self._cc.TransportError(
-                f"GET conversation/{chat}: HTTP {status}", status
-            )
-        return body
-
-    def list_conversations(self, limit: int = 28, offset: int = 0) -> list[dict]:
-        status, body = self._guarded.call(
-            f"/backend-api/conversations?offset={offset}&limit={limit}&order=updated"
-        )
-        if status != 200 or not isinstance(body, dict):
-            return []
-        return list(body.get("items", []))
-
-
 def test_a_pinned_effort_is_recorded_on_every_assistant_turn(
     live_session: Any, sandbox_id: str
 ) -> None:
@@ -208,7 +180,7 @@ def test_a_pinned_effort_is_recorded_on_every_assistant_turn(
             f"offered={sorted(offered)}"
         )
 
-    reader = _GuardedConversationReader(live_session, cc)
+    reader = GuardedConversationReader(live_session, cc)
     known_ids = {str(c.get("id")) for c in reader.list_conversations()}
     since = time.time()
 
@@ -240,9 +212,4 @@ def test_a_pinned_effort_is_recorded_on_every_assistant_turn(
         passed, message = effort_verdict(facts, asked)
         assert passed, message
     finally:
-        if conversation_id and not cc.is_provisional(conversation_id):
-            live_session.call(
-                f"/backend-api/conversation/{conversation_id}",
-                method="PATCH",
-                payload={"is_visible": False},
-            )
+        delete_sandbox_chat(live_session, conversation_id)

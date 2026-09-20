@@ -1,10 +1,12 @@
 """Tests for the test harness itself: TESTING.md sections 1 and 3.
 
-Four things are proved here: a T0 test cannot reach the network; a live_*
+Five things are proved here: a T0 test cannot reach the network; a live_*
 test cannot run on its marker alone; the coverage gate's verdict is correct
-per module; the live-tier guard enforces the sandbox; and record_fixture's
-sanitizer never leaves an id or an email recoverable. Every test names the
-failure it defends against, same as tests/test_commands.py.
+per module; the live-tier guard enforces the sandbox; minting a throwaway
+sandbox chat registers it with that guard and never skips that step; and
+record_fixture's sanitizer never leaves an id or an email recoverable.
+Every test names the failure it defends against, same as
+tests/test_commands.py.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import pytest
 import record_fixture
 from live import conftest as live_conftest
 from live import guard as live_guard
+from live import minting as live_minting
 from live import test_browser_upload as live_test_browser_upload
 
 # ---------------------------------------------------------------------------
@@ -479,6 +482,176 @@ def test_sweep_targets_skips_an_item_with_no_id() -> None:
 def test_sweep_targets_tolerates_a_malformed_page() -> None:
     """A page that is not the expected shape must not crash the sweep."""
     assert live_conftest.sweep_targets([None, {}, {"items": None}, "oops"]) == []
+
+
+# ---------------------------------------------------------------------------
+# live/conftest.py -- the T4 send cap (CHATGPT_LIVE_SENDS)
+# ---------------------------------------------------------------------------
+
+
+def test_the_send_budget_allows_up_to_its_limit() -> None:
+    budget = live_conftest.SendBudget(2)
+    assert budget.spend("test_one") == ""
+    assert budget.spend("test_two") == ""
+
+
+def test_the_send_budget_refuses_the_send_past_its_limit() -> None:
+    """Over the cap must produce a refusal naming the test and the cap, so
+    a run that grew a send storm says which test crossed the line."""
+    budget = live_conftest.SendBudget(1)
+    budget.spend("test_one")
+    refusal = budget.spend("test_two")
+    assert "test_two" in refusal
+    assert "cap of 1" in refusal
+    assert "CHATGPT_LIVE_SENDS" in refusal
+
+
+def test_the_send_budget_default_applies_when_the_variable_is_absent() -> None:
+    assert live_conftest.budget_limit({}) == live_conftest.DEFAULT_LIVE_SENDS
+
+
+@pytest.mark.parametrize("raw", ["", "  ", "two", "0", "-3", "2.5", "1e3"])
+def test_a_bad_send_budget_value_falls_back_to_the_default(raw: str) -> None:
+    """A typo must never lift the cap, and must never set it to zero
+    either -- both would change what a run is allowed to do by accident."""
+    assert (
+        live_conftest.budget_limit({live_conftest.SENDS_VAR: raw})
+        == live_conftest.DEFAULT_LIVE_SENDS
+    )
+
+
+def test_a_valid_send_budget_value_is_used() -> None:
+    assert live_conftest.budget_limit({live_conftest.SENDS_VAR: " 7 "}) == 7
+
+
+# ---------------------------------------------------------------------------
+# live/minting.py -- minting a throwaway sandbox chat, over a fake client
+# ---------------------------------------------------------------------------
+
+
+class _FakeSender:
+    """Stands in for chatgpt_client.BrowserSender: a context manager whose
+    ``send`` returns whatever id the fake client was built with."""
+
+    def __init__(self, new_id: str, opened: list[dict]) -> None:
+        self._new_id = new_id
+        self._opened = opened
+
+    def __enter__(self) -> _FakeSender:
+        return self
+
+    def __exit__(self, *_exc: object) -> bool:
+        return False
+
+    def send(self, prompt: str, name: str = "") -> str:
+        self._opened.append({"prompt": prompt})
+        return self._new_id
+
+
+class _FakeClient:
+    """The two names minting.mint_sandbox_chat uses from chatgpt_client."""
+
+    def __init__(self, new_id: str, resolved: str = "") -> None:
+        self.new_id = new_id
+        self.resolved = resolved
+        self.opened: list[dict] = []
+        self.kwargs: dict = {}
+
+    def BrowserSender(self, browser: str, **kwargs: object) -> _FakeSender:
+        self.kwargs = dict(kwargs, browser=browser)
+        return _FakeSender(self.new_id, self.opened)
+
+    @staticmethod
+    def is_provisional(chat: str) -> bool:
+        return chat.startswith("WEB:")
+
+    def resolve_new_conversation(
+        self, session: object, known_ids: set, *, since: float = 0.0
+    ) -> str:
+        return self.resolved
+
+
+class _FakeGuarded:
+    """Enough of GuardedSession for minting: ``call`` and ``note``."""
+
+    def __init__(self) -> None:
+        self.known: set[str] = set()
+        self.calls: list[tuple[str, str, object]] = []
+
+    def call(
+        self, path: str, method: str = "GET", payload: object = None, **_kw: object
+    ) -> tuple[int, object]:
+        self.calls.append((method, path, payload))
+        if method == "GET" and path.startswith("/backend-api/conversations?"):
+            return 200, {"items": [{"id": "old-1"}, {"id": "old-2"}]}
+        return 200, {}
+
+    def note(self, conversation_id: str) -> None:
+        self.known.add(conversation_id)
+
+
+def test_minting_resolves_a_provisional_id_and_notes_it() -> None:
+    """The WEB: id the page hands back must be resolved, and the real id
+    registered with the guard -- without that note, every PATCH the test
+    then makes would be refused (tests/live/guard.py)."""
+    cc = _FakeClient("WEB:pending", resolved="conv-new")
+    guarded = _FakeGuarded()
+    chat_id = live_minting.mint_sandbox_chat(cc, guarded, "g-p-sand", "hello")
+    assert chat_id == "conv-new"
+    assert guarded.known == {"conv-new"}
+
+
+def test_minting_sends_into_the_sandbox_project_headless() -> None:
+    """A minted chat must land inside the sandbox, never in the sidebar,
+    and must not open a visible window in an unattended run."""
+    cc = _FakeClient("conv-new")
+    live_minting.mint_sandbox_chat(cc, _FakeGuarded(), "g-p-sand", "hello")
+    assert cc.kwargs["project"] == "g-p-sand"
+    assert cc.kwargs["visible"] is False
+    assert cc.opened == [{"prompt": "hello"}]
+
+
+def test_minting_keeps_a_real_id_without_resolving() -> None:
+    """A send that already returned a real id must not go looking for a
+    'new' conversation -- that search could pick up another run's chat."""
+    cc = _FakeClient("conv-real", resolved="conv-wrong")
+    assert (
+        live_minting.mint_sandbox_chat(cc, _FakeGuarded(), "g-p-sand", "hi")
+        == "conv-real"
+    )
+
+
+def test_minting_renames_only_when_a_title_was_asked_for() -> None:
+    guarded = _FakeGuarded()
+    live_minting.mint_sandbox_chat(
+        _FakeClient("conv-new"), guarded, "g-p-sand", "hi", title="rp-test flags"
+    )
+    assert (
+        "PATCH",
+        "/backend-api/conversation/conv-new",
+        {"title": "rp-test flags"},
+    ) in guarded.calls
+
+    quiet = _FakeGuarded()
+    live_minting.mint_sandbox_chat(_FakeClient("conv-new"), quiet, "g-p-sand", "hi")
+    assert [c for c in quiet.calls if c[0] == "PATCH"] == []
+
+
+def test_deleting_a_minted_chat_is_the_ui_patch() -> None:
+    guarded = _FakeGuarded()
+    live_minting.delete_sandbox_chat(guarded, "conv-new")
+    assert guarded.calls == [
+        ("PATCH", "/backend-api/conversation/conv-new", {"is_visible": False})
+    ]
+
+
+@pytest.mark.parametrize("chat_id", ["", "WEB:pending"])
+def test_deleting_skips_an_id_that_never_became_a_conversation(chat_id: str) -> None:
+    """A finally block runs however far the send got. An empty or still
+    provisional id must not become a PATCH to a path that means nothing."""
+    guarded = _FakeGuarded()
+    live_minting.delete_sandbox_chat(guarded, chat_id)
+    assert guarded.calls == []
 
 
 # ---------------------------------------------------------------------------

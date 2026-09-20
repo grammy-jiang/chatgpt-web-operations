@@ -14,7 +14,7 @@ case it removes what it created.
 | T1 | `live_read` | `CHATGPT_LIVE=read` | the real account, `GET` only | no |
 | T2 | `live_write` | `CHATGPT_LIVE=write` | the sandbox project only: its own gizmo id and conversations inside it | no |
 | T3 | `live_browser` | `CHATGPT_LIVE=browser` | one Chrome window on the sandbox project; the composer is filled, send is never clicked | no |
-| T4 | `live_send` | `CHATGPT_LIVE=send` | real sends inside the sandbox project, deleted in teardown, at most `CHATGPT_LIVE_SENDS` per run (default 1) | no |
+| T4 | `live_send` | `CHATGPT_LIVE=send` | real sends inside the sandbox project, deleted in teardown, at most `CHATGPT_LIVE_SENDS` per run (default 4) | no |
 
 Enforcement, not promises:
 
@@ -41,6 +41,13 @@ Enforcement, not promises:
   version kept only `rp-test …` titles, and ChatGPT's own auto-title after
   the first reply let renamed chats escape it). It prints what it deleted;
   `--keep-sandbox-chats` disables it and prints what stayed.
+- Every T4 test makes exactly one send, so the send cap is counted in
+  tests: an autouse fixture in `tests/live/conftest.py` counts each
+  `live_send` test before its body runs and **fails** the run past the cap.
+  It fails rather than skips, because a test that quietly does not run
+  reads as a pass -- which is exactly how `test_send_chat_flags.py` went
+  unrun. A `CHATGPT_LIVE_SENDS` that is not a positive whole number falls
+  back to the default, so a typo can never lift the cap.
 - T3 and T4 refuse to start when the rate-limit modal or a 429 is present,
   when `pgrep -f "chatgpt_researc[h].py"` finds a run in flight, or when
   available memory is under `RP_MIN_AVAILABLE_MB`. The browser budget
@@ -62,9 +69,9 @@ Enforcement, not promises:
 | safety | T0 | the properties the user relies on: a dry run never mutates; read commands never issue a non-`GET` (a spy session); `BrowserSender` refuses under the rate-limit modal and sends Escape only to other modals; the live guard rejects an id outside the sandbox; the fixture scanner finds a planted email | |
 | robustness | T0 | every parser survives `{}`, `None` fields, wrong types and half-written messages | parametrized |
 | smoke | T1 | each read command exits as documented against the real account; assertions on shape, never on the user's data | `profile_context.py` exits 0; the slider has 5 positions |
-| round trip | T2 | each write command: act, read back, revert; the cleanup is verified by a read | set instructions on the sandbox, read `gizmos/<id>`, restore |
+| round trip | T2 | each write command: act, read back, revert; the cleanup is verified by a read. A round trip that needs a conversation to act on mints one (`tests/live/minting.py`) and is therefore T4, not T2: a test that waits for a chat an earlier run left never runs, because the sweep deletes them | set instructions on the sandbox, read `gizmos/<id>`, restore |
 | browser dry run | T3 | the send path opens: window, cookies, composer found, upload works; never sends | `tests/live/test_browser_upload.py`: upload one file, the composer shows its `Remove file …` chip and the send button stays enabled, never clicked |
-| measured send | T4 | the send path end to end, one message per feature, timings recorded in `failure-atlas.md` | search on and off, one attachment, one deep research; and `tests/live/test_send_effort.py`, which pins a level the account is **not** already using and asserts the reply recorded it -- the check that would have caught the two-month effort regression |
+| measured send | T4 | the send path end to end, one message per feature, timings recorded in `failure-atlas.md` | search on and off, one attachment, one deep research; `tests/live/test_send_effort.py`, which pins a level the account is **not** already using and asserts the reply recorded it -- the check that would have caught the two-month effort regression; and `tests/live/test_send_chat_flags.py`, which mints a chat and round-trips pin, unpin, archive and unarchive on it |
 
 ## 3. Coverage gate
 

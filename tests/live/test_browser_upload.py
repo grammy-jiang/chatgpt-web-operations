@@ -73,7 +73,7 @@ def verify(info: dict[str, Any], filename: str) -> list[str]:
     Pure -- no page, no browser -- so it is unit-tested in
     tests/test_harness.py by fabricating ``info`` in the shape
     ``_REMOVE_CHIP_AND_SEND_JS`` returns, the same ``mismatches == []``
-    pattern tests/live/test_write_chat_flags.py and
+    pattern tests/live/test_send_chat_flags.py and
     tests/live/test_write_project_settings.py use for their own round trips.
 
     Measured 2026-09-20: once ``_upload_files`` returns, the chip "Remove

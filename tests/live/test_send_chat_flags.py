@@ -1,15 +1,15 @@
-"""Live round trip for pin, unpin, archive and unarchive (T2, TESTING.md
+"""Live round trip for pin, unpin, archive and unarchive (T4, TESTING.md
 section 1; ROADMAP.md Stage 2 item 3, M2).
 
 Exercises the same pure function and endpoint constant the commands send
 through -- ``pin_chat.patch_body`` and ``pin_chat.CONVERSATION`` -- against
 the real sandbox project, over the guarded session, so this is the actual
 ``PATCH .../conversation/<id>`` the commands make, not a re-implementation
-of it. Every path stays inside what tests/live/guard.py allows for a T2
-test: ``/backend-api/gizmos/<sandbox_id>`` and a ``conversation/<id>`` the
+of it. Every path stays inside what tests/live/guard.py allows a write
+tier: ``/backend-api/gizmos/<sandbox_id>`` and a ``conversation/<id>`` the
 guard has itself seen in ``gizmos/<sandbox_id>/conversations`` -- which is
-why ``live_session.refresh()`` runs before any PATCH here, in the
-``test_chat`` fixture below. ``GET /backend-api/pins`` and
+why the ``test_chat`` fixture below registers the chat it mints with
+``live_session.note`` before yielding it. ``GET /backend-api/pins`` and
 ``GET /backend-api/conversation/<id>`` are unrestricted reads (guard.py
 allows every GET), so pin and unpin are checked against ``pins`` itself,
 the more authoritative record (SKILL.md: pinned chats "appear in GET
@@ -17,9 +17,13 @@ the more authoritative record (SKILL.md: pinned chats "appear in GET
 ``pin_chat.verify`` re-checked against the conversation's own
 ``is_starred`` alongside it.
 
-The chat this acts on is the sandbox conversation titled "rp-test send 1".
-Creating one is send_prompt.py's job, not this test's, so a sandbox without
-one skips with a clear reason instead of failing or creating it here.
+This test mints the chat it acts on. It used to look for a sandbox
+conversation left behind by an earlier send and skip when it found none --
+which was always, because the session-end sweep empties the sandbox, so
+the test never ran once between the day it was written and 2026-09-20.
+A test that depends on state another run happened to leave is a test that
+does not run. Minting a chat means one send, so this belongs to the send
+tier (T4) and not to the write tier it used to claim.
 Everything is restored in a ``finally`` block to unpinned and unarchived,
 however far the round trip got, the same unconditional-restore shape
 tests/live/test_write_project_settings.py uses for the sandbox's
@@ -28,7 +32,7 @@ instructions.
 Not run by this agent (see the skill's HARD RULES); collect-only proves it
 is wired up without touching the account:
 
-    .venv/bin/python -m pytest tests/live/test_write_chat_flags.py \\
+    .venv/bin/python -m pytest tests/live/test_send_chat_flags.py \\
         --collect-only -q
 """
 
@@ -40,15 +44,21 @@ from typing import Any
 
 import pytest
 
+from live.minting import delete_sandbox_chat, mint_sandbox_chat
+
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import pin_chat  # noqa: E402
 
-pytestmark = pytest.mark.live_write
+pytestmark = pytest.mark.live_send
 
-TEST_CHAT_TITLE = "rp-test send 1"
+# Cosmetic only: nothing looks a chat up by title (ChatGPT renames a new
+# chat itself once the first reply lands). It exists so a leftover in the
+# sandbox says where it came from.
+TEST_CHAT_TITLE = "rp-test chat flags"
+PROMPT = "reply with the single word OK"
 
 
 def _patch(live_session: Any, chat_id: str, body: dict[str, Any]) -> None:
@@ -78,26 +88,32 @@ def _pinned_ids(live_session: Any) -> set[str]:
 
 
 @pytest.fixture
-def test_chat(live_session: Any, sandbox_id: str) -> dict[str, Any]:
-    """The sandbox conversation titled "rp-test send 1", or a clear skip.
+def test_chat(request: Any, live_session: Any, sandbox_id: str) -> Any:
+    """One throwaway sandbox chat, minted here and deleted in teardown.
 
-    ``live_session.refresh()`` reads gizmos/<sandbox_id>/conversations and
-    records every id it sees there in the guard's ``known`` set -- the only
-    ids tests/live/guard.py will ever let a T2 test PATCH. Calling it here,
-    before either round trip runs, is what makes the PATCH calls below
-    allowed at all.
+    ``minting.mint_sandbox_chat`` sends one short prompt into the sandbox
+    project, resolves the real conversation id, and registers it with the
+    guard's ``note`` -- that registration is the only reason the PATCH
+    calls below are allowed at all (tests/live/guard.py permits a non-GET
+    on ``conversation/<id>`` only for an id the guard has itself seen).
+
+    Teardown deletes it, unless ``--keep-sandbox-chats`` was passed, which
+    exists so a failure can be looked at in the web UI; the session-scoped
+    sweep in tests/live/conftest.py honours the same flag and is the
+    backstop behind this one.
     """
-    status, body = live_session.refresh()
-    assert status == 200, f"gizmos/{sandbox_id}/conversations: HTTP {status}"
-    items = body.get("items", []) if isinstance(body, dict) else []
-    for item in items:
-        if isinstance(item, dict) and item.get("title") == TEST_CHAT_TITLE:
-            return item
-    pytest.skip(
-        f"no sandbox conversation titled {TEST_CHAT_TITLE!r}; send a prompt "
-        f"into the sandbox project first, e.g. send_prompt.py --project "
-        f"g-p-<sandbox> --title {TEST_CHAT_TITLE!r} <prompt file>"
+    import chatgpt_client as cc
+
+    chat_id = mint_sandbox_chat(
+        cc, live_session, sandbox_id, PROMPT, title=TEST_CHAT_TITLE
     )
+    try:
+        yield {"id": chat_id, "title": TEST_CHAT_TITLE}
+    finally:
+        if request.config.getoption("--keep-sandbox-chats"):
+            print(f"--keep-sandbox-chats: left conversation {chat_id}")
+        else:
+            delete_sandbox_chat(live_session, chat_id)
 
 
 def test_pin_unpin_archive_unarchive_round_trip_on_the_sandbox_chat(

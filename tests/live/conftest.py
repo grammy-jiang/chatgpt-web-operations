@@ -26,6 +26,16 @@ SANDBOX_FILE = Path(__file__).resolve().parent / "sandbox.json"
 SWEEP_PAGE_LIMIT = 50
 MAX_SWEEP_PAGES = 50
 
+# The T4 send cap (TESTING.md section 1). Every T4 test makes exactly one
+# send, so the cap is counted in tests. It is a stop against a suite that
+# grows a send storm by accident, not a quota to tune per run: the default
+# leaves headroom above the tests that exist, and going past it fails the
+# run loudly rather than skipping tests. A cap that skips instead would
+# repeat the defect tests/live/test_send_chat_flags.py had: a test that
+# quietly does not run reads as a pass.
+DEFAULT_LIVE_SENDS = 4
+SENDS_VAR = "CHATGPT_LIVE_SENDS"
+
 
 def _sandbox_data() -> dict:
     return json.loads(SANDBOX_FILE.read_text(encoding="utf-8"))
@@ -171,3 +181,54 @@ def _sweep_sandbox_after_live_writes(request: Any, tier: str, sandbox_id: str) -
         )
     titles = [title for _id, title in targets]
     print(f"sandbox sweep: deleted {len(targets)} conversation(s): {titles}")
+
+
+class SendBudget:
+    """How many sends a T4 run has left. Pure; no network, no pytest."""
+
+    def __init__(self, limit: int) -> None:
+        self.limit = limit
+        self.spent = 0
+
+    def spend(self, what: str) -> str:
+        """Count one send and return "" , or the reason it is refused."""
+        self.spent += 1
+        if self.spent > self.limit:
+            return (
+                f"{what} would be send {self.spent} of this run, over the "
+                f"cap of {self.limit} ({SENDS_VAR}); refusing to send"
+            )
+        return ""
+
+
+def budget_limit(environ: Any) -> int:
+    """``CHATGPT_LIVE_SENDS`` as an int, or the default.
+
+    A value that is not a positive number is the default too: a typo in an
+    environment variable must not quietly lift a safety cap.
+    """
+    raw = str(environ.get(SENDS_VAR, "")).strip()
+    if not raw.isdigit() or int(raw) < 1:
+        return DEFAULT_LIVE_SENDS
+    return int(raw)
+
+
+@pytest.fixture(scope="session")
+def send_budget() -> SendBudget:
+    """One budget for the whole run, shared by every T4 test."""
+    return SendBudget(budget_limit(os.environ))
+
+
+@pytest.fixture(autouse=True)
+def _spend_one_send(request: Any, tier: str, send_budget: SendBudget) -> None:
+    """Count this test's one send before it runs, and fail if it is over.
+
+    Autouse and marker-gated, so a T4 test cannot forget to be counted and
+    a T1 to T3 test is never touched. It runs before the test body, which
+    is the only place a refusal can still stop the send from happening.
+    """
+    if tier != "send" or request.node.get_closest_marker("live_send") is None:
+        return
+    refusal = send_budget.spend(request.node.name)
+    if refusal:
+        pytest.fail(refusal)

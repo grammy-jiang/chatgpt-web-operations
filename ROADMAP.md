@@ -141,8 +141,11 @@ with a dry run before every change.
    (dry run by default, read-back verified, a `/c/` URL accepted) and
    `clean_chats.py --unarchive`, a third action that selects from the
    archived listing and PATCHes `is_archived: false` per match. 28 T0
-   tests, both modules at 100%; `tests/live/test_write_chat_flags.py` (T2)
-   round-trips pin and archive on the sandbox chat.
+   tests, both modules at 100%; `tests/live/test_send_chat_flags.py`
+   round-trips pin and archive on a sandbox chat it mints itself. It was
+   T2 and skipped every run until 2026-09-20, because it waited for a
+   chat an earlier run had left and the sweep deletes those; minting one
+   costs a send, so it is T4 now (the file's own docstring).
 Exit criterion: each command has a dry run, a test over a fake session, and
 its endpoint recorded in `references/endpoint-discovery.md`.
 
