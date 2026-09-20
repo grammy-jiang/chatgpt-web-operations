@@ -394,6 +394,40 @@ the finished report lands was not observed in three runs; the session id
 comes from the page's own `call_mcp` calls, which a headless run does not
 see unless it records them from the window that sent.
 
+**Runs 4 to 6, later the same day, all over HTTP after the send:**
+
+- The connector is an MCP app; `tools/list` on a live conversation (body
+  `{"app_uri": "connectors://connector_openai_deep_research", "method":
+  "tools/list", "params": {}, "conversation_id": …, "message_id": <the
+  assistant's tool-call message>}`) lists `start(user_query)`,
+  `steer(user_query)`, `get_state(session_id, shared_conversation_id?)`,
+  `subscribe(session_id)`, `pause`, `skip_sleep`, `stop`, `export(session_id,
+  export_type: pdf | docx)` and `get_inline_images`; every `session_id` is
+  described as the "Deep research session (backing conversation) ID". On a
+  deleted conversation the same call answers `mcp_not_allowed_in_shared_conversation`.
+- The model's tool call is `{"path": "/Deep Research App/start", "args":
+  {"user_query": …}}`; the tool reply in the conversation JSON is `{}`, and
+  its metadata `connector_tool_payload` is `"{}"` too. The session id
+  appears only in the send's SSE stream, inside the tool reply's JSON text
+  (`{"session_id": "<backing id>", "connector_settings": {…}}`), which is
+  why `--record-send-body` records the stream (`PATH.stream.txt`; the
+  framing is `event: delta_encoding` / `data: "v1"`, a
+  `resume_conversation_token`, then `event: delta` frames whose `data` is
+  a full message object or a JSON-patch style `{"p", "o", "v"}` operation,
+  then `message_stream_complete`, `title_generation`,
+  `conversation_detail_metadata`, `[DONE]`). Recording it means keeping the
+  window open until the stream ends (`expect_response` + `finished()`).
+- With the session id: `get_state` showed "Generated report on …" as the
+  last `reasoning_title` about 40 s after the send, but the assistant text
+  messages in the state keep empty `parts`; `GET
+  /backend-api/conversation/<session_id>` answers 404; the front
+  conversation still had its six turns 48 minutes after the send. So where
+  the finished report is served remains unobserved; `export` (pdf, docx)
+  and `subscribe` are the two untried tools.
+- Polling three endpoints every 30 s for ten minutes earned the
+  conversation-read 429 ("Too many requests"); a collector must poll once a
+  minute at most and back off on 429.
+
 ## Re-run this when
 
 - a send starts failing in a way `probe_account.py` says is not the account

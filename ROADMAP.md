@@ -256,6 +256,13 @@ orchestrator is not modified.
    whose id travels only in the send's SSE stream, so `--record-send-body`
    now records that stream and `send_prompt.py --json` reports
    `session_id`. Deleting the front conversation deletes the backing one.
+   **Runs 4-6 (later)**: the stream is recorded and parsed; `get_state`
+   says the report is generated within a minute; but the backing
+   conversation is not readable through `conversation/<id>` (404), the
+   state carries no report text, and the front conversation had no new
+   turn 48 minutes after the send. Untried: `export` (pdf or docx) and
+   `subscribe`. A ten-minute poll at 30 s intervals earned a 429; poll
+   once a minute at most.
 
 Exit criterion: `send_prompt.py` exposes the four choices, the client's
 tests cover them offline, and one measured send per feature is recorded in

@@ -29,7 +29,7 @@ Reply parsing:
 
     extract_blocks(text)  -> {name: content} for ===BEGIN name=== ... ===END name===
     fenced_json(text)     -> content of the last ```json fence (fallback)
-    stream_events(text)   -> [dict, ...] parsed from a recorded SSE stream
+    stream_events(text)   -> the data payloads of a recorded SSE stream, any JSON type
     find_session_id(events) -> the connector session id nested in them, or None
 
 The binnacle helpers and Playwright are imported lazily so this module can
