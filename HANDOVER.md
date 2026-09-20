@@ -14,10 +14,10 @@ stage notes), `TESTING.md` and `SKILL.md`; sections 1 onward are the first
 session's handover and are kept as history. Where this section and a later
 one disagree, this one is what was measured last.
 
-**State.** This directory is a git repository on `main`, 57 commits, tree
-clean. 21 commands in `scripts/`, 1,323 offline tests, a per-module
+**State.** This directory is a git repository on `main`, 60 commits, tree
+clean. 24 commands in `scripts/`, 1,470 offline tests, a per-module
 coverage gate (95% core, 90% other) and four opt-in live tiers that pass:
-11 read, 3 write, 1 browser, 2 send. A daily health check runs from cron
+20 read, 3 write, 1 browser, 2 send. A daily health check runs from cron
 since 2026-09-21 (below).
 
 **The user's standing decisions.** All work stays in this skill. The agent
@@ -66,6 +66,23 @@ commands `measure_window.py` and `discover_endpoints.py`.
   classifies each one and, with `--apply`, archives a collectable reply and
   reclassifies a superseded or lost entry. It never touches a resumable
   entry and refuses while an orchestrator is running.
+
+**Three reads closed on 2026-09-21 (ROADMAP R4-R6).** `search_chats.py`
+searches chat *content* through the page's own search, `POST
+/backend-api/global/search`, conversations only (never the file library,
+never projects); the live guard lists that one POST as a read.
+`list_automations.py` lists ChatGPT's scheduled tasks: they are called
+automations, the page is chatgpt.com/scheduled, and the read is
+`GET /backend-api/automations?filter=scheduled|paused|finished` -- while
+`GET /backend-api/tasks`, which the roadmap had filed as "scheduled
+tasks", is the account's background-task history (old Deep research runs
+and image generations). `list_skills.py` lists the skills uploaded to
+chatgpt.com (`hazelnuts`) and the installed apps; the research-pipeline
+skill read `safety_check_status: blocked` with label `safeguard_evasion`
+and default version 1 against latest 14 that day -- printed verbatim,
+meaning unverified. The daily wrapper now runs `list_skills.py --expect
+research-pipeline` and mails WARN when any skill's safety status, labels
+or version changes.
 
 **The daily health check, 2026-09-21.** `scripts/health.py` is the HTTP
 half: preflight's four groups by calling preflight's own functions, plus a
