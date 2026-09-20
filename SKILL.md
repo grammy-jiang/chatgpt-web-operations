@@ -61,6 +61,7 @@ and `discover_endpoints.py`) open a browser; everything else is plain HTTP.
 | `model_settings.py` | Which model and effort a send will use: the Power slider's presets, the API levels, and the account's `last_used_model_config` resolved to a preset. | 0 record resolves |
 | `profile_context.py` | The hidden inputs of a run: custom instructions, memory usage, model and effort from cookie and server, one project's instructions and files. `--json` keeps them beside a run. | 0 every read answered |
 | `list_chats.py` | Recent conversations by title substring; `--pinned`, `--archived`, `--no-project-chats`; flags project / pinned / archived. | 0 always |
+| `search_chats.py` | Global search by content, not just title (`list_chats.py --match` cannot see inside a chat): `--limit` (server cap 40), `--pages` follows the `cursor`, `--json PATH`. Conversations only, never project or library sources. | 0 at least one hit, 1 no hit or a page failed, 2 bad argument |
 | `list_projects.py` | Every project (paged), one project's full instructions and files, and the chats inside one. | 0 found, 1 no such `--id` |
 | `create_project.py` | Create a project over HTTP; `--memory project-only` from the start; `--dry-run` prints the body and sends nothing. | 0 created and read back, 1 create or read-back failed, 2 refused |
 | `delete_project.py` | Delete a project and every chat in it over HTTP, after refusing a name mismatch or a non-`rp-test` name without `--force`. Dry run unless `--apply`. | 0 dry run or deleted and verified, 1 read or verify failed, 2 refused |

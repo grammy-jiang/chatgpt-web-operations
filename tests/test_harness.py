@@ -220,6 +220,48 @@ def test_read_tier_refuses_every_non_get_before_reaching_inner() -> None:
     assert inner.calls == []
 
 
+def test_read_tier_allows_the_post_that_only_reads_global_search() -> None:
+    """READ_POSTS carves out one POST that is a read: the page's search box
+    (ROADMAP.md R6, search_chats.py)."""
+    inner = _FakeInner()
+    guarded = live_guard.GuardedSession(inner, "read")
+    status, _body = guarded.call(
+        "/backend-api/global/search", method="POST", payload={"query": "x"}
+    )
+    assert status == 200
+    assert inner.calls == [("POST", "/backend-api/global/search")]
+
+
+def test_write_tier_also_allows_the_global_search_post() -> None:
+    """The exemption holds in every tier, not only read, and needs no
+    sandbox id -- the same way a GET never needs one."""
+    inner = _FakeInner()
+    guarded = live_guard.GuardedSession(inner, "write", sandbox_id="g-p-sand")
+    status, _body = guarded.call(
+        "/backend-api/global/search", method="POST", payload={"query": "x"}
+    )
+    assert status == 200
+    assert inner.calls == [("POST", "/backend-api/global/search")]
+
+
+def test_read_tier_still_refuses_a_post_to_any_other_path() -> None:
+    """The exemption is one exact path, not every POST."""
+    inner = _FakeInner()
+    guarded = live_guard.GuardedSession(inner, "read")
+    with pytest.raises(live_guard.GuardViolation):
+        guarded.call("/backend-api/conversation/x", method="POST")
+    assert inner.calls == []
+
+
+def test_read_tier_refuses_a_patch_to_the_search_path_too() -> None:
+    """Only POST is exempted; a PATCH to the same path is still a write."""
+    inner = _FakeInner()
+    guarded = live_guard.GuardedSession(inner, "read")
+    with pytest.raises(live_guard.GuardViolation):
+        guarded.call("/backend-api/global/search", method="PATCH")
+    assert inner.calls == []
+
+
 def test_write_tier_allows_a_patch_on_the_sandbox_gizmo() -> None:
     inner = _FakeInner()
     guarded = live_guard.GuardedSession(inner, "write", sandbox_id="g-p-sand")

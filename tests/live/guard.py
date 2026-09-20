@@ -15,6 +15,15 @@ allowed only for an id in ``self.created`` -- and never for the sandbox id,
 even if it were somehow present there too, because a project this guard did
 not itself create must never be deletable through it.
 
+One path is an exception to "tier read allows GET only": ``READ_POSTS``
+lists ``POST /backend-api/global/search``, a POST that only reads: the
+page's search box; it can neither create nor change anything. ``_check``
+allows a POST whose stripped path is in ``READ_POSTS`` in every tier,
+before the tier-read refusal, so search_chats.py (ROADMAP.md R6) runs the
+same way under T1 as it does under T2 to T4. Only the method is exempted,
+not the path: a PATCH or any other non-GET method to that same path is
+still refused exactly as before.
+
 Pure Python, no network: the rule is enforced before ``inner`` is ever
 called, which is what lets it be tested with a fake in tests/test_harness.py.
 """
@@ -26,6 +35,7 @@ from typing import Any
 CONVERSATION_PREFIX = "/backend-api/conversation/"
 GIZMO_PREFIX = "/backend-api/gizmos/"
 PROJECTS_PATH = "/backend-api/projects"
+READ_POSTS = frozenset({"/backend-api/global/search"})
 
 
 class GuardViolation(RuntimeError):
@@ -79,6 +89,8 @@ class GuardedSession:
         """Raise GuardViolation before ``inner`` ever sees a disallowed call."""
         if method == "GET":
             return
+        if method == "POST" and _stripped(path) in READ_POSTS:
+            return  # a POST that only reads (see the module docstring)
         if self.tier == "read":
             raise GuardViolation(f"{method} {path}: tier 'read' allows GET only")
         if not self.sandbox_id:

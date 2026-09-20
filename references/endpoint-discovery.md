@@ -502,6 +502,43 @@ the right way were in hand early and were walked past: the page bundle's
 `applyRemoteWidgetState$`, which stores widget state per message, and
 `chatgpt_sdk` sitting in a tool message's own metadata key list.
 
+## Seen on 2026-09-21
+
+| Endpoint | Use |
+|----------|-----|
+| `POST /backend-api/global/search` | search conversations by content, not just title |
+
+**Captured 2026-09-21** from the page's own search box and replayed over
+plain HTTP: `POST /backend-api/global/search`, body `{"query": "<text>",
+"limit": N, "source_requests": [{"type": "conversation"}]}`. The page also
+sends `query_id` (a uuid) and `entrypoint: "global_search"`; both are
+optional, and results are identical without them. `limit` must be 40 or
+less: 41 and above answers HTTP 422 with a pydantic detail, "Input should
+be less than or equal to 40". The page also asks for `{"type": "project"}`
+and `{"type": "library", ...}` sources; `search_chats.py` never does --
+projects have their own commands, and the file library is out of this
+skill's scope entirely.
+
+Response 200: `{"items": [...], "cursor": <str|null>, "partial_results":
+bool, "source_statuses": [{"source_type": "conversation", "source_key":
+"conversation", "status": "ok", "has_more": bool, "duration_ms": float,
+"error_code": null}]}`. Each item: `{"id": "conversation:<uuid>",
+"source_type": "conversation", "source_key": "conversation", "title": str,
+"snippet": str|null (null on a title match), "update_time": float epoch
+seconds, "match_kind": "title"|"content", "payload": {"kind":
+"conversation", "conversation_id": "<uuid>", "message_id": "<uuid>",
+"is_archived": bool, "is_starred": bool|null}}`. Paging follows `cursor`,
+opaque base64 JSON, never built by hand: send the same body again plus
+`"cursor": <the cursor string>` for the next page. No hits: `items: []`,
+`cursor: null`, `has_more: false` (read from the one source status asked
+for). Timing observed 0.7-2.1 s per page.
+
+Project chats are included in the results -- confirmed by reading back
+four of ten "worker" hits and finding a `gizmo_id` on each -- but the
+payload itself carries no project id, so a hit cannot say *which* project;
+`list_projects.py --id ... --chats` answers that. Whether an archived chat
+can match is not verified: none happened to match during capture.
+
 ## Re-run this when
 
 - a send starts failing in a way `probe_account.py` says is not the account
