@@ -267,9 +267,13 @@ orchestrator is not modified.
    it is a widget. So a Deep research step is: send with the hint (the
    only browser part, ~20 s including the stream), read `session_id` from
    the stream, poll `get_state` once a minute until a "Generated report"
-   title appears, then `export`. `deep_research.py` (start / status /
-   export) is next; the 429 rule stands: one poll a minute, back off on
-   429.
+   title appears, then `export`. **Done 2026-09-20**: `deep_research.py`
+   (`start` / `status` / `export`) collects a run entirely over HTTP after
+   the send; 81 T0 tests over two synthetic fixtures, 100% coverage; the
+   429 rule is built in (one poll a minute, two minutes back-off).
+   `subscribe` stays unimplemented (its websocket URL carries a per-user
+   token). Verified live on a running session: `status` DONE, `export`
+   12 kB docx, 2,891 characters of report.
 
 Exit criterion: `send_prompt.py` exposes the four choices, the client's
 tests cover them offline, and one measured send per feature is recorded in

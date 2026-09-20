@@ -439,6 +439,8 @@ see unless it records them from the window that sent.
   stored. So after the send everything is plain HTTP: `get_state` for
   progress (done when a `reasoning_title` starts with "Generated report"),
   `export` for the report. The front conversation never receives it.
+  `deep_research.py` implements `get_state` and `export`; `subscribe` is
+  deliberately not implemented.
 
 ## Re-run this when
 
