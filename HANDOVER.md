@@ -136,7 +136,7 @@ The rule: a new need is a new public method on the sender, never a reach.
 `chatgpt-mcp-dev` skill (`Projects/binnacle`); preflight counts them as
 in-flight browsers, the wrapper treats that as WARN. And on 2026-09-20 at
 22:59-23:00 four tracked files were modified by no session or agent that
-could be identified (reviewed on content, committed as `15c6d18`).
+could be identified (reviewed on content, committed as `af7dbbf`).
 
 **The defect that shaped the session.** For two months the research
 orchestrator pinned a send's reasoning effort by rewriting the
