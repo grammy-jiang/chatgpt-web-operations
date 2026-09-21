@@ -18,7 +18,11 @@ one disagree, this one is what was measured last.
 clean. 24 commands in `scripts/`, 1,529 offline tests, a per-module
 coverage gate (95% core, 90% other) and four opt-in live tiers that pass:
 22 read, 3 write, 1 browser, 2 send. A daily health check runs from cron
-since 2026-09-21 (below).
+since 2026-09-21 (below). Public mirror since 2026-09-21:
+https://github.com/grammy-jiang/chatgpt-web-operations (push after every
+commit; the repo-local git identity is the GitHub noreply address, and
+the history was rewritten to it before the first push -- the pre-rewrite
+bundle is in ~/.local/state/chatgpt-web-operations/).
 
 **The user's standing decisions.** All work stays in this skill. The agent
 performs every recorded action itself and never asks the user to click
