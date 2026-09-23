@@ -27,6 +27,7 @@ Requires running as the desktop user (session D-Bus + unlocked GNOME keyring)
 with the browser logged in to chatgpt.com.
 """
 
+import hashlib
 import json
 import os
 import shutil
@@ -127,6 +128,8 @@ def _safe_response_headers(headers: Any) -> dict[str, str]:
         ("X-Request-ID", "request_id"),
         ("Retry-After", "retry_after"),
         ("Content-Type", "content_type"),
+        ("Server", "server"),
+        ("CF-Mitigated", "cf_mitigated"),
     ):
         value = headers.get(header)
         if value:
@@ -803,6 +806,13 @@ class Session:
                 )
                 return r.status, text, r.headers
         except urllib.error.HTTPError as exc:
+            # HTTPError doubles as the response body stream. Read it exactly
+            # once here so diagnostics can retain a safe fingerprint of the
+            # failure, then cache the bytes on the exception for call() to
+            # consume. Never emit the body itself: even a GET error page may
+            # contain account/challenge details.
+            response_body = exc.read()
+            exc._chatgpt_response_body = response_body
             _emit_diagnostic(
                 getattr(self, "_diagnostic", None),
                 "http_attempt",
@@ -812,6 +822,8 @@ class Session:
                 outcome="http_error",
                 elapsed_ms=round((time.monotonic() - started) * 1000, 1),
                 timeout_s=actual_timeout,
+                response_bytes=len(response_body),
+                response_sha256=hashlib.sha256(response_body).hexdigest(),
                 **_safe_response_headers(exc.headers),
             )
             raise
@@ -863,7 +875,13 @@ class Session:
                 status, text, _headers = self._request(path, method, payload)
                 return status, (text if raw else json.loads(text))
             except urllib.error.HTTPError as e:
-                last = (e.code, {"error": e.read().decode()[:200]})
+                response_body = getattr(e, "_chatgpt_response_body", None)
+                if response_body is None:
+                    response_body = e.read()
+                last = (
+                    e.code,
+                    {"error": response_body.decode(errors="replace")[:200]},
+                )
                 if e.code not in (403, 429) and e.code < 500:
                     return last
             except urllib.error.URLError as e:

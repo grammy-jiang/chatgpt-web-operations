@@ -1260,6 +1260,27 @@ def test_http_diagnostics_record_each_403_retry_and_backoff(monkeypatch) -> None
         ("http_attempt", 200),
     ]
     assert events[1]["backoff_s"] == 2
+    assert events[0]["response_bytes"] == len(b"blocked")
+    expected_hash = __import__("hashlib").sha256(b"blocked").hexdigest()
+    assert events[0]["response_sha256"] == expected_hash
+    assert "blocked" not in json.dumps(events)
+
+
+def test_http_error_fingerprint_preserves_call_error_body(monkeypatch) -> None:
+    events: list[dict] = []
+
+    def fake_urlopen(req, timeout=60):
+        raise _http_error(404, "not found diagnostic body")
+
+    monkeypatch.setattr(chatgpt_session.urllib.request, "urlopen", fake_urlopen)
+    session = _session()
+    session._diagnostic = events.append
+    status, data = session.call("/missing", retries=1)
+
+    assert status == 404
+    assert data == {"error": "not found diagnostic body"}
+    assert events[0]["response_bytes"] == len(b"not found diagnostic body")
+    assert "not found diagnostic body" not in json.dumps(events)
 
 
 def test_call_retries_a_403_then_succeeds_with_backoff_2_then_4(monkeypatch) -> None:
