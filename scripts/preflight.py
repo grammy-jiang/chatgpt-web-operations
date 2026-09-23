@@ -379,11 +379,17 @@ RATE_LIMIT_FIX = (
 )
 
 
-def open_chatgpt_session(cc: Any, browser: str) -> tuple[Any, str | None]:
-    """(session, None) on success, (None, reason) on failure -- never raises,
-    so a broken cookie jar becomes one block check instead of a crash."""
+def open_chatgpt_session(
+    cc: Any, browser: str, **session_options: Any
+) -> tuple[Any, str | None]:
+    """(session, None) on success, (None, reason) on failure -- never raises.
+
+    ``session_options`` lets diagnostic callers such as health.py request a
+    bounded retry/timeout policy without changing the production defaults used
+    by preflight and real research runs.
+    """
     try:
-        return cc.ChatGPTSession(browser), None
+        return cc.ChatGPTSession(browser, **session_options), None
     except Exception as exc:
         return None, str(exc)[:200]
 

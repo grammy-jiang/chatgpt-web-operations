@@ -979,24 +979,84 @@ class ChatGPTSession:
 
     # Authenticating is the first thing a run does, and a transient 403 there
     # killed a resumed run outright. The helper's own retries are seconds
-    # apart, which does not outlast a burst block.
+    # apart, which does not outlast a burst block. Production callers keep
+    # this generous ladder; health.py deliberately supplies a shorter one.
     AUTH_BACKOFF = (30.0, 90.0, 180.0)
 
-    def __init__(self, browser: str = "chrome", sleep: Any = time.sleep):
+    def __init__(
+        self,
+        browser: str = "chrome",
+        sleep: Any = time.sleep,
+        *,
+        auth_backoff: Iterable[float] | None = None,
+        diagnostic: Any = None,
+        request_timeout: float = 60.0,
+        request_retries: int = 3,
+    ):
         cs = _helpers()
         cs.set_prog("chatgpt-client")
         self._cs = cs
         self.browser = browser
-        for attempt, wait in enumerate((*self.AUTH_BACKOFF, None)):
+        self._diagnostic = diagnostic
+        # Preserve the old helper call exactly for ordinary production callers.
+        # Extra kwargs are supplied only when a caller explicitly asks for a
+        # diagnostic/short-timeout policy (health.py does).
+        self._session_kwargs: dict[str, Any] = {}
+        if diagnostic is not None:
+            self._session_kwargs["diagnostic"] = diagnostic
+        if request_timeout != 60.0:
+            self._session_kwargs["request_timeout"] = request_timeout
+        if request_retries != 3:
+            self._session_kwargs["default_retries"] = request_retries
+        backoff = tuple(self.AUTH_BACKOFF if auth_backoff is None else auth_backoff)
+        max_attempts = len(backoff) + 1
+        for attempt, wait in enumerate((*backoff, None), start=1):
+            self._emit(
+                "client_auth_attempt",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                browser=browser,
+            )
             try:
-                self.session = cs.Session(browser)
+                self.session = (
+                    cs.Session(browser, **self._session_kwargs)
+                    if self._session_kwargs
+                    else cs.Session(browser)
+                )
+                self._emit(
+                    "client_auth_success",
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    browser=browser,
+                )
                 return
             except SystemExit as exc:  # cs.fail() exits on an auth failure
+                self._emit(
+                    "client_auth_failure",
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    browser=browser,
+                    error=str(exc)[:300],
+                )
                 if wait is None:
                     raise TransportError(
-                        f"could not authenticate after {attempt} retries: {exc}"
+                        f"could not authenticate after {attempt - 1} retries: {exc}"
                     ) from exc
+                self._emit(
+                    "client_auth_backoff",
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    backoff_s=wait,
+                )
                 sleep(wait)
+
+    def _emit(self, event: str, **fields: Any) -> None:
+        if self._diagnostic is None:
+            return
+        try:
+            self._diagnostic({"event": event, **fields})
+        except Exception:
+            return
 
     # The helper's own retries are seconds apart, which answers a Cloudflare
     # burst but not a backend rate limit. A rate limit is a request to slow
@@ -1031,18 +1091,52 @@ class ChatGPTSession:
                 # rebuild fails on its own ladder and says so.
                 reauthed = True
                 logger.warning("HTTP 403 on %s; rebuilding the session", path)
+                self._emit("client_reauth_start", path=path, status=403)
                 try:
-                    self.session = self._cs.Session(self.browser)
+                    self.session = (
+                        self._cs.Session(self.browser, **self._session_kwargs)
+                        if self._session_kwargs
+                        else self._cs.Session(self.browser)
+                    )
+                    self._emit("client_reauth_success", path=path, status=403)
                     continue
                 except SystemExit as exc:
+                    self._emit(
+                        "client_reauth_failure",
+                        path=path,
+                        status=403,
+                        error=str(exc)[:300],
+                    )
                     raise TransportError(
                         f"403 on {path} and re-authentication failed: {exc}", 403
                     ) from exc
+            self._emit(
+                "client_call_result",
+                path=path,
+                method=method,
+                attempt=attempt + 1,
+                status=status,
+            )
             if status not in (429, 500, 502, 503, 504):
                 break
             if attempt < len(self.RATE_LIMIT_BACKOFF):
-                sleep(self.RATE_LIMIT_BACKOFF[attempt])
+                wait = self.RATE_LIMIT_BACKOFF[attempt]
+                self._emit(
+                    "client_call_backoff",
+                    path=path,
+                    method=method,
+                    attempt=attempt + 1,
+                    status=status,
+                    backoff_s=wait,
+                )
+                sleep(wait)
         status, data = last
+        self._emit(
+            "client_call_failure",
+            path=path,
+            method=method,
+            status=status,
+        )
         raise TransportError(
             f"{method} {path} -> HTTP {status}: {str(data)[:200]}", status
         )

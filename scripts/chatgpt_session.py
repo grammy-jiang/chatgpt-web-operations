@@ -36,7 +36,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Iterable, MutableMapping
+from collections.abc import Callable, Iterable, MutableMapping
 from datetime import UTC
 from email.utils import parsedate_to_datetime
 from http.cookies import SimpleCookie
@@ -96,6 +96,42 @@ def set_prog(name: str) -> None:
 def fail(msg: str) -> NoReturn:
     print(f"{_prog}: {msg}", file=sys.stderr)
     raise SystemExit(1)
+
+
+def _emit_diagnostic(
+    diagnostic: Callable[[dict[str, Any]], None] | None,
+    event: str,
+    **fields: Any,
+) -> None:
+    """Best-effort structured transport diagnostics, never credentials.
+
+    The callback is intentionally optional and failures in it are swallowed:
+    observability must never become a new reason an otherwise healthy ChatGPT
+    request fails.  Callers choose where the event is persisted.
+    """
+    if diagnostic is None:
+        return
+    try:
+        diagnostic({"event": event, **fields})
+    except Exception:
+        return
+
+
+def _safe_response_headers(headers: Any) -> dict[str, str]:
+    """Small allow-list of useful, non-credential response headers."""
+    if headers is None:
+        return {}
+    out: dict[str, str] = {}
+    for header, key in (
+        ("CF-Ray", "cf_ray"),
+        ("X-Request-ID", "request_id"),
+        ("Retry-After", "retry_after"),
+        ("Content-Type", "content_type"),
+    ):
+        value = headers.get(header)
+        if value:
+            out[key] = str(value)[:200]
+    return out
 
 
 def ensure_desktop_env(environ: MutableMapping[str, str] | None = None) -> None:
@@ -631,13 +667,40 @@ class Session:
     use only Chrome's own jar, as before this existed.
     """
 
-    def __init__(self, browser: str = "auto"):
+    def __init__(
+        self,
+        browser: str = "auto",
+        *,
+        diagnostic: Callable[[dict[str, Any]], None] | None = None,
+        request_timeout: float = 60.0,
+        default_retries: int = 3,
+    ):
+        self._diagnostic = diagnostic
+        self.request_timeout = request_timeout
+        self.default_retries = default_retries
         self.browser = pick_browser(browser)
+        _emit_diagnostic(
+            diagnostic,
+            "session_start",
+            requested_browser=browser,
+            browser=self.browser,
+            request_timeout_s=request_timeout,
+            default_retries=default_retries,
+        )
         pairs, chrome = _cookie_pairs(self.browser)
         stored = load_stored_session()
         chosen, source = choose_session(chrome, stored)
         self.session_source = source
         self.session_expires = chosen.get("expires") if chosen else None
+        _emit_diagnostic(
+            diagnostic,
+            "session_cookie_source",
+            browser=self.browser,
+            source=source,
+            expires=self.session_expires,
+            chrome_candidate=chrome is not None,
+            keyring_candidate=stored is not None,
+        )
         if chosen is not None:
             pairs = apply_session(pairs, chosen)
         self.cookie = "; ".join(f"{name}={value}" for name, value in pairs)
@@ -666,7 +729,18 @@ class Session:
                 ):
                     store_session(renewed)
 
-        if not self.token or not self.user_id:
+        authenticated = bool(self.token and self.user_id)
+        _emit_diagnostic(
+            diagnostic,
+            "auth_result",
+            status=status,
+            authenticated=authenticated,
+            user_id_present=bool(self.user_id),
+            session_source=self.session_source,
+            session_expires=self.session_expires,
+            renewed_expires=self.renewed_expires,
+        )
+        if not authenticated:
             fail(
                 f"could not authenticate (HTTP {status}); session cookie may be expired"
             )
@@ -676,7 +750,7 @@ class Session:
         path: str,
         method: str = "GET",
         payload=None,
-        timeout: float = 60,
+        timeout: float | None = None,
     ) -> tuple[int, str, Any]:
         """One HTTP attempt against chatgpt.com, no retry: builds this
         session's Cookie/bearer/User-Agent headers and returns ``(status,
@@ -708,8 +782,66 @@ class Session:
         req = urllib.request.Request(
             BASE + path, headers=headers, method=method, data=body
         )
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.status, r.read().decode(), r.headers
+        actual_timeout = (
+            getattr(self, "request_timeout", 60.0) if timeout is None else timeout
+        )
+        started = time.monotonic()
+        try:
+            with urllib.request.urlopen(req, timeout=actual_timeout) as r:
+                text = r.read().decode()
+                _emit_diagnostic(
+                    getattr(self, "_diagnostic", None),
+                    "http_attempt",
+                    path=path,
+                    method=method,
+                    status=r.status,
+                    outcome="success",
+                    elapsed_ms=round((time.monotonic() - started) * 1000, 1),
+                    timeout_s=actual_timeout,
+                    response_bytes=len(text.encode()),
+                    **_safe_response_headers(r.headers),
+                )
+                return r.status, text, r.headers
+        except urllib.error.HTTPError as exc:
+            _emit_diagnostic(
+                getattr(self, "_diagnostic", None),
+                "http_attempt",
+                path=path,
+                method=method,
+                status=exc.code,
+                outcome="http_error",
+                elapsed_ms=round((time.monotonic() - started) * 1000, 1),
+                timeout_s=actual_timeout,
+                **_safe_response_headers(exc.headers),
+            )
+            raise
+        except urllib.error.URLError as exc:
+            _emit_diagnostic(
+                getattr(self, "_diagnostic", None),
+                "http_attempt",
+                path=path,
+                method=method,
+                status=0,
+                outcome="url_error",
+                elapsed_ms=round((time.monotonic() - started) * 1000, 1),
+                timeout_s=actual_timeout,
+                error=str(exc)[:300],
+            )
+            raise
+        except Exception as exc:
+            _emit_diagnostic(
+                getattr(self, "_diagnostic", None),
+                "http_attempt",
+                path=path,
+                method=method,
+                status=0,
+                outcome="exception",
+                elapsed_ms=round((time.monotonic() - started) * 1000, 1),
+                timeout_s=actual_timeout,
+                error_type=type(exc).__name__,
+                error=str(exc)[:300],
+            )
+            raise
 
     def call(
         self,
@@ -717,15 +849,16 @@ class Session:
         method: str = "GET",
         payload=None,
         raw: bool = False,
-        retries: int = 3,
+        retries: int | None = None,
     ):
         """Call a chatgpt.com endpoint. Returns (status, parsed-json-or-text).
 
         Cloudflare rate-limits bursts of requests with a 403 HTML page, so
         403/429/5xx are retried with a short backoff before giving up.
         """
+        attempts = getattr(self, "default_retries", 3) if retries is None else retries
         last = (0, {"error": "no attempt made"})
-        for attempt in range(retries):
+        for attempt in range(attempts):
             try:
                 status, text, _headers = self._request(path, method, payload)
                 return status, (text if raw else json.loads(text))
@@ -735,6 +868,17 @@ class Session:
                     return last
             except urllib.error.URLError as e:
                 last = (0, {"error": str(e)[:200]})
-            if attempt < retries - 1:
-                time.sleep(2 * (attempt + 1))  # 2s, then 4s
+            if attempt < attempts - 1:
+                backoff = 2 * (attempt + 1)
+                _emit_diagnostic(
+                    getattr(self, "_diagnostic", None),
+                    "http_retry",
+                    path=path,
+                    method=method,
+                    attempt=attempt + 1,
+                    max_attempts=attempts,
+                    status=last[0],
+                    backoff_s=backoff,
+                )
+                time.sleep(backoff)
         return last

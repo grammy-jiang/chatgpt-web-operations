@@ -77,6 +77,42 @@ retry twenty seconds later. That is the session mint (`/api/auth/session`)
 timing out, not the account and not the connector. Retry once before
 diagnosing anything.
 
+### The health check that exhausted its own timeout
+
+On 2026-09-23 the 05:25 daily `chatgpt-ops` check mailed a failure after
+`scripts/health.py` hit its 120 s outer timeout. The mail contained two
+`/api/auth/session` HTTP 403 messages and the helper's generic
+"session cookie may be expired" wording, so the first reading was that the
+session had expired. A manual run that evening authenticated immediately,
+returned `/backend-api/me` 200, and read a renewed session horizon of about
+90 days. The persistent `check.log` could not settle the discrepancy: it had
+kept only `exit=124` and the timeout verdict, while the two 403s survived only
+in that one local-mail body; `last-health.json` was replaced by the later run.
+
+The monitor and the production client had incompatible time budgets.
+`ChatGPTSession` quite reasonably used a production authentication ladder of
+30 s, 90 s and 180 s between retries. The monitor wrapped all of `health.py`
+in `timeout 120`. Two transient 403s therefore produced exactly the observed
+shape: first attempt fails, sleep 30 s, second attempt fails, sleep 90 s, and
+the outer watchdog kills the process before the third attempt can begin. The
+wording about an expired cookie described one failed handshake, not a proven
+root cause.
+
+The fix keeps the resilient 30/90/180 s ladder for real work and gives the
+health probe its own bounded policy: 5/10 s authentication backoff, 15 s per
+request and two low-level request attempts, under a 180 s last-resort wrapper
+ceiling. More importantly, every cron run now gets an immutable evidence
+directory with the raw health output, structured credential-free HTTP/auth
+JSONL, stage timeline, health/skills JSON, test output, environment context
+and final result; `check.log` carries the run id that points to it. Events are
+written as the run proceeds, so a timeout cannot erase the evidence that led
+to it. Cookie values, bearer tokens, request/response bodies and `Set-Cookie`
+are intentionally excluded or redacted.
+
+The lesson is twofold: a monitor's retry budget is a diagnostic policy, not
+the production recovery policy; and an incident log must preserve the events
+*before* the failure, not only the final exit code.
+
 ## The effort that was never set
 
 From 2026-09-16 to 2026-09-20 every research send asked for a per-step

@@ -852,12 +852,14 @@ class _FakeCS:
         self.session_results = list(session_results)
         self.set_prog_calls: list[str] = []
         self.session_calls: list[str] = []
+        self.session_kwargs_calls: list[dict[str, object]] = []
 
     def set_prog(self, name: str) -> None:
         self.set_prog_calls.append(name)
 
-    def Session(self, browser: str) -> object:
+    def Session(self, browser: str, **kwargs: object) -> object:
         self.session_calls.append(browser)
+        self.session_kwargs_calls.append(dict(kwargs))
         result = self.session_results.pop(0)
         if isinstance(result, BaseException):
             raise result
@@ -865,10 +867,13 @@ class _FakeCS:
 
 
 def _make_session(
-    monkeypatch: pytest.MonkeyPatch, fake_cs: _FakeCS, sleep=lambda s: None
+    monkeypatch: pytest.MonkeyPatch,
+    fake_cs: _FakeCS,
+    sleep=lambda s: None,
+    **kwargs: object,
 ) -> cc.ChatGPTSession:
     monkeypatch.setattr(cc, "_helpers", lambda: fake_cs)
-    return cc.ChatGPTSession(browser="chrome", sleep=sleep)
+    return cc.ChatGPTSession(browser="chrome", sleep=sleep, **kwargs)
 
 
 def test_init_authenticates_once_when_the_first_attempt_succeeds(
@@ -893,6 +898,46 @@ def test_init_retries_a_systemexit_with_the_auth_backoff(
     session = _make_session(monkeypatch, fake_cs, sleep=sleeps.append)
     assert session.session is backend
     assert sleeps == [30.0, 90.0]
+
+
+def test_init_accepts_a_bounded_health_policy_and_emits_auth_events(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = object()
+    fake_cs = _FakeCS([SystemExit("transient"), backend])
+    sleeps: list[float] = []
+    events: list[dict[str, object]] = []
+    session = _make_session(
+        monkeypatch,
+        fake_cs,
+        sleep=sleeps.append,
+        auth_backoff=(5.0,),
+        diagnostic=events.append,
+        request_timeout=15.0,
+        request_retries=2,
+    )
+    assert session.session is backend
+    assert sleeps == [5.0]
+    assert fake_cs.session_kwargs_calls == [
+        {
+            "diagnostic": events.append,
+            "request_timeout": 15.0,
+            "default_retries": 2,
+        },
+        {
+            "diagnostic": events.append,
+            "request_timeout": 15.0,
+            "default_retries": 2,
+        },
+    ]
+    assert [e["event"] for e in events] == [
+        "client_auth_attempt",
+        "client_auth_failure",
+        "client_auth_backoff",
+        "client_auth_attempt",
+        "client_auth_success",
+    ]
+    assert events[2]["backoff_s"] == 5.0
 
 
 def test_init_gives_up_after_exhausting_the_auth_backoff(

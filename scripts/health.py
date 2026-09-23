@@ -2,6 +2,7 @@
 """A daily health check for this skill's own HTTP path. Read-only.
 
     health.py [--browser] [--browser-name chrome] [--json PATH]
+              [--diagnostics PATH]
 
 This is the HTTP half of a two-part daily watcher: a cron wrapper (kept
 outside this skill) calls it once a day, keeps the run history and decides
@@ -47,6 +48,16 @@ is a GET. ``--json PATH`` writes the same ``{"checked_at", "verdict",
 "facts" block: the cron wrapper's contract, the same keys every run, null
 or empty rather than missing when a read failed, and never a cookie value.
 
+``--diagnostics PATH`` additionally writes JSONL events while the check is
+running: stage boundaries, authentication attempts/backoff, endpoint/status,
+request duration and a small allow-list of response headers. It deliberately
+never records cookie values, bearer tokens, request/response bodies or other
+credentials, and redacts sensitive-looking keys as a second line of defence.
+The health probe uses a short 5/10 s authentication backoff and 15 s request
+timeout; ordinary ChatGPTSession callers keep their production 30/90/180 s
+retry ladder. A monitor must report a transient failure promptly rather than
+spend its entire outer timeout inside the production recovery policy.
+
 ``preflight.py`` stays the check to run immediately before starting a
 research run; this is the check that runs once a day whether or not a run
 is planned, and it is not a substitute for it.
@@ -82,6 +93,17 @@ SANDBOX_FILE = Path(__file__).resolve().parents[1] / "tests" / "live" / "sandbox
 PINS = "/backend-api/pins"
 
 SESSION_WARN_DAYS = 14
+
+# health.py is a diagnostic probe, not a production research run.  Production
+# ChatGPTSession callers keep the long 30/90/180 s authentication ladder; a
+# once-a-day watcher must instead fail fast enough to report what happened.
+# Three authentication attempts can therefore consume at most about 60 s
+# (3 * 15 s request timeout + 5 + 10 s backoff), leaving room inside the cron
+# wrapper's overall budget for the remaining GET checks and evidence flush.
+HEALTH_AUTH_BACKOFF = (5.0, 10.0)
+HEALTH_REQUEST_TIMEOUT = 15.0
+HEALTH_REQUEST_RETRIES = 2
+
 SESSION_TOKEN_FIX = (
     "open chatgpt.com in this machine's own Chrome, or run any command that "
     "builds a session (this check included) -- either renews the token; "
@@ -101,6 +123,57 @@ SANDBOX_DIRTY_FIX = (
 # preflight's own group order with "health" placed between "run" and
 # "browser"; passed to preflight.render, which takes the order as an argument
 HEALTH_GROUP_ORDER = ("host", "link", "account", "run", "health", "browser")
+
+
+def _diagnostic_sink(path_text: str):
+    """Return a durable JSONL event sink, or ``None`` when not requested.
+
+    Only metadata supplied explicitly by this module and the transport client
+    is written.  Cookie values, bearer tokens and response bodies are never
+    events, so this file can be retained with ordinary operational logs.
+    """
+    if not path_text:
+        return None
+    path = Path(path_text).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("", encoding="utf-8")
+
+    sensitive = ("token", "cookie", "authorization", "body", "payload", "secret")
+
+    def scrub(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                str(key): (
+                    "<redacted>"
+                    if any(word in str(key).lower() for word in sensitive)
+                    else scrub(item)
+                )
+                for key, item in value.items()
+            }
+        if isinstance(value, (list, tuple)):
+            return [scrub(item) for item in value]
+        return value
+
+    def emit(event: dict[str, Any]) -> None:
+        record = {
+            "at": datetime.now(UTC).isoformat(timespec="milliseconds"),
+            "epoch": round(time.time(), 3),
+            **scrub(event),
+        }
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+
+    return emit
+
+
+def _diag(emit: Any, event: str, **fields: Any) -> None:
+    if emit is not None:
+        emit({"event": event, **fields})
+
+
+def _state_counts(checks: list[dict[str, Any]]) -> dict[str, int]:
+    states = ("ok", "warn", "block")
+    return {state: sum(c.get("state") == state for c in checks) for state in states}
 
 
 def _sandbox() -> dict[str, str]:
@@ -505,15 +578,36 @@ def main(argv: list[str] | None = None) -> int:
         help="write the verdict document, with a 'facts' block for the cron "
         "wrapper, here",
     )
+    ap.add_argument(
+        "--diagnostics",
+        default="",
+        metavar="PATH",
+        help="append structured, credential-free transport/stage events as JSONL",
+    )
     args = ap.parse_args(argv)
     checked_at = datetime.now(UTC).isoformat(timespec="seconds")
+    diagnostic = _diagnostic_sink(args.diagnostics)
+    _diag(
+        diagnostic,
+        "health_run_start",
+        browser=args.browser_name,
+        browser_check=args.browser,
+        auth_backoff_s=list(HEALTH_AUTH_BACKOFF),
+        request_timeout_s=HEALTH_REQUEST_TIMEOUT,
+        request_retries=HEALTH_REQUEST_RETRIES,
+    )
     sandbox = _sandbox()
 
     checks: list[dict[str, Any]] = []
-    checks += preflight.host_checks(cc, None)
+    _diag(diagnostic, "stage_start", stage="host")
+    host = preflight.host_checks(cc, None)
+    checks += host
+    _diag(diagnostic, "stage_end", stage="host", **_state_counts(host))
 
+    _diag(diagnostic, "stage_start", stage="link")
     link = preflight.link_checks(preflight.WIRELESS_PATH)
     checks += link
+    _diag(diagnostic, "stage_end", stage="link", **_state_counts(link))
 
     facts = _empty_facts(sandbox)
 
@@ -529,7 +623,22 @@ def main(argv: list[str] | None = None) -> int:
             )
         )
     else:
-        session, error = preflight.open_chatgpt_session(cc, args.browser_name)
+        _diag(diagnostic, "stage_start", stage="auth")
+        session, error = preflight.open_chatgpt_session(
+            cc,
+            args.browser_name,
+            auth_backoff=HEALTH_AUTH_BACKOFF,
+            diagnostic=diagnostic,
+            request_timeout=HEALTH_REQUEST_TIMEOUT,
+            request_retries=HEALTH_REQUEST_RETRIES,
+        )
+        _diag(
+            diagnostic,
+            "stage_end",
+            stage="auth",
+            success=error is None,
+            error=error,
+        )
         if error is not None:
             checks.append(
                 preflight.check(
@@ -540,16 +649,47 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
         else:
-            checks += preflight.account_checks(session)
-            checks += preflight.run_checks(session, "", None)
-            checks += health_checks(cc, session, args.browser_name, sandbox)
+            _diag(diagnostic, "stage_start", stage="account")
+            account = preflight.account_checks(session)
+            checks += account
+            _diag(diagnostic, "stage_end", stage="account", **_state_counts(account))
+
+            _diag(diagnostic, "stage_start", stage="run")
+            run = preflight.run_checks(session, "", None)
+            checks += run
+            _diag(diagnostic, "stage_end", stage="run", **_state_counts(run))
+
+            _diag(diagnostic, "stage_start", stage="health")
+            health_rows = health_checks(cc, session, args.browser_name, sandbox)
+            checks += health_rows
             facts = facts_of(cc, session, args.browser_name, sandbox)
+            _diag(
+                diagnostic,
+                "stage_end",
+                stage="health",
+                **_state_counts(health_rows),
+            )
             if args.browser:
-                checks.append(preflight.browser_composer_check(cc, args.browser_name))
+                _diag(diagnostic, "stage_start", stage="browser")
+                browser_row = preflight.browser_composer_check(cc, args.browser_name)
+                checks.append(browser_row)
+                _diag(
+                    diagnostic,
+                    "stage_end",
+                    stage="browser",
+                    **_state_counts([browser_row]),
+                )
 
     print(preflight.render(checks, order=HEALTH_GROUP_ORDER))
     verdict, exit_code = preflight.verdict_of(checks)
     print(verdict)
+    _diag(
+        diagnostic,
+        "health_run_end",
+        verdict=verdict,
+        exit_code=exit_code,
+        **_state_counts(checks),
+    )
 
     if args.json:
         out = Path(args.json).expanduser()

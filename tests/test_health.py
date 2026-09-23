@@ -179,7 +179,7 @@ def _fake_cc(
         MIN_AVAILABLE_MB=min_available_mb,
         scripted_browser_pids=lambda: set(pids),
         MAX_BROWSERS=max_browsers,
-        ChatGPTSession=lambda browser: session,
+        ChatGPTSession=lambda browser, **kwargs: session,
         BrowserSender=sender_cls,
         ensure_desktop_env_calls=[],
         _helpers=lambda: cs,
@@ -1109,6 +1109,57 @@ def test_main_facts_show_a_dirty_sandbox_as_a_warning_not_a_block(
     assert sandbox_check["state"] == "warn"
 
 
+def test_diagnostic_sink_writes_timestamped_jsonl_and_redacts_secrets(
+    tmp_path: Path,
+) -> None:
+    out = tmp_path / "events.jsonl"
+    emit = health._diagnostic_sink(str(out))
+    assert emit is not None
+    emit(
+        {
+            "event": "probe",
+            "path": "/api/auth/session",
+            "status": 403,
+            "cookie": "secret-cookie",
+            "nested": {"Authorization": "Bearer secret-token", "safe": 1},
+        }
+    )
+    row = json.loads(out.read_text())
+    assert row["event"] == "probe"
+    assert row["path"] == "/api/auth/session"
+    assert row["status"] == 403
+    assert row["cookie"] == "<redacted>"
+    assert row["nested"]["Authorization"] == "<redacted>"
+    assert row["nested"]["safe"] == 1
+    assert "secret-cookie" not in out.read_text()
+    assert "secret-token" not in out.read_text()
+    assert row["at"].endswith("+00:00")
+
+
+def test_main_uses_the_bounded_health_session_policy(
+    clean_host: None,
+    linked_wireless: Path,
+    sandbox_file: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+
+    def spy_open(
+        cc_mod: Any, browser: str, **session_options: Any
+    ) -> tuple[Any, str | None]:
+        seen.update(session_options)
+        return None, "intentional test stop"
+
+    monkeypatch.setattr(preflight, "open_chatgpt_session", spy_open)
+    monkeypatch.setattr(health, "cc", _fake_cc(None))
+    code = health.main([])
+    assert code == 1
+    assert seen["auth_backoff"] == health.HEALTH_AUTH_BACKOFF
+    assert seen["request_timeout"] == health.HEALTH_REQUEST_TIMEOUT
+    assert seen["request_retries"] == health.HEALTH_REQUEST_RETRIES
+    assert seen["diagnostic"] is None
+
+
 def test_main_skips_health_when_the_link_is_dead(
     clean_host: None,
     dead_wireless: Path,
@@ -1121,7 +1172,9 @@ def test_main_skips_health_when_the_link_is_dead(
     group, which needs a session exactly as much as account/run do."""
     calls: list[str] = []
 
-    def spy_open(cc_mod: Any, browser: str) -> tuple[Any, str | None]:
+    def spy_open(
+        cc_mod: Any, browser: str, **session_options: Any
+    ) -> tuple[Any, str | None]:
         calls.append(browser)
         return _FakeSession(_happy_backend(SANDBOX)), None
 
@@ -1160,7 +1213,9 @@ def test_main_blocks_on_auth_and_read_when_the_session_cannot_open(
     capsys: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def failing_open(cc_mod: Any, browser: str) -> tuple[Any, str | None]:
+    def failing_open(
+        cc_mod: Any, browser: str, **session_options: Any
+    ) -> tuple[Any, str | None]:
         return None, "no cookie database"
 
     monkeypatch.setattr(preflight, "open_chatgpt_session", failing_open)

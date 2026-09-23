@@ -1198,6 +1198,70 @@ def test_call_sends_bearer_authorization_once_token_is_set(monkeypatch) -> None:
     assert captured["req"].get_header("Authorization") == "Bearer tok-xyz"
 
 
+def test_http_diagnostics_record_safe_request_metadata_not_credentials(
+    monkeypatch,
+) -> None:
+    events: list[dict] = []
+
+    def fake_urlopen(req, timeout=60):
+        assert timeout == 12.0
+        return _FakeResponse(
+            200,
+            '{"private_body":"do-not-log"}',
+            [
+                ("CF-Ray", "ray-123"),
+                ("X-Request-ID", "request-456"),
+                ("Set-Cookie", "session=do-not-log"),
+            ],
+        )
+
+    monkeypatch.setattr(chatgpt_session.urllib.request, "urlopen", fake_urlopen)
+    session = _session(cookie="cookie=do-not-log", token="bearer-do-not-log")
+    session._diagnostic = events.append
+    session.request_timeout = 12.0
+    status, _data = session.call("/backend-api/me", retries=1)
+
+    assert status == 200
+    assert len(events) == 1
+    event = events[0]
+    assert event["event"] == "http_attempt"
+    assert event["path"] == "/backend-api/me"
+    assert event["status"] == 200
+    assert event["outcome"] == "success"
+    assert event["cf_ray"] == "ray-123"
+    assert event["request_id"] == "request-456"
+    serialized = json.dumps(events)
+    assert "do-not-log" not in serialized
+    assert "Set-Cookie" not in serialized
+
+
+def test_http_diagnostics_record_each_403_retry_and_backoff(monkeypatch) -> None:
+    events: list[dict] = []
+    sleeps: list[float] = []
+    monkeypatch.setattr(chatgpt_session.time, "sleep", sleeps.append)
+    responses = iter([_http_error(403, "blocked"), _FakeResponse(200, "{}")])
+
+    def fake_urlopen(req, timeout=60):
+        item = next(responses)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    monkeypatch.setattr(chatgpt_session.urllib.request, "urlopen", fake_urlopen)
+    session = _session()
+    session._diagnostic = events.append
+    status, _data = session.call("/backend-api/me", retries=2)
+
+    assert status == 200
+    assert sleeps == [2]
+    assert [(e["event"], e.get("status")) for e in events] == [
+        ("http_attempt", 403),
+        ("http_retry", 403),
+        ("http_attempt", 200),
+    ]
+    assert events[1]["backoff_s"] == 2
+
+
 def test_call_retries_a_403_then_succeeds_with_backoff_2_then_4(monkeypatch) -> None:
     """Cloudflare's transient 403 must be retried, not treated as a hard failure."""
     sleeps: list[float] = []
