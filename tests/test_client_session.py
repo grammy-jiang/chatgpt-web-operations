@@ -940,6 +940,28 @@ def test_init_accepts_a_bounded_health_policy_and_emits_auth_events(
     assert events[2]["backoff_s"] == 5.0
 
 
+def test_init_diagnostic_keeps_fail_detail_not_only_systemexit_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    failure = SystemExit(1)
+    failure.detail = "could not authenticate (HTTP 403; Cloudflare challenge)"
+    backend = object()
+    fake_cs = _FakeCS([failure, backend])
+    events: list[dict] = []
+    monkeypatch.setattr(cc, "_helpers", lambda: fake_cs)
+
+    session = cc.ChatGPTSession(
+        browser="chrome",
+        sleep=lambda _seconds: None,
+        auth_backoff=(5.0,),
+        diagnostic=events.append,
+    )
+
+    assert session.session is backend
+    failure_event = next(e for e in events if e["event"] == "client_auth_failure")
+    assert failure_event["error"] == failure.detail
+
+
 def test_init_gives_up_after_exhausting_the_auth_backoff(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

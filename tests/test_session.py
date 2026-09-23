@@ -276,7 +276,29 @@ def test_fail_prints_the_current_prog_prefix_and_exits_1(monkeypatch, capsys) ->
     with pytest.raises(SystemExit) as exc:
         chatgpt_session.fail("boom")
     assert exc.value.code == 1
+    assert exc.value.detail == "boom"
     assert capsys.readouterr().err == "probe-cookies: boom\n"
+
+
+def test_auth_failure_reason_distinguishes_cloudflare_challenge_from_expiry() -> None:
+    headers = Message()
+    headers["CF-Mitigated"] = "challenge"
+    headers["Server"] = "cloudflare"
+    reason = chatgpt_session._auth_failure_reason(403, headers)
+    assert "Cloudflare challenge" in reason
+    assert "validity is unknown" in reason
+    assert "expired" not in reason
+
+
+def test_auth_failure_reason_keeps_expiry_hint_for_plain_403() -> None:
+    reason = chatgpt_session._auth_failure_reason(403, Message())
+    assert "may be expired" in reason
+
+
+def test_auth_failure_reason_does_not_call_rate_limit_cookie_expiry() -> None:
+    reason = chatgpt_session._auth_failure_reason(429, Message())
+    assert "rate limited" in reason
+    assert "expired" not in reason
 
 
 # ---------------------------------------------------------------------------
@@ -1564,6 +1586,40 @@ def test_session_init_fails_cleanly_on_an_http_error_from_the_handshake(
         chatgpt_session.Session()
     assert exc.value.code == 1
     assert store_calls == []
+
+
+def test_session_init_reports_cloudflare_challenge_without_blaming_cookie(
+    monkeypatch, capsys
+) -> None:
+    monkeypatch.setattr(
+        chatgpt_session, "pick_browser", lambda choice="auto": "fake-browser"
+    )
+    monkeypatch.setattr(
+        chatgpt_session, "_cookie_pairs", lambda browser: ([("cookie", "abc")], None)
+    )
+    monkeypatch.setattr(chatgpt_session, "load_stored_session", lambda: None)
+
+    headers = Message()
+    headers["CF-Mitigated"] = "challenge"
+    headers["Server"] = "cloudflare"
+
+    def fake_urlopen(req, timeout=60):
+        raise urllib.error.HTTPError(
+            "https://chatgpt.com/api/auth/session",
+            403,
+            "Forbidden",
+            headers,
+            io.BytesIO(b"challenge page"),
+        )
+
+    monkeypatch.setattr(chatgpt_session.urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(SystemExit) as exc:
+        chatgpt_session.Session()
+    assert exc.value.code == 1
+    assert "Cloudflare challenge" in exc.value.detail
+    err = capsys.readouterr().err
+    assert "Cloudflare challenge" in err
+    assert "cookie may be expired" not in err
 
 
 def test_session_init_fails_cleanly_on_a_transport_failure(monkeypatch) -> None:

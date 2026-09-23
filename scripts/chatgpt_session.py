@@ -96,7 +96,9 @@ def set_prog(name: str) -> None:
 
 def fail(msg: str) -> NoReturn:
     print(f"{_prog}: {msg}", file=sys.stderr)
-    raise SystemExit(1)
+    exc = SystemExit(1)
+    exc.detail = msg
+    raise exc
 
 
 def _emit_diagnostic(
@@ -135,6 +137,37 @@ def _safe_response_headers(headers: Any) -> dict[str, str]:
         if value:
             out[key] = str(value)[:200]
     return out
+
+
+def _auth_failure_reason(status: int, headers: Any) -> str:
+    """Human/diagnostic reason for a failed /api/auth/session handshake.
+
+    A Cloudflare managed challenge is not evidence that the session cookie is
+    expired. Likewise rate limits, transport failures and 5xx responses leave
+    session validity unknown. Only an ordinary 401/403 without challenge
+    metadata keeps the historical "may be expired" hint.
+    """
+    safe = _safe_response_headers(headers)
+    if status == 403 and safe.get("cf_mitigated", "").lower() == "challenge":
+        return (
+            "could not authenticate (HTTP 403; Cloudflare challenge); "
+            "session validity is unknown"
+        )
+    if status == 429:
+        return (
+            "could not authenticate (HTTP 429; rate limited); "
+            "session validity is unknown"
+        )
+    if status == 0:
+        return "could not authenticate (no HTTP response); session validity is unknown"
+    if status >= 500:
+        return (
+            f"could not authenticate (HTTP {status}; server error); "
+            "session validity is unknown"
+        )
+    if status in (401, 403):
+        return f"could not authenticate (HTTP {status}); session cookie may be expired"
+    return f"could not authenticate (HTTP {status})"
 
 
 def ensure_desktop_env(environ: MutableMapping[str, str] | None = None) -> None:
@@ -733,6 +766,9 @@ class Session:
                     store_session(renewed)
 
         authenticated = bool(self.token and self.user_id)
+        failure_reason = (
+            None if authenticated else _auth_failure_reason(status, headers)
+        )
         _emit_diagnostic(
             diagnostic,
             "auth_result",
@@ -742,11 +778,10 @@ class Session:
             session_source=self.session_source,
             session_expires=self.session_expires,
             renewed_expires=self.renewed_expires,
+            failure_reason=failure_reason,
         )
         if not authenticated:
-            fail(
-                f"could not authenticate (HTTP {status}); session cookie may be expired"
-            )
+            fail(failure_reason or "could not authenticate")
 
     def _request(
         self,

@@ -1031,16 +1031,17 @@ class ChatGPTSession:
                 )
                 return
             except SystemExit as exc:  # cs.fail() exits on an auth failure
+                reason = str(getattr(exc, "detail", str(exc)))[:300]
                 self._emit(
                     "client_auth_failure",
                     attempt=attempt,
                     max_attempts=max_attempts,
                     browser=browser,
-                    error=str(exc)[:300],
+                    error=reason,
                 )
                 if wait is None:
                     raise TransportError(
-                        f"could not authenticate after {attempt - 1} retries: {exc}"
+                        f"could not authenticate after {attempt - 1} retries: {reason}"
                     ) from exc
                 self._emit(
                     "client_auth_backoff",
