@@ -2,7 +2,7 @@
 """A daily health check for this skill's own HTTP path. Read-only.
 
     health.py [--browser] [--browser-name chrome] [--json PATH]
-              [--diagnostics PATH]
+              [--skills-json PATH] [--diagnostics PATH]
 
 This is the HTTP half of a two-part daily watcher: a cron wrapper (kept
 outside this skill) calls it once a day, keeps the run history and decides
@@ -37,6 +37,9 @@ failed"). Then a fifth group, "health", over the same session:
                      a live test forgot to clean up.
     read endpoints  two reads preflight.py does not make: the projects
                      sidebar and pinned items.
+    skills inventory the uploaded-skills inventory, read over this same
+                     authenticated session; the expected research-pipeline
+                     skill must still be installed and enabled.
 
 ``--browser`` adds preflight's own composer check, last and opt-in, exactly
 as ``preflight.py --browser`` does: it costs a browser slot and about
@@ -57,6 +60,8 @@ The health probe uses a short 5/10 s authentication backoff and 15 s request
 timeout; ordinary ChatGPTSession callers keep their production 30/90/180 s
 retry ladder. A monitor must report a transient failure promptly rather than
 spend its entire outer timeout inside the production recovery policy.
+``--skills-json PATH`` stores the redacted skills inventory fetched over that
+same session, deliberately avoiding a second authentication handshake.
 
 ``preflight.py`` stays the check to run immediately before starting a
 research run; this is the check that runs once a day whether or not a run
@@ -80,6 +85,7 @@ from typing import Any
 import chatgpt_client as cc
 import clean_chats
 import list_projects as lp
+import list_skills as lsk
 import model_settings as ms
 import preflight
 import probe_cookies
@@ -93,6 +99,7 @@ SANDBOX_FILE = Path(__file__).resolve().parents[1] / "tests" / "live" / "sandbox
 PINS = "/backend-api/pins"
 
 SESSION_WARN_DAYS = 14
+EXPECTED_SKILL = "research-pipeline"
 
 # health.py is a diagnostic probe, not a production research run.  Production
 # ChatGPTSession callers keep the long 30/90/180 s authentication ladder; a
@@ -420,6 +427,73 @@ def fetch_read_endpoints(session: Any) -> dict[str, Any]:
     return read_endpoints_check(sidebar_status, pins_status)
 
 
+def skills_inventory_check(
+    status: int, payload_valid: bool, skills: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Verdict for the skills inventory read over the health session."""
+    if status == 429:
+        return preflight.check(
+            "health",
+            "skills inventory",
+            "block",
+            "rate limited on the skills read path",
+            preflight.RATE_LIMIT_FIX,
+        )
+    if status != 200:
+        return preflight.check(
+            "health",
+            "skills inventory",
+            "block",
+            f"hazelnuts endpoint returned HTTP {status}",
+        )
+    if not payload_valid:
+        return preflight.check(
+            "health",
+            "skills inventory",
+            "block",
+            "hazelnuts endpoint returned a malformed payload",
+        )
+    item = lsk.find_skill(skills, EXPECTED_SKILL)
+    line, met = lsk.expectation_line(EXPECTED_SKILL, item)
+    detail = f"{len(skills)} installed; {line.removeprefix('expect ')}"
+    return preflight.check(
+        "health",
+        "skills inventory",
+        "ok" if met else "block",
+        detail,
+        None if met else f"list_skills.py --expect {EXPECTED_SKILL}",
+    )
+
+
+def fetch_skills_inventory(
+    session: Any,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Read and redact skills once over the already-authenticated session."""
+    status, body = session.session.call(lsk.HAZELNUTS)
+    raw_skills = body.get("hazelnuts") if isinstance(body, dict) else None
+    payload_valid = isinstance(raw_skills, list)
+    skills = [item for item in (raw_skills or []) if isinstance(item, dict)]
+    check = skills_inventory_check(status, payload_valid, skills)
+    return check, {
+        "available": status == 200 and payload_valid,
+        "status": status,
+        "skills": [lsk.redacted_skill(item) for item in skills],
+    }
+
+
+def _write_skills_json(path_text: str, checked_at: str, doc: dict[str, Any]) -> None:
+    """Persist only list_skills.py's already-redacted inventory shape."""
+    if not path_text:
+        return
+    out = Path(path_text).expanduser()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(
+        json.dumps({"checked_at": checked_at, **doc}, indent=2, ensure_ascii=False)
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def health_checks(
     cc_mod: Any, session: Any, browser: str, sandbox: dict[str, str]
 ) -> list[dict[str, Any]]:
@@ -461,6 +535,7 @@ def _empty_facts(sandbox: dict[str, str]) -> dict[str, Any]:
         "endpoints": {
             "gizmos/snorlax/sidebar": 0,
             "pins": 0,
+            "hazelnuts": 0,
             f"gizmos/{sandbox_id}": 0,
             f"gizmos/{sandbox_id}/conversations": 0,
         },
@@ -579,6 +654,12 @@ def main(argv: list[str] | None = None) -> int:
         "wrapper, here",
     )
     ap.add_argument(
+        "--skills-json",
+        default="",
+        metavar="PATH",
+        help="write the redacted skills inventory read over this same session",
+    )
+    ap.add_argument(
         "--diagnostics",
         default="",
         metavar="PATH",
@@ -610,6 +691,7 @@ def main(argv: list[str] | None = None) -> int:
     _diag(diagnostic, "stage_end", stage="link", **_state_counts(link))
 
     facts = _empty_facts(sandbox)
+    skills_doc: dict[str, Any] = {"available": False, "status": 0, "skills": []}
 
     if any(c["state"] == "block" for c in link):
         checks.append(
@@ -662,13 +744,29 @@ def main(argv: list[str] | None = None) -> int:
             _diag(diagnostic, "stage_start", stage="health")
             health_rows = health_checks(cc, session, args.browser_name, sandbox)
             checks += health_rows
-            facts = facts_of(cc, session, args.browser_name, sandbox)
             _diag(
                 diagnostic,
                 "stage_end",
                 stage="health",
                 **_state_counts(health_rows),
             )
+
+            _diag(diagnostic, "stage_start", stage="skills")
+            skill_check, skills_doc = fetch_skills_inventory(session)
+            checks.append(skill_check)
+            _write_skills_json(args.skills_json, checked_at, skills_doc)
+            _diag(
+                diagnostic,
+                "stage_end",
+                stage="skills",
+                status=skills_doc["status"],
+                available=skills_doc["available"],
+                count=len(skills_doc["skills"]),
+                **_state_counts([skill_check]),
+            )
+
+            facts = facts_of(cc, session, args.browser_name, sandbox)
+            facts["endpoints"]["hazelnuts"] = skills_doc["status"]
             if args.browser:
                 _diag(diagnostic, "stage_start", stage="browser")
                 browser_row = preflight.browser_composer_check(cc, args.browser_name)
@@ -679,6 +777,9 @@ def main(argv: list[str] | None = None) -> int:
                     stage="browser",
                     **_state_counts([browser_row]),
                 )
+
+    if args.skills_json and not Path(args.skills_json).expanduser().exists():
+        _write_skills_json(args.skills_json, checked_at, skills_doc)
 
     print(preflight.render(checks, order=HEALTH_GROUP_ORDER))
     verdict, exit_code = preflight.verdict_of(checks)

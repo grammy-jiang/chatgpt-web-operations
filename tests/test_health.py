@@ -386,6 +386,23 @@ def _happy_backend(
         ),
         health.lp.SIDEBAR: (200, {}),
         health.PINS: (200, {}),
+        health.lsk.HAZELNUTS: (
+            200,
+            {
+                "hazelnuts": [
+                    {
+                        "name": "research-pipeline",
+                        "enabled": True,
+                        "default_version_no": "1",
+                        "latest_version_no": "14",
+                        "safety_check_status": "blocked",
+                        "safety_scan": {"risk_score": 1, "labels": ["fake-label"]},
+                        "files": {"private/path.md": {"start": 0, "length": 10}},
+                        "sample_prompts": ["private fake prompt"],
+                    }
+                ]
+            },
+        ),
     }
     if extra:
         responses.update(extra)
@@ -766,6 +783,7 @@ def test_empty_facts_has_the_full_documented_shape() -> None:
         "endpoints": {
             "gizmos/snorlax/sidebar": 0,
             "pins": 0,
+            "hazelnuts": 0,
             "gizmos/g-p-testsandbox": 0,
             "gizmos/g-p-testsandbox/conversations": 0,
         },
@@ -837,6 +855,7 @@ def test_facts_of_reflects_every_fetch_on_a_clean_sandbox(
     assert facts["endpoints"] == {
         "gizmos/snorlax/sidebar": 200,
         "pins": 200,
+        "hazelnuts": 0,
         "gizmos/g-p-testsandbox": 200,
         "gizmos/g-p-testsandbox/conversations": 200,
     }
@@ -897,6 +916,113 @@ def test_facts_of_never_reads_conversations_when_the_gizmo_is_wrong(
 
 
 # ---------------------------------------------------------------------------
+# GROUP health: skills inventory over the already-open session
+# ---------------------------------------------------------------------------
+
+
+def test_skills_inventory_check_is_ok_when_expected_skill_is_enabled() -> None:
+    c = health.skills_inventory_check(
+        200,
+        True,
+        [
+            {
+                "name": "research-pipeline",
+                "enabled": True,
+                "default_version_no": "1",
+                "latest_version_no": "14",
+            }
+        ],
+    )
+    assert c["state"] == "ok"
+    assert "research-pipeline: installed, enabled" in c["detail"]
+
+
+def test_skills_rate_limit_is_not_reported_as_cookie_expiry() -> None:
+    c = health.skills_inventory_check(429, False, [])
+    assert c["state"] == "block"
+    assert "rate limited" in c["detail"]
+    assert "cookie" not in c["detail"].lower()
+
+
+def test_skills_inventory_check_blocks_when_expected_skill_is_missing() -> None:
+    c = health.skills_inventory_check(200, True, [])
+    assert c["state"] == "block"
+    assert "NOT installed" in c["detail"]
+
+
+def test_fetch_skills_inventory_reuses_the_session_and_redacts_private_fields() -> None:
+    backend = _Backend(
+        {
+            health.lsk.HAZELNUTS: (
+                200,
+                {
+                    "hazelnuts": [
+                        {
+                            "name": "research-pipeline",
+                            "enabled": True,
+                            "files": {"private/path.md": {"start": 0, "length": 1}},
+                            "sample_prompts": ["private prompt"],
+                        }
+                    ]
+                },
+            )
+        }
+    )
+    check, doc = health.fetch_skills_inventory(_FakeSession(backend))
+    assert check["state"] == "ok"
+    assert backend.calls == [health.lsk.HAZELNUTS]
+    assert doc["available"] is True
+    assert doc["status"] == 200
+    assert doc["skills"][0]["files"] == 1
+    assert "sample_prompts" not in doc["skills"][0]
+    encoded = json.dumps(doc)
+    assert "private/path.md" not in encoded
+    assert "private prompt" not in encoded
+
+
+def test_main_writes_skills_json_from_the_same_health_session(
+    clean_host: None,
+    linked_wireless: Path,
+    fake_psg: SimpleNamespace,
+    sandbox_file: dict,
+    cookie_db: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = _happy_backend(SANDBOX)
+    session = _FakeSession(backend)
+    monkeypatch.setattr(
+        health, "cc", _fake_cc(session, browsers={"chrome": (str(cookie_db), "chrome")})
+    )
+    skills_path = tmp_path / "skills.json"
+    assert health.main(["--skills-json", str(skills_path)]) == 0
+    doc = json.loads(skills_path.read_text())
+    assert doc["available"] is True
+    assert doc["status"] == 200
+    assert [sk["name"] for sk in doc["skills"]] == ["research-pipeline"]
+    assert backend.calls.count(health.lsk.HAZELNUTS) == 1
+    encoded = skills_path.read_text()
+    assert "private/path.md" not in encoded
+    assert "private fake prompt" not in encoded
+
+
+def test_main_writes_unavailable_skills_json_when_link_is_dead(
+    clean_host: None,
+    dead_wireless: Path,
+    sandbox_file: dict,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(health, "cc", _fake_cc(None))
+    skills_path = tmp_path / "skills.json"
+    health.main(["--skills-json", str(skills_path)])
+    doc = json.loads(skills_path.read_text())
+    assert doc["available"] is False
+    assert doc["status"] == 0
+    assert doc["skills"] == []
+
+
+# ---------------------------------------------------------------------------
 # render()
 # ---------------------------------------------------------------------------
 
@@ -945,6 +1071,7 @@ DEFAULT_HEALTH_NAMES = [
     "session token",
     "sandbox",
     "read endpoints",
+    "skills inventory",
 ]
 
 
@@ -1011,6 +1138,7 @@ def test_main_writes_the_documented_json_shape(
     assert set(facts["endpoints"].keys()) == {
         "gizmos/snorlax/sidebar",
         "pins",
+        "hazelnuts",
         "gizmos/g-p-testsandbox",
         "gizmos/g-p-testsandbox/conversations",
     }

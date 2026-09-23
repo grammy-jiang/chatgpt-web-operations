@@ -109,6 +109,25 @@ written as the run proceeds, so a timeout cannot erase the evidence that led
 to it. Cookie values, bearer tokens, request/response bodies and `Set-Cookie`
 are intentionally excluded or redacted.
 
+The first post-fix verification run exposed the same structural mistake one
+level later. `health.py` authenticated successfully and showed about 90 days
+left on the session, while its account read path reported rate limiting; the
+wrapper then launched a separate `list_skills.py`, which opened a *second*
+session, saw two `/api/auth/session` 403 responses, and was killed by its own
+120 s timeout. That contradictory evidence was useful: a 403 clearly did not
+mean the stored cookie had expired. The follow-up removed the second login
+entirely. `health.py` now reads the skills inventory over its already-open
+session, emits that endpoint in the same diagnostic JSONL, and writes a
+redacted `skills.json` beside `health.json`. One monitor run therefore has one
+authentication history and one causal timeline.
+
+The isolated live validation of that follow-up produced the most useful
+counterexample yet: `/api/auth/session` returned 200 on the first attempt, a
+later sidebar GET returned 403, the low-level 2 s retry returned 200, the
+subsequent hazelnuts/skills GET returned 200, and the whole health check ended
+`GO`. The session never changed. A lone 403 is therefore transport evidence to
+record and retry, not proof of an expired cookie.
+
 The lesson is twofold: a monitor's retry budget is a diagnostic policy, not
 the production recovery policy; and an incident log must preserve the events
 *before* the failure, not only the final exit code.
