@@ -146,7 +146,7 @@ python3 $S/list_connectors.py [--match TEXT] [--tunnels] [--detail ID ...] [--js
 python3 $S/create_connector.py --name NAME --tunnel tunnel_<id>        # POST aip/connectors/mcp -> asdk_app_<id>; 409 = name taken
 python3 $S/connect_connector.py asdk_app_<id> --name NAME --apps-privacy full_access   # POST links/noauth -> link_<id> + tools
 chatgpt-refresh NAME                                                    # re-read the tools after the server changed
-python3 $S/delete_connector.py asdk_app_<id> --confirm                  # DELETE aip/connectors/<id>: app, release and link
+python3 $S/delete_connector.py asdk_app_<id> --confirm                  # DELETE its links (aip/connectors/links/<id>), then the app (aip/connectors/<id>)
 ```
 
 The server behind the tunnel must be up when creating and connecting:
@@ -155,7 +155,9 @@ to one connector, pass `--system-hint plugin:plugin_<asdk_app id>` to
 `send_prompt.py`; the server then sees the call from client
 `openai-mcp(Codex)` (the pre-plugin connector reports `openai-mcp`). Only
 the tunnel + No Auth shape was captured; "Server URL" and OAuth
-connectors are not covered by these commands.
+connectors are not covered by these commands. Deleting the app alone (what
+the UI's Uninstall does) leaves the user's link behind as an ACTIVE link
+with no connector; `delete_connector.py` removes the links first.
 
 ## Projects keep a run's chats out of the user's list
 
