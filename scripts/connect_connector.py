@@ -11,7 +11,10 @@ link record (``link_<32hex>``, the discovered tool names, ``auth_type NONE``,
 ``auth_status ACTIVE``). From then on ``list_connectors.py`` and
 ``chatgpt-refresh --list`` show it as a normal link. Measured 2026-09-25.
 Only for connectors whose Authentication is "No Auth" (the bearer, if any, is
-injected by the tunnel-client profile).
+injected by the tunnel-client profile). ``--apps-privacy full_access`` then
+sends what the connect interstitial's privacy choice sends:
+``PATCH aip/connectors/links/<link_id> {"apps_privacy_control": "full_access"}``
+(measured 2026-09-25; the other values of that field were not observed).
 """
 
 from __future__ import annotations
@@ -30,6 +33,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("connector_id", help="asdk_app_<32hex>")
     ap.add_argument("--name", required=True, help="the link name (normally the connector's name)")
+    ap.add_argument("--apps-privacy", default="", metavar="VALUE", help="set apps_privacy_control on the new link, e.g. full_access")
     ap.add_argument("--dry-run", action="store_true", help="print the request and stop")
     ap.add_argument("--browser", default="chrome")
     args = ap.parse_args()
@@ -46,6 +50,11 @@ def main() -> int:
         print(f"connect failed: HTTP {status}: {str(body)[:300]}")
         return 1
     print(f"connected: {body.get('id')}  name={body.get('name')!r}  auth={body.get('auth_type')}  tools={len(body.get('actions') or [])}: {', '.join(body.get('actions') or [])}")
+    if args.apps_privacy:
+        link_path = f"/backend-api/aip/connectors/links/{body['id']}"
+        status, patched = session.session.call(link_path, method="PATCH", payload={"apps_privacy_control": args.apps_privacy})
+        got = (patched.get("link") or {}).get("apps_privacy_control") if status == 200 and isinstance(patched, dict) else None
+        print(f"apps_privacy_control={got}" if got else f"privacy patch failed: HTTP {status}: {str(patched)[:200]}")
     return 0
 
 
