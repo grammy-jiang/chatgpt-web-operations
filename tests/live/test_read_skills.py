@@ -11,10 +11,13 @@ The last test proves ``list_skills.py``'s ``main()`` works end to end
 against the real account, through the guarded session -- the same pattern
 ``tests/live/test_read_preflight.py`` uses for ``open_chatgpt_session``,
 adapted here for ``_common.open_session``. Until 2026-09-25 it also
-required the ``research-pipeline`` upload (``--expect research-pipeline``),
-the expectation the user set on 2026-09-21; the user had that upload
-deleted from the account on 2026-09-25, so no particular skill is required
-any more.
+required the ``research-pipeline`` upload (``--expect research-pipeline``).
+That requirement was the implementing agent's own choice on 2026-09-21,
+taken from ROADMAP R5's value line; the user had asked only for a
+scheduled check that reports blocked skills, and earlier text here that
+called it "the expectation the user set" was wrong. The user had the
+upload deleted on 2026-09-25, and no particular skill is required any
+more.
 """
 
 from __future__ import annotations
