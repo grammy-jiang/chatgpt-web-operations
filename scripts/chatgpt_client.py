@@ -1511,6 +1511,11 @@ class BrowserSender:
         # send's connector session id is only ever visible there (module
         # docstring).
         self.record_send_body = record_send_body.strip()
+        # RP_RECORD_STREAM=0 records the request body only and never waits for the reply stream. Since the 2026-09-26
+        # UI the f/conversation response stays open long after the reply, so waiting for it held a --no-wait send
+        # for minutes; a caller that reads the reply over HTTP anyway (the chat-scheduling benchmark harness) sets it.
+        # Deep research keeps the default: its connector session id exists only in that stream.
+        self.record_stream = os.environ.get("RP_RECORD_STREAM", "1") != "0"
         # Files to upload through the composer before the prompt is filled
         # (ROADMAP.md, Stage 3 item 3 / B4): the same file input and the
         # same settle wait _attach_prompt already uses for the
@@ -2266,7 +2271,7 @@ class BrowserSender:
             page.expect_response(
                 self._is_send_stream_response, timeout=max(budget, 60_000)
             )
-            if self.record_send_body
+            if self.record_send_body and self.record_stream
             else contextlib.nullcontext()
         )
         with capture as info:
@@ -2296,11 +2301,11 @@ class BrowserSender:
                 page.locator(USER_TURN_SELECTOR).count() > turns_before
             )
             if posted and "/c/" in page.url and not is_provisional(page.url):
-                if self.record_send_body:
+                if self.record_send_body and self.record_stream:
                     self._record_send_stream(info)
                 return chat_id(page.url)
         if posted and "/c/" in page.url:
-            if self.record_send_body:
+            if self.record_send_body and self.record_stream:
                 self._record_send_stream(info)
             return chat_id(page.url)  # provisional WEB: id; the caller resolves it
         page.screenshot(path=str(self.screenshot_dir / "chatgpt-send-fail.png"))

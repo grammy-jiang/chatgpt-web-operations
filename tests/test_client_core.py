@@ -819,3 +819,12 @@ def test_a_route_call_that_raises_does_not_propagate() -> None:
     handler = ctx.routes["**/backend-api/**"]
     handler(_RaisingRoute("https://chatgpt.com/backend-api/conversations"))
     handler(_RaisingRoute("https://chatgpt.com/backend-api/f/conversation"))
+
+def test_record_stream_follows_rp_record_stream(monkeypatch) -> None:
+    """RP_RECORD_STREAM=0 keeps the request-body record but never waits for the reply stream (2026-09-26 UI)."""
+    monkeypatch.delenv("RP_RECORD_STREAM", raising=False)
+    assert cc.BrowserSender("chrome", record_send_body="/tmp/x.json").record_stream is True
+    monkeypatch.setenv("RP_RECORD_STREAM", "0")
+    sender = cc.BrowserSender("chrome", record_send_body="/tmp/x.json")
+    assert sender.record_stream is False
+    assert sender.record_send_body == "/tmp/x.json"
