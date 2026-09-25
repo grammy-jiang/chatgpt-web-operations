@@ -3,8 +3,8 @@
 
     list_connectors.py                    # links + custom MCP apps
     list_connectors.py --match TEXT       # filter by name or id substring
-    list_connectors.py --tunnels          # the OpenAI tunnels ChatGPT can bind a connector to
-    list_connectors.py --detail ID [...]  # full record of asdk_app_/link_ ids (connectors/batch)
+    list_connectors.py --tunnels          # available OpenAI tunnels
+    list_connectors.py --detail ID [...]  # connector records, not link records
     list_connectors.py --json
 
 Two populations exist since the plugins era (measured 2026-09-25):
@@ -73,7 +73,11 @@ def links(session: Any) -> list[dict[str, Any]]:
 
 def apps(session: Any) -> list[dict[str, Any]]:
     body = call(session, INSTALLED)
-    items = body if isinstance(body, list) else (body.get("plugins") or body.get("items") or [])
+    items = (
+        body
+        if isinstance(body, list)
+        else (body.get("plugins") or body.get("items") or [])
+    )
     out = []
     for item in items:
         cid = str(item.get("connector_id") or "")
@@ -101,49 +105,101 @@ def detail(session: Any, ids: list[str]) -> list[dict[str, Any]]:
 
 def tunnels(session: Any) -> list[dict[str, Any]]:
     body = call(session, TUNNELS)
-    items = body if isinstance(body, list) else (body.get("tunnels") or body.get("items") or [])
+    items = (
+        body
+        if isinstance(body, list)
+        else (body.get("tunnels") or body.get("items") or [])
+    )
     return [dict(t) for t in items]
 
 
-def main() -> int:
-    ensure_venv()
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--match", default="", help="substring of the name or id (case-insensitive)")
-    ap.add_argument("--tunnels", action="store_true", help="list the tunnels ChatGPT offers in the connector form")
-    ap.add_argument("--detail", nargs="+", metavar="ID", help="full records for these connector ids")
+    ap.add_argument(
+        "--match", default="", help="substring of the name or id (case-insensitive)"
+    )
+    ap.add_argument(
+        "--tunnels",
+        action="store_true",
+        help="list the tunnels ChatGPT offers in the connector form",
+    )
+    ap.add_argument(
+        "--detail", nargs="+", metavar="ID", help="full records for these connector ids"
+    )
     ap.add_argument("--json", action="store_true", help="print JSON instead of a table")
     ap.add_argument("--browser", default="chrome")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     session = open_session(args.browser)
 
     if args.detail:
         rows = detail(session, args.detail)
-        print(json.dumps(rows, indent=2) if args.json else "\n".join(
-            f"{r.get('id')}  {r.get('connector_type')}  name={r.get('name')!r}  tunnel={r.get('tunnel_id')}  base_url={r.get('base_url')}  created={str(r.get('created_at') or '')[:19]}  actions={len(r.get('actions') or [])}"
-            for r in rows))
+        print(
+            json.dumps(rows, indent=2)
+            if args.json
+            else "\n".join(
+                f"{r.get('id')}  {r.get('connector_type')}  name={r.get('name')!r}  "
+                f"tunnel={r.get('tunnel_id')}  base_url={r.get('base_url')}  "
+                f"created={str(r.get('created_at') or '')[:19]}  "
+                f"actions={len(r.get('actions') or [])}"
+                for r in rows
+            )
+        )
         return 0
     if args.tunnels:
         rows = tunnels(session)
         if args.json:
             print(json.dumps(rows, indent=2))
         else:
-            print(table([(str(t.get("id") or t.get("tunnel_id") or ""), shorten(str(t.get("name") or ""), 40), shorten(str(t.get("description") or ""), 60)) for t in rows], ("tunnel", "name", "description")))
+            print(
+                table(
+                    [
+                        (
+                            str(t.get("id") or t.get("tunnel_id") or ""),
+                            shorten(str(t.get("name") or ""), 40),
+                            shorten(str(t.get("description") or ""), 60),
+                        )
+                        for t in rows
+                    ],
+                    ("tunnel", "name", "description"),
+                )
+            )
         return 0
 
     rows = links(session) + apps(session)
     needle = args.match.lower()
     if needle:
-        rows = [r for r in rows if needle in r["name"].lower() or needle in r["id"].lower()]
+        rows = [
+            r for r in rows if needle in r["name"].lower() or needle in r["id"].lower()
+        ]
     if args.json:
         print(json.dumps(rows, indent=2))
     else:
-        print(table(
-            [(r["kind"], r["id"], shorten(r["name"], 34), str(r.get("tools", "")) if r["kind"] == "link" else r.get("status", ""), r.get("auth", "") if r["kind"] == "link" else r.get("discoverability", "")) for r in rows],
-            ("kind", "id", "name", "tools/status", "auth/visibility"),
-        ))
-        print(f"{sum(r['kind']=='link' for r in rows)} links, {sum(r['kind']=='app' for r in rows)} custom MCP apps")
+        print(
+            table(
+                [
+                    (
+                        r["kind"],
+                        r["id"],
+                        shorten(r["name"], 34),
+                        str(r.get("tools", ""))
+                        if r["kind"] == "link"
+                        else r.get("status", ""),
+                        r.get("auth", "")
+                        if r["kind"] == "link"
+                        else r.get("discoverability", ""),
+                    )
+                    for r in rows
+                ],
+                ("kind", "id", "name", "tools/status", "auth/visibility"),
+            )
+        )
+        print(
+            f"{sum(r['kind'] == 'link' for r in rows)} links, "
+            f"{sum(r['kind'] == 'app' for r in rows)} custom MCP apps"
+        )
     return 0
 
 
 if __name__ == "__main__":
+    ensure_venv()
     sys.exit(main())

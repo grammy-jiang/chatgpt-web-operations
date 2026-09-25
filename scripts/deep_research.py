@@ -66,9 +66,10 @@ its status, the research's started/stopped times, and one of DONE
 (``waiting_for_user_response_on_plan_until`` set) or RUNNING. Exit 0
 done, 3 running or waiting (so a caller can loop it), 1 on a failed read
 -- RUN.json unreadable, the HTTP GET failing, or the conversation
-carrying no widget state at all, reported plainly as the research not
-having been started the page way (see ``export`` below for that other
-case). ``--wait`` polls every ``--interval`` seconds (minimum 60,
+carrying no widget state yet. Missing state immediately after ``start``
+does not prove a failed start: use ``status --wait`` for widget startup.
+An older MCP-only run also has no widget (see ``export`` below).
+``--wait`` polls every ``--interval`` seconds (minimum 60,
 enforced) until done or ``--timeout`` runs out, printing a status block
 only when it changes; a 429 backs off 120 s and tries again rather than
 counting as a change or a failure (carried over from the older polling
@@ -85,12 +86,10 @@ research is not finished yet (``status`` is not ``"completed"``), 1 on a
 failed read (the same cases as ``status``'s, plus a "completed" state
 whose ``report_message`` does not resolve to report text).
 
-``export`` is the *fallback*, kept for a research that was started the
-older way -- calling the connector's own MCP ``start`` tool directly,
-which leaves no widget on the conversation and so nothing for
-``status``/``fetch`` to find. That older result is reachable only
-through the MCP ``export`` tool, as a base64 docx or pdf; this
-subcommand is unchanged from before: it calls ``get_state`` first and
+``export`` returns DOCX or PDF through the connector's MCP tool. It also
+collects older MCP-only research runs, which leave no widget for
+``status``/``fetch``. Its default completion check still uses that older
+protocol: it calls ``get_state`` first and
 refuses (exit 3) until some message's ``reasoning_title`` starts with
 "Generated report", unless ``--force`` skips that check, then calls
 ``export`` (``docx`` by default, or ``pdf``), decodes
@@ -104,7 +103,10 @@ so both fall back to a freshly minted ``uuid4`` / the conversation id
 itself, exactly as before. Exit 0 once written, 1 on an MCP error or
 HTTP failure, 3 on the not-done refusal, 2 when RUN.json cannot be read,
 carries no ``conversation_id``, or ``--text`` was given with
-``--type pdf``.
+``--type pdf``. A completed widget run may have no "Generated report"
+title in this legacy state. After ``status --wait`` confirms DONE, use
+``export --force`` to skip the legacy check. DOCX and PDF exports from
+the widget workflow were verified on 2026-09-25.
 """
 
 from __future__ import annotations
@@ -138,14 +140,14 @@ DEEP_RESEARCH_SYSTEM_HINT = "plugin:connector_openai_deep_research"
 CONVERSATIONS_PATH = "/backend-api/conversations/{id}"
 
 # status/fetch's shared answer when a conversation carries no widget
-# state at all: either it was never started the page way, or (the
+# state yet: it may still be starting, or (the
 # export fallback's own territory) it was started through the older MCP
 # start tool, which leaves nothing here to find.
 NO_WIDGET_STATE_MESSAGE = (
-    "no widget state in this conversation: the research was not started "
-    "the page way (start sends --system-hint "
-    f"{DEEP_RESEARCH_SYSTEM_HINT} to mint one); if it was started "
-    "through the older MCP start tool instead, use 'export' to collect it"
+    "no widget state in this conversation yet: after a recent start, use "
+    "'status --wait' to allow the widget to appear. If it was started "
+    "through the older MCP start tool instead, use 'export' to collect it; "
+    "missing state alone does not identify the start method"
 )
 
 # Repeated in start/status/fetch's own --help (module docstring, same facts).
@@ -157,9 +159,9 @@ WIDGET_NOTE = (
 
 # Repeated in export's own --help (module docstring, same facts).
 EXPORT_FALLBACK_NOTE = (
-    "Fallback only: for a research started the older way, calling the "
-    "connector's MCP start tool directly, which leaves no widget state "
-    "for status/fetch to find."
+    "Also supports older MCP-only runs. The default completion check uses "
+    "legacy get_state titles. For a widget run, first confirm DONE with "
+    "status --wait, then use export --force to skip that legacy check."
 )
 
 # Every tool call export makes goes through this one endpoint, naming the
@@ -638,12 +640,12 @@ def _wait_for_status(
 
     A conversation with no widget state yet is **not** a failure while
     waiting: ChatGPT attaches the widget a little after the send, measured
-    at under 60 s but not instantly, so a wait that started right after
+    after the initial send, so a wait that started right after
     `start` would otherwise fail on its first poll (it did, 2026-09-20).
     The wait reports it once and keeps polling; only a wait that runs out
     of time with no widget ever appearing gives up, and a single
-    (non-waiting) status still fails at once, because there is nothing to
-    wait for.
+    (non-waiting) status reports exit 1 because it cannot classify the
+    missing state from a single read.
     """
     deadline = time.monotonic() + timeout
     prev: dict[str, Any] | None = None
@@ -839,8 +841,9 @@ def _cmd_export(args: argparse.Namespace) -> int:
             return 1
         if not summary["done"]:
             print(
-                "refused: no 'Generated report' title yet (state not done); "
-                "pass --force to export anyway"
+                "refused: no 'Generated report' title in legacy get_state; "
+                "for a widget run, confirm DONE with status --wait, then "
+                "pass --force to skip the legacy check"
             )
             return 3
 
@@ -974,7 +977,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     export = sub.add_parser(
         "export",
-        help="fallback: export a report started without the widget hint",
+        help="export a research report as DOCX or PDF through MCP",
         description="Export the finished report named by RUN.json over "
         "MCP, as a base64 docx or pdf. " + EXPORT_FALLBACK_NOTE,
     )
@@ -996,7 +999,8 @@ def _build_parser() -> argparse.ArgumentParser:
     export.add_argument(
         "--force",
         action="store_true",
-        help="export even when get_state shows no finished report yet",
+        help="skip the legacy get_state completion check; confirm widget "
+        "completion with status --wait first",
     )
 
     return ap

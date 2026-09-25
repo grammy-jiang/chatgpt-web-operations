@@ -67,7 +67,7 @@ def load_client() -> Any:
 
 
 def open_session(browser: str = "chrome") -> Any:
-    """An authenticated read-only session, or exit with a clear reason."""
+    """An authenticated HTTP session, or exit with a clear reason."""
     cc = load_client()
     try:
         return cc.ChatGPTSession(browser)

@@ -18,10 +18,16 @@ own keyring -- service org.freedesktop.secrets, attributes
 "chatgpt-session-token"} -- whenever it is more than 60 seconds fresher.
 No cron job or timer drives this: every Session built anywhere in this
 skill renews it as a side effect, so the daily health check alone keeps
-the token alive indefinitely, long after Chrome itself stops being asked.
+the stored expiry current while the server continues to accept the login.
 Set CHATGPT_SESSION_STORE=0 to disable the keyring side entirely and use
 only Chrome's own jar, as before this existed. Chrome's own cookie
 database is never written by any of this -- only read, as always.
+
+A later expiry does not prove the stored login works. If authentication
+with the keyring copy fails, Session tries the existing browser cookie once
+for an incomplete response or HTTP 401/403. Network failures, 429 and 5xx
+do not trigger this credential fallback. Only an authenticated response can
+update the stored renewal. Both attempts use the ordinary session endpoint.
 
 Requires running as the desktop user (session D-Bus + unlocked GNOME keyring)
 with the browser logged in to chatgpt.com.
@@ -699,8 +705,9 @@ class Session:
     keyring whenever the server just handed back a materially later
     expiry. No cron job or other trigger is needed for this: the daily
     health check already builds a ``Session`` once a day, and that alone
-    keeps the token alive indefinitely. Set ``CHATGPT_SESSION_STORE=0`` to
-    use only Chrome's own jar, as before this existed.
+    can renew the token while the server accepts it. Set ``CHATGPT_SESSION_STORE=0`` to
+    use only Chrome's own jar. A failed keyring login can also fall back
+    once to the existing browser cookie; expiry alone is not validity.
     """
 
     def __init__(
@@ -724,6 +731,7 @@ class Session:
             default_retries=default_retries,
         )
         pairs, chrome = _cookie_pairs(self.browser)
+        browser_pairs = list(pairs)
         stored = load_stored_session()
         chosen, source = choose_session(chrome, stored)
         self.session_source = source
@@ -741,22 +749,46 @@ class Session:
             pairs = apply_session(pairs, chosen)
         self.cookie = "; ".join(f"{name}={value}" for name, value in pairs)
 
-        status: int = 0
-        data: Any = {}
-        headers: Any = None
-        try:
-            status, text, headers = self._request("/api/auth/session")
-            data = json.loads(text)
-        except urllib.error.HTTPError as e:
-            status, headers = e.code, e.headers
-        except (urllib.error.URLError, json.JSONDecodeError):
-            pass
-        info: dict = data if isinstance(data, dict) else {}
-        self.token = info.get("accessToken") if status == 200 else None
-        self.user_id = (info.get("user") or {}).get("id")
+        for attempt in range(2):
+            status: int = 0
+            data: Any = {}
+            headers: Any = None
+            try:
+                status, text, headers = self._request("/api/auth/session")
+                data = json.loads(text)
+            except urllib.error.HTTPError as e:
+                status, headers = e.code, e.headers
+            except (urllib.error.URLError, json.JSONDecodeError):
+                pass
+            info: dict = data if isinstance(data, dict) else {}
+            self.token = info.get("accessToken") if status == 200 else None
+            self.user_id = (info.get("user") or {}).get("id")
+            authenticated = bool(self.token and self.user_id)
+            if (
+                authenticated
+                or attempt
+                or source != "keyring"
+                or chrome is None
+                or status not in (200, 401, 403)
+            ):
+                break
+            # A later expiry does not prove a cached session still works.
+            # Try the user's existing browser login once. Do not classify a
+            # challenge as an expired login or alter other browser cookies.
+            _emit_diagnostic(
+                diagnostic,
+                "auth_browser_fallback",
+                previous_source=source,
+                previous_status=status,
+            )
+            self.cookie = "; ".join(f"{n}={v}" for n, v in browser_pairs)
+            self.token = None
+            self.user_id = None
+            self.session_source = "chrome"
+            self.session_expires = chrome.get("expires")
 
         self.renewed_expires: float | None = None
-        if headers is not None:
+        if authenticated and headers is not None:
             renewed = renewed_session(headers.get_all("Set-Cookie") or [], time.time())
             if renewed is not None:
                 self.renewed_expires = renewed["expires"]
@@ -765,7 +797,6 @@ class Session:
                 ):
                     store_session(renewed)
 
-        authenticated = bool(self.token and self.user_id)
         failure_reason = (
             None if authenticated else _auth_failure_reason(status, headers)
         )

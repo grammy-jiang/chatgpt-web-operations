@@ -608,7 +608,7 @@ def test_get_widget_state_reports_no_widget_state() -> None:
     )
     assert http_status == 200
     assert state is None
-    assert "not started the page way" in error
+    assert "status --wait" in error
 
 
 def test_get_widget_state_reports_an_http_failure() -> None:
@@ -750,7 +750,7 @@ def test_wait_gives_up_when_no_widget_ever_attaches(
         _Session(backend), "conv-x", timeout=120.0, interval=60.0, sleep=clock.sleep
     )
     assert rc == 1
-    assert "not started the page way" in capsys.readouterr().out
+    assert "status --wait" in capsys.readouterr().out
 
 
 def test_wait_for_status_exits_1_on_a_non_429_http_failure(
@@ -1100,7 +1100,7 @@ def test_status_no_widget_state_exits_1_and_says_so_plainly(
     )
     rc = deep_research.main(["status", "--run", str(run_path)])
     assert rc == 1
-    assert "not started the page way" in capsys.readouterr().out
+    assert "status --wait" in capsys.readouterr().out
 
 
 def test_status_http_failure_exits_1(
@@ -1450,7 +1450,7 @@ def test_fetch_no_widget_state_exits_1(
         ["fetch", "--run", str(run_path), "--out", str(tmp_path / "r.md")]
     )
     assert rc == 1
-    assert "not started the page way" in capsys.readouterr().out
+    assert "status --wait" in capsys.readouterr().out
 
 
 def test_fetch_http_failure_exits_1(
@@ -2222,12 +2222,13 @@ def test_each_widget_subcommand_help_repeats_the_widget_note(
     assert "export" in out
 
 
-def test_export_help_states_it_is_the_fallback(capsys: Any) -> None:
+def test_export_help_explains_legacy_check_and_widget_completion(capsys: Any) -> None:
     with pytest.raises(SystemExit):
         deep_research.main(["export", "--help"])
     out = " ".join(capsys.readouterr().out.split())
-    assert "Fallback only" in out
-    assert "MCP start tool" in out
+    assert "legacy get_state" in out
+    assert "status --wait" in out
+    assert "export --force" in out
 
 
 def test_start_help_mentions_the_system_hint(capsys: Any) -> None:

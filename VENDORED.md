@@ -27,6 +27,12 @@ not an origin. The table records where each file came from.
 
 ## Local changes
 
+- 2026-09-25: session creation gained a bounded fallback from a failed
+  keyring login to the existing browser cookie. Renewals are saved only
+  after successful authentication. This was found during the acceptance
+  run recorded in `VERIFICATION.md`; the browser cookie database remains
+  read-only.
+
 - `chatgpt_client.py`, `chatgpt_session.py`, `chatgpt_cookies.py`: linted and
   formatted with this repository's ruff rules since 2026-09-20, so a diff
   against their origins is larger than the listed hunks.

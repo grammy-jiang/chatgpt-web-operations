@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 """Create a custom MCP connector (app) bound to an OpenAI tunnel, No Auth.
 
-    create_connector.py --name NAME --tunnel tunnel_<id> [--description TEXT] [--dry-run]
+    create_connector.py --name NAME --tunnel tunnel_<id>
+                        [--description TEXT] [--dry-run]
 
 The "Create MCP App" form (developer mode on) posts JSON to
 ``aip/connectors/mcp``::
 
-    {"name": NAME, "tunnel_id": "tunnel_...", "description": "", "logo_url": null,
-     "auth_request": {"supported_auth": [], "oauth_client_params": null}}
+    {
+        "name": NAME,
+        "tunnel_id": "tunnel_...",
+        "description": "",
+        "logo_url": null,
+        "auth_request": {"supported_auth": [], "oauth_client_params": null},
+    }
 
 and answers ``{"connector": {"id": "asdk_app_<32hex>", "connector_type": "MCP",
 "tunnel_id": ..., "supported_auth": [{"type": "NONE"}], "status": "ONLY_ME",
@@ -42,15 +48,16 @@ def payload_for(name: str, tunnel_id: str, description: str) -> dict:
     }
 
 
-def main() -> int:
-    ensure_venv()
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--name", required=True)
-    ap.add_argument("--tunnel", required=True, help="tunnel_<32hex> (list_connectors.py --tunnels)")
+    ap.add_argument(
+        "--tunnel", required=True, help="tunnel_<32hex> (list_connectors.py --tunnels)"
+    )
     ap.add_argument("--description", default="")
     ap.add_argument("--dry-run", action="store_true", help="print the request and stop")
     ap.add_argument("--browser", default="chrome")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     if not args.tunnel.startswith("tunnel_"):
         print("expected a tunnel_<32hex> id")
         return 2
@@ -62,17 +69,30 @@ def main() -> int:
     status, body = session.session.call(CREATE, method="POST", payload=payload)
     if status == 409:
         detail = body.get("detail") if isinstance(body, dict) else None
-        existing = detail.get("existing_connector_id") if isinstance(detail, dict) else None
+        existing = (
+            detail.get("existing_connector_id") if isinstance(detail, dict) else None
+        )
         print(f"name already exists: {existing or str(body)[:200]}")
         return 1
-    connector = body.get("connector") if status == 200 and isinstance(body, dict) else None
+    connector = (
+        body.get("connector") if status == 200 and isinstance(body, dict) else None
+    )
     if not connector or not connector.get("id"):
         print(f"create failed: HTTP {status}: {str(body)[:300]}")
         return 1
-    print(f"created: {connector['id']}  name={connector.get('name')!r}  tunnel={connector.get('tunnel_id')}  auth={[a.get('type') for a in connector.get('supported_auth') or []]}  status={connector.get('status')}")
-    print(f"next: connect_connector.py {connector['id']} --name {json.dumps(connector.get('name'))}")
+    print(
+        f"created: {connector['id']}  name={connector.get('name')!r}  "
+        f"tunnel={connector.get('tunnel_id')}  "
+        f"auth={[a.get('type') for a in connector.get('supported_auth') or []]}  "
+        f"status={connector.get('status')}"
+    )
+    print(
+        f"next: connect_connector.py {connector['id']} "
+        f"--name {json.dumps(connector.get('name'))}"
+    )
     return 0
 
 
 if __name__ == "__main__":
+    ensure_venv()
     sys.exit(main())

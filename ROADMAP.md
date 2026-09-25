@@ -1,259 +1,120 @@
-# Roadmap: what this skill does not do yet, and in which order
+# Capability status and remaining work
 
-Written 2026-09-19 from a survey of chatgpt.com through Chrome and of the
-endpoints the page actually calls (see `references/endpoint-discovery.md`,
-"Additions seen on 2026-09-19"). Revisit when ChatGPT changes its UI or when
-a research run needs something listed here.
+Updated 2026-09-25. This is the current implementation inventory.
+`VERIFICATION.md` records dated live and offline results. A command's
+existence, a successful live request, and complete output support are
+separate claims.
 
-## Rules that order the work
+## Working rules
 
-1. **Evidence before code.** A read is added once its endpoint has been seen
-   in the page's own traffic. A mutation is added only after one real action
-   has been recorded with `discover_endpoints.py --bodies`; a guessed POST
-   body against a live account is junk that looks like a changed API.
-2. **Reads first, writes second, the send path last.** Reads are free of
-   risk. Writes act on the user's account and default to a dry run. Anything
-   in the send path lives in `BrowserSender`, is fragile, and costs a
-   browser window per test.
-3. **The bundled client is owned here** (decision 2 below; before
-   2026-09-20 it was re-vendored from the research-pipeline repository, see
-   `VENDORED.md`). Send-path work is done in `scripts/chatgpt_client.py` and
-   tested here; the repository is not modified any more.
-4. **Nothing that spends the user's limits or exposes their data is
-   automated.** Pro lane, Ultra, Deep research and sharing are opt-in per
-   run, never defaults.
+1. Record a new endpoint's actual request before implementing a mutation.
+2. Keep the client and commands in this skill. Do not recreate a second
+   client in the research-pipeline repository.
+3. Use HTTP for reads and account changes. Use the scripted browser for
+   messages and browser diagnostics. Do not build send-gate solvers.
+4. Test mutations on disposable `rp-test` objects. Record their ids, check
+   results by reading them back, and verify cleanup.
+5. Pro, Deep research, additional composer modes and sharing remain explicit
+   choices. A generic hint selector does not establish complete support for
+   every mode's outputs or lifecycle.
+6. Preserve the account's default model and effort. Per-send choices rewrite
+   the outgoing request. Cookie-based model/effort selection was removed.
 
-## Decisions of 2026-09-20
+## Stage 1: reads and run context — implemented
 
-The user approved the staged plan and answered its open points:
+| Item | Current implementation |
+| --- | --- |
+| R1: profile context | `profile_context.py`: custom instructions, memory usage, model/effort, project instructions and files. Optional JSON snapshot. |
+| R2: project details | `list_projects.py`: paged project listing, direct details, files and chats. |
+| R3: account/plan information | `probe_account.py`: authentication, reads, plan window and credits. The displayed usage window does not measure chat sends. |
+| R4: scheduled tasks | `list_automations.py`: scheduled, paused and finished tasks, prompts, JSON. Returned cursors are reported but not followed. |
+| R5: installed skills/apps | `list_skills.py`: installed skills, expected-skill checks and optional apps. Status labels are reported without interpreting their policy meaning. |
+| R6: chat content search | `search_chats.py`: conversation search, bounded pagination and JSON. |
+| Readiness and health | `preflight.py`, `health.py`, cookie/send-gate probes and `model_settings.py`; optional browser checks and diagnostic records. |
 
-1. Every recorded action (the Stage 2 captures, the Stage 3 sends) is
-   performed by the agent through Chrome, one action at a time, announced
-   before it is made, on the sandbox project or a worker chat only; never on
-   the user's own chats or global settings.
-2. The research-pipeline repository and its worktree
-   `~/Projects/research-pipeline-chatgpt` are not touched any more; all work
-   stays in this skill. Consequences: Stage 1 item 4 (the orchestrator's
-   once-per-round call) becomes a pre-run step documented in `SKILL.md` plus
-   a `review_topic.py` warning when a topic lacks a fresh
-   `chatgpt/profile_context*.json`; Stage 3 changes the skill's own client
-   and gets its own send entry point, `send_prompt.py`, instead of tables in
-   `chatgpt_research.py`; `VENDORED.md` is provenance only.
-3. A failed profile read warns and continues; the document records the
-   failures.
-4. Order: 1.2 → 1.3 → 1.4 → 2.1 (M3) → 2.2 (M4) → 2.3 (M2) → 3.1 (B1) →
-   3.2 (B2) → 3.3 (B4) → 3.4 (B3).
-5. Stage 3 may spend one or two real messages per item, inside the sandbox
-   project, and every test conversation is deleted afterwards. The test
-   tiers, their guards and the coverage gates (95% per core module, 90% per
-   other module) are in `TESTING.md`; the harness comes first, then the
-   existing modules are brought to the bar, then the stages.
+Memory usage is readable. The account-wide Enable memory toggle has no
+identified read/write contract here. Project-only memory is implemented
+separately.
 
-## Inventory
+## Stage 2: projects and chat changes — implemented
 
-Value is for the research runs this skill serves. Cost is the work to add
-it, including capture. "Evidence" says whether the endpoint is already known.
+| Item | Current implementation |
+| --- | --- |
+| M2: pin/unpin, archive/unarchive | `pin_chat.py`; `clean_chats.py --archive/--unarchive`. |
+| M3: project instructions | `project_settings.py`: text/file input, update and clear. |
+| M4: project memory isolation | `project_settings.py --memory project-only/default`; creation also accepts the memory choice. |
+| M5: project lifecycle | `create_project.py` and `delete_project.py`, with read-back verification. |
+| Chat cleanup | `clean_chats.py --delete`, selected by project and/or title match. |
+| Research recovery | `round_status.py --collect [--apply]` saves outstanding replies locally; `review_topic.py` audits topic folders offline. |
 
-| # | Feature | Kind | Evidence | Value | Cost | Stage |
-|---|---------|------|----------|-------|------|-------|
-| R1 | Record a run's hidden inputs: custom instructions, memory state, model + effort preset, project instructions | read | endpoints seen | high: makes runs auditable and repeatable | small | done 2026-09-20 |
-| R2 | Project details: instructions and files of one project (`gizmos/<g-p-id>`) | read | seen | medium | small | 1 |
-| R3 | Credits and plan limit window in `probe_account.py` (`wham/usage`) | read | seen; note the weekly window excludes chat | medium | tiny | 1 |
-| R4 | Scheduled tasks (automations) | read | captured 2026-09-21: `GET /backend-api/automations?filter=…` (`references/endpoint-discovery.md`, "Seen on 2026-09-21"); `/backend-api/tasks`, this row's original evidence, turned out to be the account's background-task history, not scheduled tasks -- see that endpoint's own corrected row | low | small | done 2026-09-21: `list_automations.py` |
-| R5 | Installed plugins and skills (`ps/plugins/installed`, `hazelnuts`) | read | captured 2026-09-21: full item shapes for both endpoints (`references/endpoint-discovery.md`, "Seen on 2026-09-21") | low: checks the research-pipeline skill is installed on chatgpt.com | small | done 2026-09-21: `list_skills.py` |
-| R6 | Global search of chats by content | read | captured 2026-09-21 (`POST /backend-api/global/search`) | medium | small | done 2026-09-21: `search_chats.py` |
-| M2 | Pin and unpin a chat (`is_starred`), unarchive | write | captured 2026-09-20: `PATCH /backend-api/conversation/<id>` with `is_starred` or `is_archived` true / false | medium: mark a run's report chat | command pending | 2 |
-| M3 | Set or update a project's instructions | write | captured 2026-09-20: `PATCH /backend-api/projects/<g-p-id>` with the full body (name, instructions, emoji, theme) | high: house rules for workers become explicit per run | command pending | 2 |
-| M4 | Memory isolation for worker chats: per-project memory setting, or `is_do_not_remember` on the conversation | write / send | not captured; conversation items expose `memory_scope` and `is_do_not_remember`; projects expose `memory_enabled` and `memory_scope` (all `global` on 2026-09-20); Project settings' "Project-only memory" captured 2026-09-20: the same PATCH with `memory_scope` `project_v2` or `global`; the account-wide "Enable memory" switch has no identified key in `settings/user` | high: stops runs from reading or writing the user's memory | investigate first | 2 |
-| M5 | Move a chat into a project; rename or delete a project | write | create and delete captured 2026-09-20 (`POST /backend-api/projects`, `DELETE /backend-api/gizmos/<id>`); move and rename not captured | delete: needed to clean up test projects; the rest low | **done 2026-09-20**: `create_project.py` is plain HTTP and `delete_project.py` deletes with a name check (both tested, `tests/live/test_write_project_lifecycle.py` round-trips a throwaway project); move and rename remain uncaptured | 2 |
-| M6 | Memory entries and custom instructions: edit | write | not captured | low, and it changes the user's global profile | one recorded action | not planned |
-| M7 | Scheduled task create or pause; share links | write | not captured | low | one recorded action | not planned |
-| B1 | Model preset per step through the cookie (`oai-last-model-config` carries `model`) | send | cookie seen; whether the composer honours `gpt-6-pro` from it is untested | medium | small experiment, no send needed to read the label | 3 |
-| B2 | Web search on or off per step | send | UI item seen; the send body hint not captured | medium: search steps on, analysis steps off | medium | 3 |
-| B3 | Deep research as an optional step type | send + HTTP | captured and implemented 2026-09-20 | medium: one send mints the carrier, the research and its report are plain HTTP | done | 3 |
-| B4 | Attach arbitrary files to a send, such as a paper PDF | send | `_attach_prompt` exists for prompts | uncertain: attachments are retrieval-backed and may truncate | medium; measure first | 3 |
-| B5 | Temporary chat for workers | send | button seen | low: a temporary chat may not be readable afterwards, which breaks collection | small | not planned |
-| B6 | Regenerate, branch, edit, read aloud, canvas, voice, images | send | seen | none for runs | — | not planned |
+The earlier M2/M3 “command pending” labels were stale. These commands were
+implemented on 2026-09-20 and have live round-trip tests.
 
-## Stage 1: reads that close the audit gap
+## Stage 3: sending — implemented, with mode-specific limits
 
-Goal: every hidden input of a run can be printed and saved before the first
-send. All endpoints are already observed; no browser, no writes.
+`send_prompt.py` provides new chats, project chats, continued chats, batches
+of separate chats in one window, model/effort choices, web search, arbitrary
+system hints, attachments, titles, optional waiting and JSON records.
+`--record-send-body` also captures the response stream. In a batch, each
+send overwrites the same capture path; only the last capture remains.
 
-1. `profile_context.py`: prints and, with `--json`, writes the custom
-   instructions text, whether memory is on and how many entries it has, the
-   model and effort preset the profile will use (reuses `model_settings.py`),
-   and, with `--project g-p-…`, that project's instructions and files.
-   Acceptance: the orchestrator can call it once per round and store the
-   output next to `chatgpt/conversations.json`.
-   **Done 2026-09-20**: `profile_context.py [--project g-p-…] [--json PATH]`,
-   ten tests over a fake session, verified on the live account. Memory is
-   reported as usage (tokens, entry count, per-project scope) because the
-   account-wide switch has no identified key; the model comes from both the
-   cookie and the server's `last_used_model_config`. The once-per-round call
-   would have been repository work; by decision 2 it became item 4.
-2. `list_projects.py --id … --files`: full instructions and the file list
-   from `gizmos/<g-p-id>` instead of the sidebar's truncated copy.
-   **Done 2026-09-20**: `--id` now reads `gizmos/<id>` directly with the full
-   instructions and memory scope, `--files` lists scalar file fields, and the
-   bare listing pages every sidebar page so its count is the true total.
-3. `probe_account.py`: two more lines from `wham/usage`, credits balance and
-   the plan window, labelled as not covering chat sends.
-   **Done 2026-09-20**: added, plus a third line stating plainly that the
-   window and credits exclude chat sends; a failed or missing usage read is
-   reported and never turns CLEAR into NOT CLEAR.
-4. The pre-run step, in the skill: `SKILL.md` documents
-   `profile_context.py --project … --json <workdir>/chatgpt/profile_context.json`
-   before a run, and `review_topic.py` gains a seventh invariant that warns
-   when a topic has no such file or its `captured_at` is older than the
-   newest round. A per-round capture would need the orchestrator, which
-   stays untouched.
-   **Done 2026-09-20**: `SKILL.md` documents the pre-run call, and the
-   seventh invariant warns (without changing the exit code) when a topic has
-   no `chatgpt/profile_context*.json` or the newest one predates the start of
-   the newest round.
+`deep_research.py start` invokes the page's Deep research hint. `status` and
+`fetch` read the conversation widget and save native Markdown and sources.
+`export` uses the MCP DOCX/PDF route. Both formats also work for completed
+widget runs with `--force`, after `status --wait` confirms DONE. Its default
+completion check still reads legacy titles and can refuse a finished widget
+report. This is not a general export facility for ordinary chats.
 
-Exit criterion: a topic's archive states what the profile looked like when
-the run started, and `review_topic.py` says so when it does not.
+Browser cost varies with navigation, uploads and stream recording. The
+batch's 180-second-per-prompt estimate is a conservative planning allowance,
+not a measured startup time.
 
-## Stage 2: writes, one captured action each
+## Connector operations — implemented
 
-Goal: a run can shape its own project and leave the user's account tidy,
-with a dry run before every change.
+`list_connectors.py`, `create_connector.py`, `connect_connector.py` and
+`delete_connector.py` manage custom MCP apps and links. Creation uses an
+existing OpenAI tunnel with No Auth. Direct server URL and OAuth creation
+are not exposed by these commands. `list_connectors.py --detail` accepts
+connector ids, not link ids.
 
-1. Project instructions set or update (M3). Captured 2026-09-20 on the
-   sandbox project and reproduced over HTTP (`references/endpoint-discovery.md`,
-   "Captured 2026-09-20"). **Done 2026-09-20**: `project_settings.py
-   g-p-<id> [--instructions FILE | --instructions-text TEXT |
-   --clear-instructions] [--memory project-only|default] [--apply]`,
-   combined with M4 since both are one PATCH; 30 T0 tests, 100% coverage;
-   `tests/live/test_write_project_settings.py` (T2) round-trips the sandbox.
-2. Memory isolation (M4). Project settings offers "Default memory" or
-   "Project-only memory", and both directions were captured 2026-09-20 in
-   the same PATCH (`memory_scope` `project_v2` / `global`). The sandbox now
-   runs project-only. **Done 2026-09-20** with M3 above: `--memory` maps to
-   `memory_scope` and the read-back checks the derived `memory_enabled` too.
-   Verified 2026-09-20: a chat created inside such a project reports
-   `memory_scope: project_v2` itself.
-3. Pin and unpin, unarchive (M2). Captured 2026-09-20 on the sandbox chat
-   (`references/endpoint-discovery.md`, "Captured 2026-09-20, later").
-   **Done 2026-09-20**: `pin_chat.py <chat-id-or-url> [--unpin] [--apply]`
-   (dry run by default, read-back verified, a `/c/` URL accepted) and
-   `clean_chats.py --unarchive`, a third action that selects from the
-   archived listing and PATCHes `is_archived: false` per match. 28 T0
-   tests, both modules at 100%; `tests/live/test_send_chat_flags.py`
-   round-trips pin and archive on a sandbox chat it mints itself. It was
-   T2 and skipped every run until 2026-09-20, because it waited for a
-   chat an earlier run had left and the sweep deletes those; minting one
-   costs a send, so it is T4 now (the file's own docstring).
-Exit criterion: each command has a dry run, a test over a fake session, and
-its endpoint recorded in `references/endpoint-discovery.md`.
+`chatgpt-refresh` provides tool-list refresh as an adjacent installed
+command owned by binnacle's `chatgpt-mcp-dev` skill. `manage_tunnels.py`
+now provides Platform tunnel list/get/create/update/delete in this skill.
+It uses separate Platform credentials and verifies mutations by reading
+them back. The onboarding skill delegates cloud tunnel operations here
+and retains server setup and local daemon management. Live create, list,
+get, update and delete passed on 2026-09-25, with cleanup and the original
+tunnel's unchanged state verified; see `references/tunnels.md`.
 
-## Stage 3: the send path, in the skill's own client
+## Composer modes available through the generic route
 
-Goal: a send can choose model, search and attachments the way it already
-chooses effort, through the skill's own entry point `send_prompt.py`
-(`--project`, `--effort`, `--model`, `--search`, `--attach`); the
-orchestrator is not modified.
+The live basic system-hint catalog on 2026-09-25 lists `picture_v2`,
+`search`, `tasks`, `tatertot`, `canvas` and `sketch`. These can be supplied to
+`--system-hint`. Images, task creation, Canvas, Study and Sketch must not be
+labeled wholly unimplemented merely because they have no dedicated command.
+Mode-specific completion, artifact collection and cleanup still need their
+own measured acceptance cases. See `VERIFICATION.md`.
 
-1. Model preset per step (B1): extend `with_effort` to `with_model`; verify
-   by opening a composer with the cookie set and reading the label, no send.
-   **Done 2026-09-20** (offline part): `with_model(cookies, model)` mirrors
-   `with_effort`; `BrowserSender(model=...)` applies both in `_open`;
-   `__exit__` guards its context close. `send_prompt.py` is the skill's own
-   send entry point (`--project`, `--effort`, `--model`, `--chat`,
-   `--title`, `--no-wait`, `--timeout`, `--json`, `--attach` recorded only):
-   a new chat's provisional id is resolved under `new_chat_lock` with
-   `resolve_new_conversation` (known-ids snapshot plus a pre-send epoch),
-   then the reply is awaited. 28 T0 tests, both modules at 100%.
-   **Cookie path removed 2026-09-20**: `with_effort`, `with_model` and the
-   T3 label test are gone; `_open` exports the cookies unchanged and
-   `--effort` / `--model` pin only through `rewrite_send_body`.
-2. Web search per step (B2): capture the send body with and without the
-   composer's Web search item, then reproduce the difference.
-   **Done 2026-09-20 (offline part)**: `BrowserSender(search=True)` drives
-   the composer's "+" menu (`button#composer-plus-btn`) through
-   `_enable_search`, locating "Web search" by its exact visible text (the
-   popup carries no `role="menu"`), with one retry when the first click
-   leaves it shut and a clear error after two; `record_send_body=PATH`
-   writes the `f/conversation` POST's method, url and body (not the
-   `/prepare` sibling, no GETs). `send_prompt.py` gained `--search` and
-   `--record-send-body`. 12 T0 tests.
-   **Measured 2026-09-20**: two recorded sends with the cookie set to
-   `standard` carried `thinking_effort: max` and, with `--search`,
-   `system_hints: []`: neither the cookie (B1) nor the "+" menu click (B2)
-   reached the wire; the page takes both from the account's server-side
-   state. Changing the account's `last_used_model_config` instead would
-   change the user's own default, so it was not the plan.
-   **Fixed and verified 2026-09-20**: `rewrite_send_body` edits
-   `thinking_effort`, `model` and `system_hints` in the POST body in flight
-   (a route registered in `_open` only when something is pinned); one
-   recorded send with `--effort standard --search` produced a reply whose
-   metadata says `thinking_effort: standard`, `search_result_groups`
-   filled, and a cited answer (`read_chat.py --effort`). 27 T0 tests in
-   `tests/test_client_rewrite.py`. **Removed 2026-09-20**: the cookie
-   rewrite, the "+" menu click (`_enable_search`) and the T3 label test;
-   `rewrite_send_body` is the only mechanism.
-3. File attachments (B4), then Deep research (B3): measure each on one real
-   paper before designing anything, because both change the shape and the
-   timing of what comes back. Attachments come first because they feed the
-   existing analysis steps; Deep research is a new kind of step.
-   **B4 done 2026-09-20 (offline part)**: `BrowserSender(attachments=...)`
-   validates the paths and uploads them through the composer's file input
-   (`_upload_files`, shared with the large-prompt path) before the fill;
-   `send_prompt.py --attach` uploads instead of only recording. 14 T0
-   tests, both modules at 100%. **Measured 2026-09-20**: one send with a
-   73-byte Markdown file; the reply quoted its third line exactly; the body
-   carries the file in `messages[0].metadata.attachments`
-   (`references/endpoint-discovery.md`, "Attachments"). The first try was
-   ignored because the send went out before the upload finished; the
-   upload wait now follows the busy indicator. **A real paper measured
-   the same day**: arXiv 1706.03762 (2.2 MB, 15 pages) uploaded and was
-   read correctly (exact title, first sentence of the abstract, page count,
-   file citations) in 3 min 28 s including the reply; no truncation seen
-   at that size. Larger papers and several files per send are not
-   measured.
+## No dedicated CLI at present
 
-4. Generic system hints, the mechanism Deep research (B3) needs:
-   `rewrite_send_body` gained `hints`, appended to `system_hints` like
-   `search`; `BrowserSender(hints=...)` registers the rewrite route for a
-   hint set alone; `send_prompt.py --system-hint HINT` threads it through.
-   Several PROMPT_FILEs now share one window (the window is the expensive
-   part) and are waited on after it closes. **Done 2026-09-20 (offline
-   part)**: 28 T0 tests, both modules at 100%.
-   **Deep research, settled 2026-09-20 over twelve live runs.** The trail
-   of wrong turns is in `references/endpoint-discovery.md`; what holds:
-   the hint makes the model call the Deep Research connector, an MCP app
-   reachable at `POST /backend-api/ecosystem/call_mcp` with plain HTTP and
-   the bearer token (tools: `start`, `steer`, `get_state`, `subscribe`,
-   `pause`, `skip_sleep`, `stop`, `export`, `get_inline_images`). Three
-   facts decide the design. The research's topic comes from the **carrier
-   conversation's own content**, never from the `user_query` argument, so
-   the prompt must be posted as an ordinary message first; that send is
-   the only browser step (~16 s). `get_state` and `export` key on the
-   **carrier conversation's id**, never on the session id, so nothing has
-   to be scraped out of the send's stream. One research per carrier for
-   its life: a second `start` there returns a session id whose state is
-   unreachable, and a random uuid carrier is refused. The report never
-   lands in the conversation (60 minutes observed); `export` returns it as
-   a base64 docx or pdf. **Done**: `deep_research.py` (`start` with
-   `--conversation`, `--from-send` or `--project`; `status`; `export`),
-   122 T0 tests over synthetic fixtures, 100% coverage, the 429 rule built
-   in (one poll a minute, two minutes back-off). `subscribe` stays
-   unimplemented: its websocket URL carries a per-user token. **Verified
-   end to end**: `start --project` minted a carrier and started the
-   research in 22 s, it finished in about four minutes on the carrier's
-   own topic, and `export` wrote a 12.5 kB docx holding 3,308 characters.
-   A first export failed with "could not open a session: The read
-   operation timed out" and succeeded on a retry; the session mint is
-   worth retrying before believing anything is wrong.
+- Move an existing chat into a project or rename a project.
+- Create, pause, update or delete an automation through a direct lifecycle
+  command. The generic `tasks` composer route is separate.
+- Edit account-wide memories or custom instructions.
+- Create/manage shared links, or change billing/security settings.
+- Select temporary-chat mode; edit, regenerate or branch an existing
+  message; control voice/read-aloud sessions.
+- Install/update ChatGPT skills or use the account file library.
 
-Exit criterion: `send_prompt.py` exposes the four choices, the client's
-tests cover them offline, and one measured send per feature is recorded in
-`references/failure-atlas.md`.
+The adjacent `chatgpt-project` command was also checked. It supports project
+listing/details/instructions but has no rename/move flags. A generic HTTP
+session that can send arbitrary requests is not a maintained feature CLI.
 
-## Not planned
+## Historical decisions
 
-Archive all, delete all, export data, account, billing and security
-settings, cloud-browser permissions, the Work surface and Sites, GPTs,
-sharing links. These stay manual.
+The original stages and abandoned experiments remain in git history,
+`HANDOVER.md`, `VENDORED.md` and the dated endpoint/failure records.
+Cookie rewriting and composer-menu clicking were replaced by outgoing
+request rewriting. The first MCP-only Deep research design was replaced
+by the page/widget workflow. Historical notes do not override this inventory
+or the current verification record.

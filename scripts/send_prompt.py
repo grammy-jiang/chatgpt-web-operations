@@ -22,7 +22,7 @@ more than one ``PROMPT_FILE``, since one chat cannot be two conversations).
 
 ``--effort`` and ``--model`` pin the reasoning effort and the model this
 send actually uses; ``--search`` turns Web search on; ``--system-hint HINT``
-(repeatable) adds any other composer "+" item by the id the models endpoint
+(repeatable) adds any other composer "+" item by the id the system-hints endpoint
 names it, e.g. ``plugin:connector_openai_deep_research`` for Deep research
 (``references/endpoint-discovery.md``, the ``system_hints`` rows). All four
 are pinned by rewriting the ``f/conversation`` POST body in flight, inside
@@ -36,9 +36,9 @@ prints that record). ``--title`` renames the conversation once its id is
 final -- how the sandbox tests mark their chats ``rp-test ...``.
 
 More than one ``PROMPT_FILE`` shares a single browser window instead of one
-per file, because the window is the expensive part (about 2 minutes of
-every send). Each is sent in turn as a new chat and its id resolved the same
-way as a single send, all inside that one window; only once the window is
+per file, to share browser startup and page loading. Each is sent in turn
+as a new chat and its id resolved the same way as a single send, all inside
+that one window; only once the window is
 closed does it wait for every reply, in order, and only then rename each
 conversation (``--title`` becomes a numbered prefix, "``<title> 1``",
 "``<title> 2``", ...). A failure sending, resolving, waiting for or renaming
@@ -90,9 +90,9 @@ from pathlib import Path
 
 from _common import ensure_venv, load_client, open_session
 
-# A send window costs roughly 3 minutes end to end on this host (SKILL.md,
-# "The browser is budgeted"); a batch that would keep the window open past
-# the budget is worth a warning before it is started, not a silent overrun.
+# Conservative planning allowance, not a measured browser-startup time.
+# Page loading, attachments and stream recording change the duration.
+# Warn before a batch is likely to outlast the shared window's budget.
 SECONDS_PER_PROMPT_ESTIMATE = 180.0
 
 

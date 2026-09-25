@@ -1463,11 +1463,16 @@ def test_session_init_succeeds_and_stores_token_and_user_id(monkeypatch) -> None
     ids=["no-token", "no-user", "user-without-id", "null-user"],
 )
 def test_session_init_fails_when_the_handshake_is_incomplete(monkeypatch, body) -> None:
-    """A half-populated auth reply must not produce a half-authed session."""
-    _wire_init(monkeypatch, body)
+    """Incomplete authentication must neither create a session nor save cookies."""
+    stored = _wire_init(
+        monkeypatch,
+        body,
+        set_cookie_headers=[f"{SESSION_COOKIE}=invalid-renewal; Max-Age=7776000"],
+    )
     with pytest.raises(SystemExit) as exc:
         chatgpt_session.Session()
     assert exc.value.code == 1
+    assert stored == []
 
 
 def test_session_init_fails_when_the_auth_reply_is_not_a_json_object(
@@ -1561,11 +1566,69 @@ def test_session_init_sends_the_keyring_copy_when_it_is_fresher(monkeypatch) -> 
     assert "chrome-tok" not in header  # the stale chrome value must not be sent
 
 
+@pytest.mark.parametrize("status", [200, 401, 403])
+def test_rejected_keyring_session_tries_existing_browser_cookie_once(
+    monkeypatch, status
+) -> None:
+    chrome = {"cookies": {SESSION_COOKIE: "chrome-tok"}, "expires": NOW}
+    stored = {"cookies": {SESSION_COOKIE: "keyring-tok"}, "expires": NOW + 5000}
+    saved = _wire_init(
+        monkeypatch,
+        AUTH_OK,
+        pairs=[(SESSION_COOKIE, "chrome-tok"), ("other", "x")],
+        chrome=chrome,
+        stored=stored,
+    )
+    seen = []
+
+    def request(self, path):
+        seen.append(self.cookie)
+        if len(seen) == 1:
+            if status != 200:
+                raise chatgpt_session.urllib.error.HTTPError(
+                    path, status, "auth", {}, None
+                )
+            return 200, "{}", None
+        return 200, json.dumps(AUTH_OK), None
+
+    monkeypatch.setattr(chatgpt_session.Session, "_request", request)
+    events = []
+    session = chatgpt_session.Session(diagnostic=events.append)
+    assert session.session_source == "chrome"
+    assert session.token == AUTH_OK["accessToken"]
+    assert len(seen) == 2
+    assert "keyring-tok" in seen[0] and "chrome-tok" in seen[1]
+    assert all("other=x" in header for header in seen)
+    assert any(e["event"] == "auth_browser_fallback" for e in events)
+    assert "chrome-tok" not in json.dumps(events)
+    assert saved == []
+
+
+@pytest.mark.parametrize("status", [403, 429, 503])
+def test_failed_browser_fallback_or_server_error_still_fails(
+    monkeypatch, status
+) -> None:
+    chrome = {"cookies": {SESSION_COOKIE: "chrome-tok"}, "expires": NOW}
+    stored = {"cookies": {SESSION_COOKIE: "keyring-tok"}, "expires": NOW + 5000}
+    saved = _wire_init(monkeypatch, {}, chrome=chrome, stored=stored)
+    seen = []
+
+    def request(self, path):
+        seen.append(path)
+        raise chatgpt_session.urllib.error.HTTPError(path, status, "auth", {}, None)
+
+    monkeypatch.setattr(chatgpt_session.Session, "_request", request)
+    with pytest.raises(SystemExit):
+        chatgpt_session.Session()
+    assert len(seen) == (2 if status == 403 else 1)
+    assert saved == []
+
+
 def test_session_init_fails_cleanly_on_an_http_error_from_the_handshake(
     monkeypatch,
 ) -> None:
-    """A 403 (an expired cookie, most likely) must still reach fail(), not
-    an unhandled HTTPError -- and never attempt a renewal off it."""
+    """A 403 must reach fail(), not an unhandled HTTPError. It does not
+    prove expiry, and must not produce a stored renewal."""
     store_calls: list[dict] = []
     monkeypatch.setattr(
         chatgpt_session, "pick_browser", lambda choice="auto": "fake-browser"

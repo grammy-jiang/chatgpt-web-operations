@@ -36,9 +36,9 @@ pytestmark = pytest.mark.live_read
 
 STATES = {"ok", "warn", "block"}
 
-# The fourteen checks a bare `health.py` makes with a working link and
+# The fifteen checks a bare `health.py` makes with a working link and
 # account: preflight's own eleven (DEFAULT_NAMES in
-# tests/live/test_read_preflight.py), then health's own three.
+# tests/live/test_read_preflight.py), then health's three and the skills inventory.
 DEFAULT_NAMES = [
     "available memory",
     "load average",
@@ -54,6 +54,7 @@ DEFAULT_NAMES = [
     "session token",
     "sandbox",
     "read endpoints",
+    "skills inventory",
 ]
 
 
@@ -130,7 +131,7 @@ def test_the_whole_command_exits_as_documented(
     monkeypatch.setattr(
         preflight,
         "open_chatgpt_session",
-        lambda cc, browser: (_as_session(live_session), None),
+        lambda cc, browser, **kwargs: (_as_session(live_session), None),
     )
     out = tmp_path / "health.json"
     code = health.main(["--json", str(out)])

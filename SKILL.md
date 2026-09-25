@@ -1,17 +1,60 @@
 ---
 name: chatgpt-web-operations
-description: Use when driving chatgpt.com from this machine — sending prompts, collecting replies, listing or cleaning up worker conversations, diagnosing a stalled or failing ChatGPT run, judging whether the account is really blocked, or rediscovering ChatGPT's endpoints after they change. Self-contained: it bundles the chatgpt.com client and its own .venv, so it works from any project. Do NOT use for designing research topics or gates; that is the research-pipeline skill.
+description: >-
+  Use when driving chatgpt.com from this machine — sending prompts, collecting
+  replies, listing or cleaning up worker conversations, diagnosing a stalled
+  or failing ChatGPT run, managing OpenAI tunnels for local MCP connectors,
+  or rediscovering ChatGPT's endpoints after they change. Self-contained: it
+  bundles the chatgpt.com client and its own .venv, so it works from any project.
+  Do NOT use for designing research topics or gates; that is the research-pipeline
+  skill.
 ---
 
 # Operating ChatGPT from this machine
 
-Everything here was measured, most of it after getting it wrong first. The
-commands are small and single-purpose so they can be combined; none of them
-is a do-everything entry point.
+Use the command for the requested operation. ChatGPT account operations and
+OpenAI Platform tunnel operations use different credentials.
 
 ```bash
 S=~/.claude/skills/chatgpt-web-operations/scripts   # wherever this SKILL.md sits, plus /scripts
 ```
+
+The Codex and shared-agent skill paths are symlinks to this same directory.
+The current verification record is `VERIFICATION.md`. Use its dated results
+to distinguish live verification from implemented but unmeasured options.
+
+## Start here
+
+On first use, explain which access the task needs and check the existing
+configuration before asking the user to configure anything. Report the
+missing prerequisite, the action that fixes it, and the read-only check that
+will confirm the fix. Reuse working configuration on later runs.
+
+| Task | Required access | First check |
+| --- | --- | --- |
+| Read chats, manage projects or manage ChatGPT connectors | This desktop user's signed-in ChatGPT session in Chrome and unlocked GNOME keyring | `python3 "$S/preflight.py"`; add `--browser` before sending or using browser diagnostics |
+| Create, list, update or delete Platform tunnels | Platform management credential and the intended organization; separate from ChatGPT login | Follow [tunnel authentication and its read-only check](references/tunnels.md#credentials) |
+| Inspect one tunnel | Platform management credential or the configured runtime key | `manage_tunnels.py get` with the exact tunnel id |
+| Expose a new local MCP server end to end | Server, runtime key, forwarding daemon, Platform tunnel and ChatGPT connector | Use the adjacent `chatgpt-mcp-onboarding` skill |
+
+If `.venv` is missing, run `bootstrap.sh` as described below. For a new
+installation or a failed check, read [setup and recovery](references/setup.md).
+The admin key comes from the exported `OPENAI_ADMIN_KEY` first, then
+`~/.config/tunnel-client/admin.env`. The command does not load `.bashrc`.
+Automatic authentication can also select an explicitly configured dashboard
+token; the exact order is in the tunnel reference. Never ask the user to
+paste a credential into chat.
+For missing access, give the user the applicable
+[credential creation page and required permissions](references/tunnels.md#obtain-the-keys-or-session).
+ChatGPT access comes from normal browser sign-in; no token copy is required.
+
+When a check fails, identify the failing path: local tooling, ChatGPT login,
+Platform authentication, tunnel forwarding or the MCP server. Apply an
+available fix within the task's scope, then repeat the relevant read-only
+check. If the user must sign in, unlock the keyring or supply access, state
+that specific action. A failed request alone does not establish an account
+block. After a timeout on a create or send, inspect the recorded resource or
+conversation before repeating the mutation.
 
 ## Where this lives, and what it needs
 
@@ -36,8 +79,9 @@ decrypting Chrome's cookies goes through the GNOME keyring over D-Bus, and
 `python3-dbus` is an apt package that pip cannot build cleanly, so the venv
 borrows it from the system and the script refuses to continue if it is not
 there. Playwright and `cryptography` are installed into the venv itself.
-Sending and the three browser commands also need Google Chrome and Xvfb on
-the host.
+Sending and browser diagnostics also need Google Chrome and Xvfb on
+the host. See [setup and recovery](references/setup.md) for installation
+checks and fixes; `bootstrap.sh` does not install those host packages.
 
 The orchestrator that produces the runs these commands inspect stays in the
 research-pipeline repository (`.github/scripts/chatgpt_research.py`); this
@@ -45,18 +89,26 @@ skill does not import it.
 
 ## The commands
 
-Each does one kind of interaction. Six change something: `clean_chats.py`,
-`project_settings.py`, `pin_chat.py` and `delete_project.py` need `--apply`,
-`create_project.py` creates a project, and `send_prompt.py` posts a message.
-Only `send_prompt.py` (and the two measuring commands, `measure_window.py`
-and `discover_endpoints.py`) open a browser; everything else is plain HTTP.
+There are 29 command scripts and five support modules. `clean_chats.py`,
+`project_settings.py`, `pin_chat.py` and `delete_project.py` need `--apply`.
+`create_project.py`, `create_connector.py` and `connect_connector.py` act
+unless `--dry-run` is supplied. `delete_connector.py` needs `--confirm`.
+`send_prompt.py` and `deep_research.py start` post messages.
+`round_status.py --collect --apply` writes local evidence and its ledger.
+`manage_tunnels.py create` acts unless `--dry-run`; its `update` needs
+`--apply`, and its `delete` needs `--confirm`.
+
+Browser paths are sending, Deep research start, `preflight.py --browser`,
+`health.py --browser`, `measure_window.py`, and `discover_endpoints.py`.
+Other account operations use HTTP. Read-only searches and connector lookups
+use POST; HTTP method alone does not determine whether an operation writes.
 
 | Command | Purpose | Exit code means |
 |---------|---------|-----------------|
 | `preflight.py` | One go/no-go check before a run starts: host, link, account and run over one session; `--browser` adds a composer check, `--project` and `--workdir` add their own. | 0 GO, 1 DO NOT START (n blocking), 2 GO WITH WARNINGS (n) |
-| `health.py` | The daily health check's HTTP half, for a cron wrapper: preflight's host, link, account and run groups, plus a fifth "health" group over the same session (session-token expiry from the cookie jar, the live-test sandbox's identity and cleanliness, two reads preflight never makes). `--browser` adds preflight's composer check; `--json PATH` writes the verdict plus a `facts` block the wrapper reads. | 0 GO, 1 DO NOT START (n blocking), 2 GO WITH WARNINGS (n) |
+| `health.py` | The daily health check's HTTP half, for a cron wrapper: preflight's host, link, account and run groups, plus health and installed-skill checks over the same session (session-token expiry from the cookie jar, the live-test sandbox's identity and cleanliness, two reads preflight never makes). `--browser` adds preflight's composer check; `--json PATH` writes the verdict plus a `facts` block; `--skills-json` saves the redacted inventory and `--diagnostics` saves credential-free transport events. | 0 GO, 1 DO NOT START (n blocking), 2 GO WITH WARNINGS (n) |
 | `probe_account.py` | Does the account answer at all? Auth, `/me`, one listing, plan window and credits. | 0 reads work |
-| `probe_cookies.py` | Which cookies decrypt, and when the session token expires (nothing here refreshes a cookie; only the user's own Chrome does). Never prints a value. `--json PATH` for a caller that wants the number. | 0 session cookie readable |
+| `probe_cookies.py` | Which cookies decrypt, and when the session token expires (this probe does not renew cookies; session creation can renew the keyring copy). Never prints a value. `--json PATH` for a caller that wants the number. | 0 session cookie readable |
 | `probe_send_gates.py` | What a send requires right now: proof-of-work, Turnstile, `so`. | 0 no browser needed |
 | `model_settings.py` | Which model and effort a send will use: the Power slider's presets, the API levels, and the account's `last_used_model_config` resolved to a preset. | 0 record resolves |
 | `profile_context.py` | The hidden inputs of a run: custom instructions, memory usage, model and effort from cookie and server, one project's instructions and files. `--json` keeps them beside a run. | 0 every read answered |
@@ -64,21 +116,55 @@ and `discover_endpoints.py`) open a browser; everything else is plain HTTP.
 | `search_chats.py` | Global search by content, not just title (`list_chats.py --match` cannot see inside a chat): `--limit` (server cap 40), `--pages` follows the `cursor`, `--json PATH`. Conversations only, never project or library sources. | 0 at least one hit, 1 no hit or a page failed, 2 bad argument |
 | `list_projects.py` | Every project (paged), one project's full instructions and files, and the chats inside one. | 0 found, 1 no such `--id` |
 | `list_automations.py` | ChatGPT's scheduled tasks ("automations", `chatgpt.com/scheduled`): `--filter scheduled\|paused\|finished\|all` (default scheduled; `all` fetches all three and adds a state column), `--prompts` shows the task's own instruction text, `--json PATH`. A non-null `cursor` is reported, never followed (the paging parameter is unknown). | 0 every filter read, 1 a filter's read failed, 2 bad `--filter` |
-| `list_skills.py` | Skills and apps installed on the account: skills from `hazelnuts`, `--apps` adds installed apps and connectors from `ps/plugins/installed`. `--expect NAME` (repeatable) checks a skill is installed and enabled -- the check the daily health job will use later. `safety_check_status` and version fields print verbatim, never interpreted. `--json PATH`. | 0 listed and every `--expect` met, 1 a read failed or an `--expect` unmet, 2 bad arguments |
+| `list_skills.py` | Skills and apps installed on the account: skills from `hazelnuts`, `--apps` adds installed apps and connectors from `ps/plugins/installed`. `--expect NAME` (repeatable) checks a skill is installed and enabled -- also used by the daily health job. `safety_check_status` and version fields print verbatim, never interpreted. `--json PATH`. | 0 listed and every `--expect` met, 1 a read failed or an `--expect` unmet, 2 bad arguments |
+| `list_connectors.py` | List accessible links and custom MCP apps; filter names or ids, inspect details, list available tunnels, or print JSON. Read-only HTTP, including lookup POSTs. | 0 listed, 1 a read failed, 2 bad arguments |
+| `create_connector.py` | Create a custom MCP app on an existing tunnel with No Auth. `--dry-run` previews the request. | 0 created or dry run, 1 create failed or name taken, 2 bad arguments |
+| `connect_connector.py` | Connect a No Auth custom MCP app and discover its tools. Optionally set `--apps-privacy full_access`. `--dry-run` previews both requests. | 0 connected or dry run, 1 connect or privacy update failed, 2 bad arguments |
+| `delete_connector.py` | Delete a custom MCP app's links first, then its app; or delete one link. Stops if a link deletion fails. Dry run unless `--confirm`. | 0 deleted or dry run, 1 lookup or deletion failed, 2 bad arguments |
+| `manage_tunnels.py` | OpenAI Platform tunnel list/get/create/update/delete over HTTP. Uses a separate Platform management credential; runtime credentials permit get only. Create/update read back the fields, and delete requires a 404. Update/delete default to previews. See `references/tunnels.md`. | 0 completed or previewed, 1 request/read-back failed, 2 arguments/credentials/name guard refused |
 | `create_project.py` | Create a project over HTTP; `--memory project-only` from the start; `--dry-run` prints the body and sends nothing. | 0 created and read back, 1 create or read-back failed, 2 refused |
 | `delete_project.py` | Delete a project and every chat in it over HTTP, after refusing a name mismatch or a non-`rp-test` name without `--force`. Dry run unless `--apply`. | 0 dry run or deleted and verified, 1 read or verify failed, 2 refused |
 | `project_settings.py` | Set a project's instructions and memory scope (`--memory project-only` keeps its chats out of your memory). Dry run unless `--apply`. | 0 dry run or verified, 1 apply failed, 2 refused |
 | `send_prompt.py` | Send one or more prompts: new chats (`--project` targets one) or a continuing one with `--chat`; `--effort`, `--model`, `--search` and `--system-hint HINT` (any composer "+" item's id, for example `plugin:connector_openai_deep_research`) pin the send by rewriting the `f/conversation` POST body in flight; `--record-send-body PATH` records it and the response stream (`PATH.stream.txt`, where a Deep research `session_id` is read back into `--json`; the window then stays open until the reply stream has ended), `--attach FILE ...` uploads before the fill, `--title` renames once the reply arrived, `--json` records the send. Several PROMPT_FILEs share one browser window and are waited on after it closes; `--no-wait` skips the wait. | 0 every prompt sent and replied, 1 a send, resolve, wait or rename failed, 2 bad arguments |
-| `deep_research.py` | Start a Deep research chat with the page's own hint (`start`, no MCP call), poll its widget state over plain HTTP (`status`, `--wait`), and collect the finished report's native Markdown byte for byte plus its sources (`fetch`). `export` is the fallback for a research started the older way, returning docx or pdf. | `start` 0 written, 1 send failed, 2 bad argument; `status` and `fetch` 0 done or written, 3 running or not finished, 1 failed read; `export` 0 written, 3 not done yet, 1 failed, 2 bad argument |
+| `deep_research.py` | Start a Deep research chat with the page's own hint (`start`, no MCP call), poll its widget state over plain HTTP (`status`, `--wait`), and collect native Markdown plus sources (`fetch`). `export` returns DOCX/PDF through MCP; completed widget runs need `--force` after `status --wait` confirms DONE. | `start` 0 written, 1 send failed, 2 bad argument; `status` and `fetch` 0 done or written, 3 running or not finished, 1 failed read; `export` 0 written, 3 legacy completion check not met, 1 failed, 2 bad argument |
 | `read_chat.py` | One conversation: is the turn finished, and what did it say? | 0 turn finished |
 | `pin_chat.py` | Pin or unpin a chat (`is_starred`). Dry run unless `--apply`. | 0 dry run or verified, 1 apply failed, 2 bad id |
 | `clean_chats.py` | Archive, delete or unarchive worker chats; `--project g-p-<id>` selects from the project's own listing (every chat when `--match` is absent), so a chat ChatGPT renamed is still found. Dry run unless `--apply`. | 0 always, 2 refused |
 | `round_status.py` | A research round: admitted, read, written off, unread; `--collect [--apply]` classifies every entry stuck at "sent" (resumable, superseded, collectable, lost) and archives a collectable reply. | 0 nothing unread; with `--collect` 0 nothing to do or all collected, 1 a fetch or write failed, 2 refused |
-| `review_topic.py` | A finished topic, offline: six integrity invariants per round, review verdicts, gaps, cost. | 0 nothing wrong |
+| `review_topic.py` | A finished topic, offline: six integrity checks, a seventh warning about the profile snapshot, review verdicts, gaps, and cost. | 0 nothing wrong |
 | `measure_window.py` | What a send window costs in memory and fill time. | 0 always |
 | `discover_endpoints.py` | Record what endpoints the page calls, and with `--bodies` what they sent. | 0 always |
 
 `_common.py` holds only session bootstrap and table formatting.
+
+Search indexing can lag behind a completed reply. During the 2026-09-25
+checks, unique markers initially returned no hits and later matched the
+same project chats. Use `read_chat.py` with the recorded id for recent work.
+
+## Composer modes and adjacent tools
+
+`send_prompt.py --system-hint HINT` is a generic composer-mode selector.
+The live `GET /backend-api/system_hints?mode=basic` catalog on 2026-09-25
+listed `picture_v2` (Create image), `search`, `tasks`, `tatertot` (Study),
+`canvas`, and `sketch`. These modes already have a send path. The absence
+of a dedicated script does not mean they cannot be invoked. Mode-specific
+completion, artifact download, scheduling changes, and cleanup need their
+own verification; the ordinary reply collector handles assistant text.
+
+There is no dedicated CLI for moving an existing chat into a project,
+renaming a project, editing account-wide memory/custom instructions,
+temporary chats, message edits/regeneration/branches, voice, or sharing.
+Task creation can be requested through the `tasks` hint, but this skill
+has no dedicated automation create/pause/delete command. Its dedicated
+automation interface is the read-only `list_automations.py`.
+
+`chatgpt-refresh` is installed on this machine and refreshes a connector's
+cached tool list. It belongs to binnacle's `chatgpt-mcp-dev` scripts, outside
+this self-contained skill. The adjacent `chatgpt-project` command also reads
+and updates project instructions. Neither command adds project rename/move
+or automation lifecycle flags. This skill owns Platform tunnel CRUD and
+ChatGPT app/link operations. `chatgpt-mcp-onboarding` owns server setup,
+local tunnel-client profiles/daemons, and the order of the complete setup.
 
 ## Combining them
 
@@ -161,6 +247,28 @@ connectors are not covered by these commands. Deleting the app alone (what
 the UI's Uninstall does) leaves the user's link behind as an ACTIVE link
 with no connector; `delete_connector.py` removes the links first.
 
+### Manage the Platform tunnel from this skill
+
+The Platform tunnel is a separate resource from the ChatGPT app and link.
+`manage_tunnels.py` manages it without visiting the Platform page. Read
+[references/tunnels.md](references/tunnels.md) for credential selection,
+first-use checks, error recovery and the current verification status.
+
+```bash
+python3 $S/manage_tunnels.py list --organization <org-id>
+python3 $S/manage_tunnels.py create "Local MCP" --organization <org-id> --workspace <workspace-id>
+python3 $S/manage_tunnels.py get tunnel_<id>
+python3 $S/manage_tunnels.py update tunnel_<id> --name "Local MCP renamed" --apply
+python3 $S/manage_tunnels.py delete tunnel_<id> --expect-name "Local MCP renamed" --confirm
+```
+
+Creation returns a verified id and metadata; `--id-only` prints just the id.
+Allow 25–30 seconds before using a new tunnel. The command does not start
+the local forwarding daemon. Use a dedicated tunnel for each independently
+served MCP endpoint. To retire an endpoint, remove its connector links/app,
+stop its forwarding daemon, then delete that tunnel. A tunnel delete does
+not perform those other actions or infer which existing resources to remove.
+
 ## Projects keep a run's chats out of the user's list
 
 A project groups conversations, carries its own instructions, and its chats
@@ -202,9 +310,8 @@ in a Playwright window, which is how the endpoint was found.
 non-`rp-test` name without `--force`; `--apply` sends it and requires a 404
 back. Deleting a project deletes every chat in it and cannot be undone.
 
-Moving an existing chat into a project is deliberately not implemented. It is
-not a normal need here, since a worker created in the project is already
-where it belongs.
+There is no dedicated command to move an existing chat into a project.
+Create the worker chat with `--project` to place it there from the start.
 
 Point a run at a project with `chatgpt_research.py --project g-p-<id>`.
 
@@ -305,8 +412,8 @@ rate limits.
 A Deep research run is not a separate connector session: it is an ordinary
 chat that runs longer. `start` sends the prompt the way the page does, one
 message carrying the system hint
-`plugin:connector_openai_deep_research`. **That send is the browser's only
-part, about 19 seconds**; nothing stays open. ChatGPT attaches a widget to
+`plugin:connector_openai_deep_research`. That send is the browser's only
+part (19 seconds in the 2026-09-20 sample); nothing stays open. ChatGPT attaches a widget to
 that same conversation and stores the widget's whole state server-side on
 one of the conversation's own messages, a tool message whose
 `metadata.chatgpt_sdk.widget_state` is a JSON string. `status` reads it
@@ -315,21 +422,28 @@ no `/messages`): the plan and its steps, `research_started_at` and
 `research_stopped_at`, and `status`, which reads `completed` when the
 report is ready. The sample was readable 194 seconds after the send.
 
+The widget may appear after `start` returns. Use `status --wait` immediately
+after starting. A one-time status check returns 1 if the widget is absent;
+that does not prove that the send used the wrong start method.
+
 The report is `widget_state.report_message.content.parts[0]`, **native
 Markdown**, and `fetch` writes it out byte for byte. Nothing is converted,
 because nothing needs to be: it is what ChatGPT wrote. `--sources` writes
 the search result groups beside it.
 
-`export` remains for a research started the older way, by calling the
-connector's MCP `start` tool directly. That path attaches no widget and
-stores no report, so its only output is a docx or pdf; every earlier search
-for "the report" came up empty because it was looking at that path. See
-`references/endpoint-discovery.md`.
+`export` returns DOCX or PDF through the connector's MCP tool. It also
+supports the older MCP-only start path, which has no widget report.
+Its default completion check still looks for a legacy "Generated report"
+title. A completed widget run may lack that title. Confirm DONE with
+`status --wait`, then use `export --force` to skip the legacy check. Both
+formats were verified on 2026-09-25. See `references/endpoint-discovery.md`.
 
 ```bash
 python3 $S/deep_research.py start prompt.md --project g-p-<id> --run run.json
 python3 $S/deep_research.py status --run run.json --wait --timeout 1800
 python3 $S/deep_research.py fetch --run run.json --out report.md --sources sources.txt
+python3 $S/deep_research.py export --run run.json --out report.docx --force
+python3 $S/deep_research.py export --run run.json --out report.pdf --type pdf --force
 ```
 
 ## Memory is a hidden input too
@@ -438,6 +552,10 @@ check whether a send is in flight (`dispatching` with no matching `done`).
 
 ## Further reading
 
+- [Setup and recovery](references/setup.md) — first use, required access,
+  missing dependencies, login failures and read-only verification.
+- [Platform tunnels](references/tunnels.md) — admin-key environment/file
+  setup, management commands and recovery from tunnel errors.
 - `references/failure-atlas.md` — every failure, what it actually was, and
   the one command that would have settled it.
 - `references/endpoint-discovery.md` — how to rebuild the transport map when
@@ -468,13 +586,18 @@ and deletable by those two attributes alone.
 
 Because every session build renews it, **no new cron job was added for
 this**: the existing daily health check (`health.py`) already builds one
-session a day, and that alone keeps the token alive indefinitely, long
-after the browser that first logged in stops being visited. Chrome's own
+session a day and can renew the token while the server accepts the login.
+A future expiry does not guarantee continued authentication. Chrome's own
 cookie database is only ever read, never written, exactly as everywhere
 else in this skill. Set `CHATGPT_SESSION_STORE=0` to disable the keyring
 side entirely and fall back to Chrome's own jar, as before this existed.
 
-The one remaining way to lose the session is an actual logout or password
-change on the account -- nothing here can renew a login that no longer
-exists. The daily health check's "session token" group reports that as an
-ALERT once both Chrome's jar and the keyring copy have run out.
+Expiry is not proof that a login remains valid. On 2026-09-25 the keyring
+path repeatedly met an authentication challenge while the existing Chrome
+cookie authenticated successfully. Session creation now tries that browser
+cookie once after a failed keyring authentication (incomplete response or
+HTTP 401/403). It stores renewed cookies only after successful authentication.
+This changes neither Chrome's cookie database nor the account's settings.
+The diagnostic event is `auth_browser_fallback`; no credential is logged.
+Network failures, 429 and 5xx retain the existing retry behavior. If both
+login copies fail, the command still fails and reports the request path.

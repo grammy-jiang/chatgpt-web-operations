@@ -28,6 +28,8 @@ SKILL_MD = SKILL_DIR / "SKILL.md"
 TESTING_MD = SKILL_DIR / "TESTING.md"
 MAKEFILE = SKILL_DIR / "Makefile"
 ENDPOINT_DISCOVERY_MD = SKILL_DIR / "references" / "endpoint-discovery.md"
+CONNECTORS_MD = SKILL_DIR / "references" / "connectors.md"
+TUNNELS_MD = SKILL_DIR / "references" / "tunnels.md"
 
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
@@ -97,7 +99,7 @@ def test_every_skill_md_command_row_names_an_existing_script(name: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# (b) every /backend-api/... constant in the code is in the transport map
+# (b) every ChatGPT or Platform tunnel path constant has a reference
 # ---------------------------------------------------------------------------
 
 PLACEHOLDER = re.compile(r"\{[^}]*\}|<[^>]*>")
@@ -109,7 +111,7 @@ def _fold_placeholders(text: str) -> str:
 
 
 def _endpoint_path(raw: str) -> str:
-    """The /backend-api/... path a constant names: no query string, one
+    """The service path a constant names: no query string, one
     placeholder form. ``raw`` may be a bare path or a full URL."""
     index = raw.find("/backend-api/")
     path = raw[index:] if index != -1 else raw
@@ -119,7 +121,7 @@ def _endpoint_path(raw: str) -> str:
 
 def _endpoint_constants() -> list[tuple[str, str]]:
     """(label, normalised path) for every plain string assigned to a
-    module-level name in scripts/*.py whose value names a /backend-api/ path.
+    module-level name in scripts/*.py naming a ChatGPT or Platform tunnel path.
 
     Parsed with ast rather than executed, so this never imports a module for
     the sake of this check -- every scripts/*.py file is covered, including
@@ -135,7 +137,7 @@ def _endpoint_constants() -> list[tuple[str, str]]:
             if not (isinstance(value, ast.Constant) and isinstance(value.value, str)):
                 continue
             raw = value.value
-            if "/backend-api/" not in raw:
+            if "/backend-api/" not in raw and not raw.startswith("/v1/tunnels"):
                 continue
             for target in node.targets:
                 if isinstance(target, ast.Name):
@@ -143,18 +145,22 @@ def _endpoint_constants() -> list[tuple[str, str]]:
     return found
 
 
-def test_every_backend_api_constant_is_documented() -> None:
+def test_every_service_api_constant_is_documented() -> None:
     """A path a command actually calls must be traceable in the transport
     map, or rediscovering it after ChatGPT changes starts from nothing."""
     docs = _fold_placeholders(
         ENDPOINT_DISCOVERY_MD.read_text(encoding="utf-8")
         + "\n"
         + SKILL_MD.read_text(encoding="utf-8")
+        + "\n"
+        + CONNECTORS_MD.read_text(encoding="utf-8")
+        + "\n"
+        + TUNNELS_MD.read_text(encoding="utf-8")
     )
     misses = [
         f"{label} ({path})" for label, path in _endpoint_constants() if path not in docs
     ]
-    assert not misses, "undocumented backend-api constant(s): " + ", ".join(misses)
+    assert not misses, "undocumented service API constant(s): " + ", ".join(misses)
 
 
 # ---------------------------------------------------------------------------

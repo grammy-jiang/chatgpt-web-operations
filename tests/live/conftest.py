@@ -59,21 +59,25 @@ def sandbox_id() -> str:
     return sid
 
 
+@pytest.fixture(scope="session")
+def live_transport(tier: str) -> Any:
+    """Authenticate once per tier, avoiding one session renewal per test."""
+    import chatgpt_client
+
+    return chatgpt_client.ChatGPTSession("chrome").session
+
+
 @pytest.fixture
-def live_session(tier: str, sandbox_id: str) -> Any:
+def live_session(tier: str, sandbox_id: str, live_transport: Any) -> Any:
     """A real ChatGPTSession whose .session is wrapped in GuardedSession.
 
     For every tier but read, the sandbox's own name is verified first: a
     stale or wrong id in sandbox.json must never let a write tier run
     against a project that is not rp-test-sandbox.
     """
-    import chatgpt_client
-
-    session = chatgpt_client.ChatGPTSession("chrome")
     guarded = guard.GuardedSession(
-        inner=session.session, tier=tier, sandbox_id=sandbox_id
+        inner=live_transport, tier=tier, sandbox_id=sandbox_id
     )
-    session.session = guarded
 
     if tier != "read":
         expected = _sandbox_data()["name"]

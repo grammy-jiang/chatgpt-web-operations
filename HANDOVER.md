@@ -1,4 +1,16 @@
-# Handover: chatgpt-web-operations, 2026-09-20
+# Handover: chatgpt-web-operations
+
+## Current entry point, 2026-09-25
+
+For first use or missing access, read `references/setup.md` and the
+credential creation and recovery sections in `references/tunnels.md`.
+Read `VERIFICATION.md` for measured results, then `SKILL.md`, `ROADMAP.md`
+and `TESTING.md`. There are 29 commands. Codex and the shared
+agent skill paths point at this working directory. The records below are
+historical handovers. Their command counts, test counts, timings and
+abandoned designs do not override the current documents.
+
+## Historical handover, 2026-09-20
 
 Written for the Claude Code session that starts in this directory, by the
 session that ran in `~/Projects/research-pipeline-chatgpt` on 2026-09-19 and

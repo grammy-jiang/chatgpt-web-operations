@@ -38,7 +38,11 @@ way ``list_projects.py`` stops sidebar paging. A page can answer
 is never silently read as a clean "no results".
 
 What is verified and what is not: project chats are included among the
-results (see above). Whether an *archived* chat can match is not
+results (see above). Search indexing is not immediate: on 2026-09-25,
+new user-text and attachment/reply markers first returned no hits, then
+matched the test chats on a later check. Use a known conversation id with
+``read_chat.py`` to check recent work; an empty search does not prove loss.
+Whether an *archived* chat can match is not
 verified -- none happened to match during capture -- so a hit's
 ``archived`` flag is shown whenever ``payload.is_archived`` is true, but
 its absence in every result seen so far proves nothing either way.

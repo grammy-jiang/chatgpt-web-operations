@@ -29,11 +29,8 @@ however far the round trip got, the same unconditional-restore shape
 tests/live/test_write_project_settings.py uses for the sandbox's
 instructions.
 
-Not run by this agent (see the skill's HARD RULES); collect-only proves it
-is wired up without touching the account:
-
-    .venv/bin/python -m pytest tests/live/test_send_chat_flags.py \\
-        --collect-only -q
+Run this test only through its opt-in live tier. See TESTING.md and
+VERIFICATION.md for current execution results.
 """
 
 from __future__ import annotations

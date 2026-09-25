@@ -4,6 +4,43 @@ Every entry is a real failure from driving chatgpt.com on this host. The
 right-hand column is the cheap check that would have settled it, which is the
 part worth remembering.
 
+For first use or an immediate fix, start with [setup and recovery](setup.md).
+It maps current errors to actions and verification commands. Platform
+credential failures have their own [tunnel recovery table](tunnels.md#recovery).
+The dated entries below explain the evidence behind those instructions.
+
+## Verification findings, 2026-09-25
+
+- Four connector commands existed but were absent from the main command
+  table and had no offline coverage. Their separate endpoint document was
+  omitted by the consistency test. Run the current tests instead of trusting
+  a historical green count.
+- `connect_connector.py` returned zero after a failed privacy PATCH.
+  It now requires the requested value in the response and returns one on a
+  failure or mismatch. The dry run includes that PATCH.
+- `delete_connector.py` could uninstall an app after a link deletion failed.
+  It now stops before app deletion. A failed initial lookup also stops.
+- The health live test still used an old authentication signature and
+  expected fourteen checks. It now accepts the current options and checks
+  the fifteenth item, the skills inventory.
+- HTTP authentication using a newer keyring cookie repeatedly received a
+  Cloudflare challenge while the browser composer and Chrome-cookie HTTP
+  authentication worked. A later keyring request worked too: neither expiry
+  nor an account block was established. Session creation now tries the
+  existing browser cookie once after a keyring authentication failure and
+  saves renewals only from authenticated responses. No challenge solver is
+  involved. `VERIFICATION.md` records the tests and remaining limits.
+- A status read immediately after Deep research start found no widget and
+  incorrectly said the research had used the wrong start method. The widget
+  appeared later and the report completed. The message now recommends
+  `status --wait` without inferring the start method.
+- A completed widget report failed the export command's legacy title check.
+  `export --force` produced valid DOCX and PDF files after widget status was
+  DONE. The help and skill now explain this existing route and its guard.
+- Exact search markers initially had zero hits. Both later matched their
+  test chats as content hits. An immediate empty search is not proof that a
+  conversation or its contents are missing.
+
 ## Wrong diagnoses
 
 Three in one session on 2026-09-16, each stated confidently before measuring.

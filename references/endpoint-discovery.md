@@ -2,8 +2,15 @@
 
 The transport map in `SKILL.md` is a snapshot. ChatGPT changes its backend
 without notice, and when it does, the map is rebuilt with the method below
-rather than guessed at. Everything here is read-only: it observes a real
-logged-in page, and never posts a message.
+rather than guessed at. The discovery command observes a logged-in page
+and does not post a message. Later sections also record explicitly performed
+mutations and sends; this file is a dated investigation log.
+
+Current behavior is defined by `SKILL.md`, `ROADMAP.md` and
+`VERIFICATION.md`. Earlier hypotheses below can be superseded by later
+captures. In particular, current Deep research start uses a browser send
+and widget-based HTTP collection; the older MCP-only experiments describe
+the legacy export path, not the default workflow.
 
 ## The principle
 
@@ -169,7 +176,7 @@ changed.
 | `GET /backend-api/gizmos/snorlax/sidebar` | **paged**: without parameters it returns 5 items and a `cursor`; the page asks for `?owned_only=true&conversations_per_gizmo=5&limit=20`; `?owned_only=true&limit=50` returned all 32 projects, pinned ones first. `list_projects.py` pages with cursor since 2026-09-20. With `conversations_per_gizmo` the items are shaped differently, not inspected |
 | `GET /backend-api/pins` | a list of `{"item_type": "feature" / "conversation" / "project", "item": {…}, "pinned_at": …}` |
 | `GET /backend-api/system_hints?mode=basic` | the composer's "+" items: `search` (Search, category `source`, persists between messages, allowed in temporary chats), `picture_v2`, `tasks`, `tatertot` (Study), `canvas`, `sketch` |
-| `GET /backend-api/system_hints?mode=plugins&suggestions=true` | `plugin:connector_openai_deep_research` (Deep research: persists between messages, `requires_personalization`, not allowed in temporary chats) and one entry per installed connector. Whether a send carries `system_hints` in its body is not captured yet (Stage 3, B2 and B3) |
+| `GET /backend-api/system_hints?mode=plugins&suggestions=true` | `plugin:connector_openai_deep_research` (Deep research: persists between messages, `requires_personalization`, not allowed in temporary chats) and one entry per installed connector. Outgoing `system_hints` are captured and rewritten by `send_prompt.py`; see the later 2026-09-20 captures and current `VERIFICATION.md` |
 | `GET /backend-api/wham/usage` | `plan_type`, `rate_limit.primary_window` (`used_percent`, `limit_window_seconds` = 604800, `reset_at`), `credits` (`balance`, `has_credits`, `approx_local_messages`, `approx_cloud_messages`), `rate_limit_reset_credits.available_count`, `model_usage`; `wham/rate-limit-reset-credits` lists the credits with `reset_type: codex_rate_limits`. None of it is about chat sends |
 | `GET /backend-api/conversations?…` items | `memory_scope` was `global_enabled` on all 100 most recent conversations, two of them inside projects; `is_do_not_remember` was `false` or absent. No other value has been observed yet |
 
@@ -190,10 +197,11 @@ Close discards. The PATCH is captured below.
 A `?query` appended to a project URL gives an error page in Chrome; navigate
 to the canonical URL.
 
-Not captured yet, so not implemented: pinning, starring, moving a chat
-into a project, editing project instructions, creating or pausing a
-scheduled task. Each needs one real action recorded
-with `--bodies`.
+This 2026-09-19 inventory was superseded by the captures below. Pin/unpin,
+archive/unarchive, project instructions and project memory scope now have
+commands. Move-to-project and dedicated automation create/pause commands
+remain absent. The generic `tasks` system hint is a separate send route;
+see `SKILL.md` and `VERIFICATION.md` for current capability boundaries.
 
 ## Capturing a mutation
 
