@@ -920,7 +920,10 @@ def test_facts_of_never_reads_conversations_when_the_gizmo_is_wrong(
 # ---------------------------------------------------------------------------
 
 
-def test_skills_inventory_check_is_ok_and_counts_the_installed_skills() -> None:
+def test_skill_status_never_blocks_the_check() -> None:
+    """The user's rule (2026-09-26): a skill's status is reported, never a
+    verdict. Blocked or disabled, the check passes, because the read
+    answering proves ChatGPT still interacts."""
     c = health.skills_inventory_check(
         200,
         True,
@@ -929,11 +932,16 @@ def test_skills_inventory_check_is_ok_and_counts_the_installed_skills() -> None:
                 "name": "fake-skill",
                 "enabled": False,
                 "safety_check_status": "blocked",
-            }
+            },
+            {
+                "name": "fake-skill-2",
+                "enabled": True,
+                "safety_check_status": "unchecked",
+            },
         ],
     )
     assert c["state"] == "ok"
-    assert c["detail"] == "1 installed"
+    assert c["detail"] == "2 installed"
 
 
 def test_skills_rate_limit_is_not_reported_as_cookie_expiry() -> None:
@@ -944,8 +952,8 @@ def test_skills_rate_limit_is_not_reported_as_cookie_expiry() -> None:
 
 
 def test_skills_inventory_check_requires_no_particular_skill() -> None:
-    """The research-pipeline upload it once required was deleted from the
-    account on 2026-09-25; an empty inventory is a valid answer."""
+    """No skill has to be installed (the research-pipeline requirement was
+    removed on 2026-09-25); an empty inventory is a valid answer."""
     c = health.skills_inventory_check(200, True, [])
     assert c["state"] == "ok"
     assert c["detail"] == "0 installed"

@@ -38,10 +38,14 @@ failed"). Then a fifth group, "health", over the same session:
     read endpoints  two reads preflight.py does not make: the projects
                      sidebar and pinned items.
     skills inventory the uploaded-skills inventory, read over this same
-                     authenticated session; the read must answer with a
-                     well-formed list. No particular skill is required: the
-                     research-pipeline upload it once expected was deleted
-                     from the account on 2026-09-25.
+                     authenticated session. Only the read decides this
+                     check: an answer with a well-formed list passes, a
+                     failed read blocks like every other read here. A
+                     skill's own status never decides it -- blocked,
+                     disabled or missing, the check still passes, because
+                     the answer itself proves ChatGPT still interacts (the
+                     user's rule, 2026-09-26). The status is reported, not
+                     judged: the cron wrapper logs it and mails a change.
 
 ``--browser`` adds preflight's own composer check, last and opt-in, exactly
 as ``preflight.py --browser`` does: it costs a browser slot and about
