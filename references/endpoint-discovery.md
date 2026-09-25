@@ -137,6 +137,7 @@ reproduced with the bearer token. All reads.
 | `POST /backend-api/files/library` | the library listing: body `{}` or `{"limit": 100, "cursor": "…"}`; a page is `{"items": […], "cursor": "…"}` and the cursor is null on the last page; no body at all is a 422 |
 | `GET /backend-api/files/library/directories/path` | library folders (one root) |
 | `GET /backend-api/ps/plugins/installed?limit=1000`, `GET /backend-api/hazelnuts?include_permissions=true&scope=installed` | installed apps/connectors and the user's own uploaded skills, respectively; item shapes enriched 2026-09-21, see "Seen on 2026-09-21" below and `list_skills.py` |
+| `POST /backend-api/hazelnuts/<id>/files/get_download_link`, `DELETE /backend-api/hazelnuts/<id>` | an uploaded skill's Download and Delete (no confirmation dialog), captured 2026-09-25, see "Seen on 2026-09-21" below |
 
 ## Seen on 2026-09-20
 
@@ -630,7 +631,26 @@ example `labels` `["safeguard_evasion"]` on one skill), `sample_prompts`,
 `safety_check_status` `"blocked"`, `labels` `["safeguard_evasion"]`, 46
 files. The meaning of `safety_check_status` and of default versus latest
 version is **not verified**: `list_skills.py` prints them verbatim, never
-interpreted.
+interpreted. The three unblocked skills read default `"1"` against latest
+`"2"` as well, so a default of 1 is not a sign of the block.
+
+Two writes captured 2026-09-25 from the Skills page (chatgpt.com/skills),
+whose per-skill "More actions" menu offers Chat, Edit, Download, Uninstall
+and Delete, in both its "Installed" and "Created by me" sections:
+
+- **Download**: `POST /backend-api/hazelnuts/<id>/files/get_download_link`
+  -> 200, then the browser fetches a zip of the skill's files
+  (`<name>.zip`, one top-level `<name>/` folder). That zip is built on
+  request: its SHA-256 differs from the item's `check_sum_hash`, while
+  its file count matched `files` (46 of 46).
+- **Delete**: `DELETE /backend-api/hazelnuts/<id>` -> 200, sent the moment
+  the menu item is clicked, with **no confirmation dialog**. Afterwards
+  the skill was gone from both page sections and from `GET
+  /backend-api/hazelnuts?…&scope=installed`. This is how `research-pipeline`
+  was removed from the account on 2026-09-25, at the user's request, after
+  a Download as backup.
+
+Uninstall was not exercised. No command wraps these writes.
 
 `GET /backend-api/ps/plugins/installed?limit=1000` ->
 `{"plugins": [...], "pagination": {"limit", "next_page_token"}}`: apps

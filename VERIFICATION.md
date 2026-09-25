@@ -195,3 +195,24 @@ A final independent read confirmed that the test project, app and links
 were absent, the original MCP link remained, and the sandbox was empty.
 The model configuration, custom instructions and memory summary matched
 the initial profile snapshot.
+
+## Uploaded research-pipeline skill deleted (2026-09-25, late evening)
+
+At the user's request the `research-pipeline` skill uploaded to the account
+(`hazelnuts`, latest version 14, `safety_check_status` `blocked`) was
+deleted from the Skills page after a Download as backup (46 of 46 files;
+the zip is kept outside the repository). Both requests are recorded in
+`references/endpoint-discovery.md`; Delete has no confirmation dialog. A
+read afterwards (`list_skills.py`) listed the three remaining skills and
+no `research-pipeline`; the page showed it in neither section.
+
+`health.py`'s skills inventory no longer requires a particular skill (it
+had required this one since 2026-09-21), so the daily job does not turn
+the deletion into a block. Offline suite: 1660 passed, coverage gate OK,
+lint clean. Live `tests/live/test_read_skills.py`: 3 passed.
+
+A cron-style run of the daily wrapper at 23:48 read the inventory as
+"3 installed" (ok). The same run's conversations listing got HTTP 429 and
+then a Cloudflare challenge (403) while another project's trial was
+sending and polling through this skill, so that run's verdict was DO NOT
+START for the conversations read, not for the skills change.

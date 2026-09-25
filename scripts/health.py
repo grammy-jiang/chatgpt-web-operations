@@ -38,8 +38,10 @@ failed"). Then a fifth group, "health", over the same session:
     read endpoints  two reads preflight.py does not make: the projects
                      sidebar and pinned items.
     skills inventory the uploaded-skills inventory, read over this same
-                     authenticated session; the expected research-pipeline
-                     skill must still be installed and enabled.
+                     authenticated session; the read must answer with a
+                     well-formed list. No particular skill is required: the
+                     research-pipeline upload it once expected was deleted
+                     from the account on 2026-09-25.
 
 ``--browser`` adds preflight's own composer check, last and opt-in, exactly
 as ``preflight.py --browser`` does: it costs a browser slot and about
@@ -99,7 +101,6 @@ SANDBOX_FILE = Path(__file__).resolve().parents[1] / "tests" / "live" / "sandbox
 PINS = "/backend-api/pins"
 
 SESSION_WARN_DAYS = 14
-EXPECTED_SKILL = "research-pipeline"
 
 # health.py is a diagnostic probe, not a production research run.  Production
 # ChatGPTSession callers keep the long 30/90/180 s authentication ladder; a
@@ -453,15 +454,11 @@ def skills_inventory_check(
             "block",
             "hazelnuts endpoint returned a malformed payload",
         )
-    item = lsk.find_skill(skills, EXPECTED_SKILL)
-    line, met = lsk.expectation_line(EXPECTED_SKILL, item)
-    detail = f"{len(skills)} installed; {line.removeprefix('expect ')}"
     return preflight.check(
         "health",
         "skills inventory",
-        "ok" if met else "block",
-        detail,
-        None if met else f"list_skills.py --expect {EXPECTED_SKILL}",
+        "ok",
+        f"{len(skills)} installed",
     )
 
 

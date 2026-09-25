@@ -7,13 +7,14 @@ data (TESTING.md section 2): a skill's description or sample prompts are
 never asserted on here, only that the documented keys are present with the
 right kind of value.
 
-The last test is the expectation the user set (task instructions,
-2026-09-21): the daily health job will later check that the
-``research-pipeline`` skill is installed and enabled the same way
-``list_skills.py --expect`` does, so this proves that check works end to
-end against the real account, through the guarded session -- the same
-pattern ``tests/live/test_read_preflight.py`` uses for
-``open_chatgpt_session``, adapted here for ``_common.open_session``.
+The last test proves ``list_skills.py``'s ``main()`` works end to end
+against the real account, through the guarded session -- the same pattern
+``tests/live/test_read_preflight.py`` uses for ``open_chatgpt_session``,
+adapted here for ``_common.open_session``. Until 2026-09-25 it also
+required the ``research-pipeline`` upload (``--expect research-pipeline``),
+the expectation the user set on 2026-09-21; the user had that upload
+deleted from the account on 2026-09-25, so no particular skill is required
+any more.
 """
 
 from __future__ import annotations
@@ -55,7 +56,7 @@ def test_plugins_installed_returns_shaped_apps(live_session) -> None:
     assert isinstance(body["pagination"], dict)
 
 
-def test_list_skills_expect_research_pipeline_exits_0_through_the_guarded_session(
+def test_list_skills_main_exits_0_through_the_guarded_session(
     live_session: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """monkeypatch list_skills.open_session, the way
@@ -69,4 +70,4 @@ def test_list_skills_expect_research_pipeline_exits_0_through_the_guarded_sessio
         "open_session",
         lambda *a, **k: SimpleNamespace(session=live_session),
     )
-    assert list_skills.main(["--expect", "research-pipeline"]) == 0
+    assert list_skills.main([]) == 0

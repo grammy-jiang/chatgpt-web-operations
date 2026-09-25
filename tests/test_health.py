@@ -391,7 +391,7 @@ def _happy_backend(
             {
                 "hazelnuts": [
                     {
-                        "name": "research-pipeline",
+                        "name": "fake-skill",
                         "enabled": True,
                         "default_version_no": "1",
                         "latest_version_no": "14",
@@ -920,21 +920,20 @@ def test_facts_of_never_reads_conversations_when_the_gizmo_is_wrong(
 # ---------------------------------------------------------------------------
 
 
-def test_skills_inventory_check_is_ok_when_expected_skill_is_enabled() -> None:
+def test_skills_inventory_check_is_ok_and_counts_the_installed_skills() -> None:
     c = health.skills_inventory_check(
         200,
         True,
         [
             {
-                "name": "research-pipeline",
-                "enabled": True,
-                "default_version_no": "1",
-                "latest_version_no": "14",
+                "name": "fake-skill",
+                "enabled": False,
+                "safety_check_status": "blocked",
             }
         ],
     )
     assert c["state"] == "ok"
-    assert "research-pipeline: installed, enabled" in c["detail"]
+    assert c["detail"] == "1 installed"
 
 
 def test_skills_rate_limit_is_not_reported_as_cookie_expiry() -> None:
@@ -944,10 +943,12 @@ def test_skills_rate_limit_is_not_reported_as_cookie_expiry() -> None:
     assert "cookie" not in c["detail"].lower()
 
 
-def test_skills_inventory_check_blocks_when_expected_skill_is_missing() -> None:
+def test_skills_inventory_check_requires_no_particular_skill() -> None:
+    """The research-pipeline upload it once required was deleted from the
+    account on 2026-09-25; an empty inventory is a valid answer."""
     c = health.skills_inventory_check(200, True, [])
-    assert c["state"] == "block"
-    assert "NOT installed" in c["detail"]
+    assert c["state"] == "ok"
+    assert c["detail"] == "0 installed"
 
 
 def test_fetch_skills_inventory_reuses_the_session_and_redacts_private_fields() -> None:
@@ -958,7 +959,7 @@ def test_fetch_skills_inventory_reuses_the_session_and_redacts_private_fields() 
                 {
                     "hazelnuts": [
                         {
-                            "name": "research-pipeline",
+                            "name": "fake-skill",
                             "enabled": True,
                             "files": {"private/path.md": {"start": 0, "length": 1}},
                             "sample_prompts": ["private prompt"],
@@ -999,7 +1000,7 @@ def test_main_writes_skills_json_from_the_same_health_session(
     doc = json.loads(skills_path.read_text())
     assert doc["available"] is True
     assert doc["status"] == 200
-    assert [sk["name"] for sk in doc["skills"]] == ["research-pipeline"]
+    assert [sk["name"] for sk in doc["skills"]] == ["fake-skill"]
     assert backend.calls.count(health.lsk.HAZELNUTS) == 1
     encoded = skills_path.read_text()
     assert "private/path.md" not in encoded
