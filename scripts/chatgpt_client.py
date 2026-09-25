@@ -1340,6 +1340,12 @@ def virtual_display(visible: bool = False) -> Generator[None]:
 STREAM_SUFFIX = ".stream.txt"
 
 
+# The composer. Until 2026-09-26 it was always ``#prompt-textarea``; that morning ChatGPT shipped a composer that is a
+# ProseMirror ``div`` with ``role="textbox"`` and ``aria-label="New chat in <Project>"`` and no id, and every send failed
+# with "composer did not appear". The union matches either, and both are the same single element on the old page.
+COMPOSER_SELECTOR = '#prompt-textarea, div.ProseMirror[contenteditable="true"][role="textbox"]'
+
+
 # What the composer shows after an upload, read from its own DOM. Scoped to
 # the composer's <form> when one is found (SEND_BUTTONS shows the send
 # button lives inside one), so a same-named button elsewhere on the page can
@@ -1347,7 +1353,7 @@ STREAM_SUFFIX = ".stream.txt"
 # page order.
 COMPOSER_STATE_JS = """
 () => {
-    const composer = document.querySelector('#prompt-textarea');
+    const composer = document.querySelector('#prompt-textarea, div.ProseMirror[contenteditable="true"][role="textbox"]');
     const form = composer ? composer.closest('form') : null;
     const scope = form || document;
     const removeLabels = Array.from(scope.querySelectorAll('button[aria-label]'))
@@ -1951,7 +1957,7 @@ class BrowserSender:
         from playwright.sync_api import TimeoutError as PWTimeout
 
         self._check_rate_limit_dialog()
-        composer = self.page.locator("#prompt-textarea")
+        composer = self.page.locator(COMPOSER_SELECTOR)
         try:
             composer.wait_for(state="visible", timeout=60_000)
         except PWTimeout:
@@ -2092,7 +2098,7 @@ class BrowserSender:
 
         This is what ``preflight.py --browser`` asks: the first half of
         ``_send`` -- navigate to ``new_chat_url()``, wait for
-        ``#prompt-textarea`` -- and nothing after it: no fill, no click, no
+        ``COMPOSER_SELECTOR`` -- and nothing after it: no fill, no click, no
         turn. A composer that never appears raises the same "logged out or
         challenged" ``TransportError`` a send would, so the preflight
         reports exactly what a send would have hit; any other failure is

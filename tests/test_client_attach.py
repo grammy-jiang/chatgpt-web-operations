@@ -329,7 +329,7 @@ def test_send_uploads_attachments_before_filling_the_composer(
 
     order = _call_order(page)
     upload_index = order.index(("locator", UPLOAD_INPUT, "set_input_files"))
-    fill_index = order.index(("locator", "#prompt-textarea", "fill"))
+    fill_index = order.index(("locator", cc.COMPOSER_SELECTOR, "fill"))
     assert upload_index < fill_index
 
 
@@ -378,7 +378,7 @@ def test_send_uploads_attachments_before_attach_prompt_runs_for_a_large_prompt(
         assert len(uploads) == 2
         assert uploads[0][3] == (str(paper.resolve()),)
         assert uploads[1][3] == (str(prompt_tmp),)
-        cover_fill = _calls(page, "fill", "#prompt-textarea")
+        cover_fill = _calls(page, "fill", cc.COMPOSER_SELECTOR)
         assert cover_fill[0][3] == (cc.BrowserSender.ATTACH_COVER,)
     finally:
         prompt_tmp.unlink(missing_ok=True)

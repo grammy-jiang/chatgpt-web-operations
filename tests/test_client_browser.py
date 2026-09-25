@@ -852,11 +852,11 @@ def test_focus_composer_clicks_directly_when_nothing_covers_it(make_sender) -> N
     sender = make_sender()
     page = fp.Page()
     sender.page = page
-    composer = page.locator("#prompt-textarea")
+    composer = page.locator(cc.COMPOSER_SELECTOR)
 
     sender._focus_composer(composer)
 
-    clicks = _calls(page, "click", "#prompt-textarea")
+    clicks = _calls(page, "click", cc.COMPOSER_SELECTOR)
     assert len(clicks) == 1
     assert clicks[0][4]["force"] is False
     assert not _page_calls(page, "keyboard.press")
@@ -869,15 +869,15 @@ def test_focus_composer_clears_a_covering_overlay_and_retries(make_sender) -> No
     page = fp.Page()
     sender.page = page
     page.set_locator(
-        "#prompt-textarea",
+        cc.COMPOSER_SELECTOR,
         raises=fp.sequence(fp.PlaywrightTimeoutError("covered"), None),
     )
     page.set_locator(DIALOG_SELECTOR, count=1, texts=["Update available"])
-    composer = page.locator("#prompt-textarea")
+    composer = page.locator(cc.COMPOSER_SELECTOR)
 
     sender._focus_composer(composer)
 
-    clicks = _calls(page, "click", "#prompt-textarea")
+    clicks = _calls(page, "click", cc.COMPOSER_SELECTOR)
     assert len(clicks) == 2
     assert [c[4]["force"] for c in clicks] == [False, False]
     presses = _page_calls(page, "keyboard.press")
@@ -891,18 +891,18 @@ def test_focus_composer_forces_the_click_after_the_retry_also_times_out(
     page = fp.Page()
     sender.page = page
     page.set_locator(
-        "#prompt-textarea",
+        cc.COMPOSER_SELECTOR,
         raises=fp.sequence(
             fp.PlaywrightTimeoutError("covered"),
             fp.PlaywrightTimeoutError("still covered"),
             None,
         ),
     )
-    composer = page.locator("#prompt-textarea")
+    composer = page.locator(cc.COMPOSER_SELECTOR)
 
     sender._focus_composer(composer)
 
-    clicks = _calls(page, "click", "#prompt-textarea")
+    clicks = _calls(page, "click", cc.COMPOSER_SELECTOR)
     assert len(clicks) == 3
     assert clicks[-1][4]["force"] is True
     assert clicks[-1][4]["timeout"] == 30_000
@@ -923,8 +923,8 @@ def test_composer_returns_the_locator_once_it_is_visible(make_sender) -> None:
 
     composer = sender._composer()
 
-    assert composer.selector == "#prompt-textarea"
-    waits = _calls(page, "wait_for", "#prompt-textarea")
+    assert composer.selector == cc.COMPOSER_SELECTOR
+    waits = _calls(page, "wait_for", cc.COMPOSER_SELECTOR)
     assert waits and waits[0][4]["state"] == "visible"
 
 
@@ -933,7 +933,7 @@ def test_composer_screenshots_and_raises_when_it_never_appears(make_sender) -> N
     page = fp.Page()
     sender.page = page
     page.url = "https://chatgpt.com/"
-    page.set_locator("#prompt-textarea", raises=fp.PlaywrightTimeoutError("gone"))
+    page.set_locator(cc.COMPOSER_SELECTOR, raises=fp.PlaywrightTimeoutError("gone"))
 
     with pytest.raises(cc.TransportError, match="composer did not appear"):
         sender._composer()
@@ -977,7 +977,7 @@ def test_probe_composer_loads_the_new_chat_page_then_waits_for_the_composer(
     gotos = _page_calls(page, "goto")
     assert gotos and gotos[0][2] == ("https://chatgpt.com/g/g-p-abc/project",)
     assert gotos[0][3]["wait_until"] == "domcontentloaded"
-    waits = _calls(page, "wait_for", "#prompt-textarea")
+    waits = _calls(page, "wait_for", cc.COMPOSER_SELECTOR)
     assert waits and waits[0][4]["state"] == "visible"
 
 
@@ -1033,7 +1033,7 @@ def test_fill_composer_loads_focuses_and_fills_under_the_send_budget(
     gotos = _page_calls(page, "goto")
     assert gotos and gotos[0][2] == ("https://chatgpt.com/",)
     assert len(focused) == 1
-    fills = _calls(page, "fill", "#prompt-textarea")
+    fills = _calls(page, "fill", cc.COMPOSER_SELECTOR)
     assert fills and fills[0][3] == (text,)
     assert fills[0][4]["timeout"] == cc.fill_budget_ms(len(text)) == 306_000
 
@@ -1281,7 +1281,7 @@ def test_send_fills_the_composer_within_a_budget_scaled_to_its_size(
     result = sender._send(text, chat=None, name="task")
 
     assert result == REAL_ID
-    fills = _calls(page, "fill", "#prompt-textarea")
+    fills = _calls(page, "fill", cc.COMPOSER_SELECTOR)
     assert fills[0][4]["timeout"] == expected_timeout
 
 
@@ -1380,7 +1380,7 @@ def test_send_attaches_large_prompts_instead_of_filling_them_directly(
 
         assert result == REAL_ID
         assert _calls(page, "set_input_files", "input#upload-files")
-        cover_fill = _calls(page, "fill", "#prompt-textarea")
+        cover_fill = _calls(page, "fill", cc.COMPOSER_SELECTOR)
         assert cover_fill[0][3] == (cc.BrowserSender.ATTACH_COVER,)
     finally:
         path.unlink(missing_ok=True)
@@ -1416,7 +1416,7 @@ def test_send_wraps_a_fill_timeout_as_a_rate_limit_when_the_modal_is_present(
     # Only fill() must fail here: wait_for() must still find the composer,
     # or the failure would be "composer did not appear", not a fill timeout.
     page.set_locator(
-        "#prompt-textarea", raises={"fill": fp.PlaywrightTimeoutError("timed out")}
+        cc.COMPOSER_SELECTOR, raises={"fill": fp.PlaywrightTimeoutError("timed out")}
     )
     page.set_locator(
         cc.BrowserSender.RATE_LIMIT_MODAL, count=1, texts=["Too many requests."]
@@ -1437,7 +1437,7 @@ def test_send_wraps_a_generic_failure_without_the_rate_limit_modal(
     page = fp.Page()
     sender.page = page
     page.set_locator(
-        "#prompt-textarea", raises={"fill": fp.PlaywrightTimeoutError("timed out")}
+        cc.COMPOSER_SELECTOR, raises={"fill": fp.PlaywrightTimeoutError("timed out")}
     )
     # RATE_LIMIT_MODAL left unconfigured: absent.
 
