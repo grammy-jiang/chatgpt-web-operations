@@ -271,15 +271,19 @@ def find_session_id(events: Iterable[Any]) -> str | None:
 def chat_id(chat: str) -> str:
     """Conversation id from an id or URL.
 
-    New chats first show an optimistic client id (``/c/WEB:<uuid>``) that the
-    backend does not know; ``is_provisional`` tells callers to resolve it.
+    New chats first show an optimistic client id that the backend does not
+    know; ``is_provisional`` tells callers to resolve it. Until 2026-09-26 it
+    was ``/c/WEB:<uuid>``; the UI released that morning shows
+    ``/c/local-chatgpt%3A<uuid>`` (``local-chatgpt:<uuid>``) for about four
+    seconds before the real id. Unrecognized, that URL came back as the "id"
+    itself and every later lookup of it failed until the caller timed out.
     """
-    m = re.search(r"/c/((?:WEB:)?[0-9a-f-]{20,})", chat)
-    return m.group(1) if m else chat.strip()
+    m = re.search(r"/c/((?:WEB:|local-chatgpt(?::|%3A))?[0-9a-f-]{20,})", chat, re.I)
+    return m.group(1).replace("%3A", ":").replace("%3a", ":") if m else chat.strip()
 
 
 def is_provisional(chat: str) -> bool:
-    return chat_id(chat).startswith("WEB:")
+    return chat_id(chat).startswith(("WEB:", "local-chatgpt:"))
 
 
 def epoch_of(value: Any) -> float:

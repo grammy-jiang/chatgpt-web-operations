@@ -211,6 +211,19 @@ def test_an_id_shorter_than_twenty_characters_is_not_treated_as_a_c_url_id() -> 
     assert cc.chat_id("/c/abc123") == "/c/abc123"
 
 
+def test_a_local_chatgpt_provisional_id_is_recognized() -> None:
+    """The 2026-09-26 UI shows /c/local-chatgpt%3A<uuid> before the real id, inside a project URL too."""
+    url = (
+        "https://chatgpt.com/g/g-p-6aaea9da2bc881918d6f9eb5177cf904-rp-test-sandbox"
+        "/c/local-chatgpt%3A2847c643-e935-4a33-bdd9-7b72cafc3df7"
+    )
+    assert cc.chat_id(url) == "local-chatgpt:2847c643-e935-4a33-bdd9-7b72cafc3df7"
+    assert cc.is_provisional(url) is True
+    real = "https://chatgpt.com/g/g-p-6aaea9da2bc881918d6f9eb5177cf904-rp-test-sandbox/c/6ab6f3f8-915c-83ec-8882-85bf7654c8a7"
+    assert cc.chat_id(real) == "6ab6f3f8-915c-83ec-8882-85bf7654c8a7"
+    assert cc.is_provisional(real) is False
+
+
 def test_is_provisional_is_true_only_for_a_web_prefixed_id() -> None:
     assert cc.is_provisional("WEB:abc") is True
     assert cc.is_provisional("6aa9e952-f2dc-83ec-a3cb-39ed2ff14db8") is False
