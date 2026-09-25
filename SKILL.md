@@ -134,7 +134,9 @@ rewrites that ledger wholesale and would drop the change.
 ## Connectors: apps, links and tunnels
 
 Measured 2026-09-25 while onboarding a throwaway custom MCP connector (the
-full procedure, tunnel included, is the `chatgpt-mcp-onboarding` skill).
+full procedure, tunnel included, is the `chatgpt-mcp-onboarding` skill, which
+calls these commands for every ChatGPT-side step). The captured request
+shapes are in `references/connectors.md`.
 Since the plugins era a connector made through "Create MCP App" is an *app*
 (`asdk_app_<32hex>`, a private plugin release) that is not usable until it
 is *connected*, which creates the user's *link* (`link_<32hex>`) and
