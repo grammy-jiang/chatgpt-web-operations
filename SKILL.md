@@ -131,6 +131,32 @@ rewrites that ledger wholesale and would drop the change.
 **ChatGPT changed something.** `discover_endpoints.py`, then
 `references/endpoint-discovery.md` for how to read the output.
 
+## Connectors: apps, links and tunnels
+
+Measured 2026-09-25 while onboarding a throwaway custom MCP connector (the
+full procedure, tunnel included, is the `chatgpt-mcp-onboarding` skill).
+Since the plugins era a connector made through "Create MCP App" is an *app*
+(`asdk_app_<32hex>`, a private plugin release) that is not usable until it
+is *connected*, which creates the user's *link* (`link_<32hex>`) and
+discovers the tool names through the tunnel. `chatgpt-refresh --list` and
+`links/list_accessible` show links only.
+
+```bash
+python3 $S/list_connectors.py [--match TEXT] [--tunnels] [--detail ID ...] [--json]
+python3 $S/create_connector.py --name NAME --tunnel tunnel_<id>        # POST aip/connectors/mcp -> asdk_app_<id>; 409 = name taken
+python3 $S/connect_connector.py asdk_app_<id> --name NAME --apps-privacy full_access   # POST links/noauth -> link_<id> + tools
+chatgpt-refresh NAME                                                    # re-read the tools after the server changed
+python3 $S/delete_connector.py asdk_app_<id> --confirm                  # DELETE aip/connectors/<id>: app, release and link
+```
+
+The server behind the tunnel must be up when creating and connecting:
+ChatGPT probes it and the link's `actions` are what it found. To pin a send
+to one connector, pass `--system-hint plugin:plugin_<asdk_app id>` to
+`send_prompt.py`; the server then sees the call from client
+`openai-mcp(Codex)` (the pre-plugin connector reports `openai-mcp`). Only
+the tunnel + No Auth shape was captured; "Server URL" and OAuth
+connectors are not covered by these commands.
+
 ## Projects keep a run's chats out of the user's list
 
 A project groups conversations, carries its own instructions, and its chats
