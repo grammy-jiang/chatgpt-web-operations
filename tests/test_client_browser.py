@@ -40,7 +40,7 @@ REAL_URL = f"https://chatgpt.com/c/{REAL_ID}"
 PROVISIONAL_URL = f"https://chatgpt.com/c/{PROVISIONAL_ID}"
 
 DIALOG_SELECTOR = '[role="dialog"], [role="alertdialog"]'
-USER_TURN_SELECTOR = '[data-message-author-role="user"]'
+USER_TURN_SELECTOR = cc.USER_TURN_SELECTOR
 UPLOADING_SELECTOR = (
     '[aria-label*="Uploading" i], [aria-busy="true"], [role="progressbar"]'
 )

@@ -1005,7 +1005,7 @@ def _wire_confirmed_send(page: fp.Page) -> None:
     page.set_locator(
         cc.BrowserSender.SEND_BUTTONS[0], count=1, visible=True, enabled=True
     )
-    page.set_locator('[data-message-author-role="user"]', count=fp.sequence(0, 1))
+    page.set_locator(cc.USER_TURN_SELECTOR, count=fp.sequence(0, 1))
     page.url = fp.sequence(REAL_URL)
 
 
@@ -1043,7 +1043,7 @@ def test_send_records_the_stream_on_the_provisional_id_return_too(
     page.set_locator(
         cc.BrowserSender.SEND_BUTTONS[0], count=1, visible=True, enabled=True
     )
-    page.set_locator('[data-message-author-role="user"]', count=fp.sequence(0, 1))
+    page.set_locator(cc.USER_TURN_SELECTOR, count=fp.sequence(0, 1))
     provisional_id = f"WEB:{REAL_ID}"
     page.url = fp.sequence(f"https://chatgpt.com/c/{provisional_id}")
     sse = "data: {}\n\ndata: [DONE]\n"

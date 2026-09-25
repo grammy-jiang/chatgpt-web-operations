@@ -35,7 +35,7 @@ import fake_playwright as fp  # noqa: E402
 REAL_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 REAL_URL = f"https://chatgpt.com/c/{REAL_ID}"
 
-USER_TURN_SELECTOR = '[data-message-author-role="user"]'
+USER_TURN_SELECTOR = cc.USER_TURN_SELECTOR
 UPLOADING_SELECTOR = (
     '[aria-label*="Uploading" i], [aria-busy="true"], [role="progressbar"]'
 )

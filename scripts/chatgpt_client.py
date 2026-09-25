@@ -1344,6 +1344,10 @@ STREAM_SUFFIX = ".stream.txt"
 # ProseMirror ``div`` with ``role="textbox"`` and ``aria-label="New chat in <Project>"`` and no id, and every send failed
 # with "composer did not appear". The union matches either, and both are the same single element on the old page.
 COMPOSER_SELECTOR = '#prompt-textarea, div.ProseMirror[contenteditable="true"][role="textbox"]'
+# A user turn on the page. The same 2026-09-26 release dropped data-message-author-role; a user message is now a
+# div[data-user-message-bubble="true"]. Without this a posted message read as "not posted" and the caller
+# retried, which could start a second chat for the same prompt.
+USER_TURN_SELECTOR = '[data-message-author-role="user"], [data-user-message-bubble="true"]'
 
 
 # What the composer shows after an upload, read from its own DOM. Scoped to
@@ -2233,7 +2237,7 @@ class BrowserSender:
             if state != "true":
                 chat_toggle.first.click(timeout=3_000)
                 page.wait_for_timeout(500)
-        turns_before = page.locator('[data-message-author-role="user"]').count()
+        turns_before = page.locator(USER_TURN_SELECTOR).count()
         budget = fill_budget_ms(len(text))
         if len(text) > self.ATTACH_ABOVE_BYTES:
             # Before _attach_prompt runs: it uploads the prompt itself
@@ -2273,7 +2277,7 @@ class BrowserSender:
                 for _ in range(20):
                     page.wait_for_timeout(1_000)
                     if (
-                        page.locator('[data-message-author-role="user"]').count()
+                        page.locator(USER_TURN_SELECTOR).count()
                         > turns_before
                     ):
                         break
@@ -2285,7 +2289,7 @@ class BrowserSender:
         for _ in range(90):
             page.wait_for_timeout(1_000)
             posted = (
-                page.locator('[data-message-author-role="user"]').count() > turns_before
+                page.locator(USER_TURN_SELECTOR).count() > turns_before
             )
             if posted and "/c/" in page.url and not is_provisional(page.url):
                 if self.record_send_body:
