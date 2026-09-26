@@ -1710,3 +1710,64 @@ def test_pick_browser_rejects_an_unknown_name_with_a_clear_message(capsys) -> No
     with pytest.raises(SystemExit):
         chatgpt_session.pick_browser("firefox")
     assert "unknown browser 'firefox'" in capsys.readouterr().err
+
+
+# 2026-09-27: an empty _dd_s cookie made every session fail to open.
+def test_make_decryptor_accepts_an_empty_value(monkeypatch) -> None:
+    monkeypatch.setattr(chatgpt_session, "_keyring_password", lambda app: b"unused")
+    decrypt = chatgpt_session._make_decryptor("chrome")
+    assert decrypt(_encrypt(b"v10", _derive(b"peanuts"), b"")) == ""
+
+
+def test_make_decryptor_accepts_non_ascii_text(monkeypatch) -> None:
+    monkeypatch.setattr(chatgpt_session, "_keyring_password", lambda app: b"unused")
+    decrypt = chatgpt_session._make_decryptor("chrome")
+    enc = _encrypt(b"v10", _derive(b"peanuts"), "héllo wörld".encode())
+    assert decrypt(enc) == "héllo wörld"
+
+
+def test_cookie_header_skips_an_unreadable_analytics_cookie(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    db = tmp_path / "cookies.db"
+    _make_cookie_db(
+        db,
+        [
+            ("chatgpt.com", "__Secure-next-auth.session-token.0", "", b"GOOD"),
+            ("chatgpt.com", "_dd_s", "", b"BAD"),
+        ],
+    )
+    monkeypatch.setitem(chatgpt_session.BROWSERS, "testbrowser", (db, "testapp"))
+
+    def fake(app):
+        def decrypt(enc):
+            if enc == b"BAD":
+                chatgpt_session.fail("could not decode a decrypted cookie value")
+            return "session-value"
+
+        return decrypt
+
+    monkeypatch.setattr(chatgpt_session, "_make_decryptor", fake)
+    header = chatgpt_session._cookie_header("testbrowser")
+    assert "__Secure-next-auth.session-token.0=session-value" in header
+    assert "_dd_s" not in header
+
+
+def test_cookie_header_still_fails_on_an_unreadable_session_cookie(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    db = tmp_path / "cookies.db"
+    session_row = ("chatgpt.com", "__Secure-next-auth.session-token.0", "", b"BAD")
+    _make_cookie_db(db, [session_row])
+    monkeypatch.setitem(chatgpt_session.BROWSERS, "testbrowser", (db, "testapp"))
+
+    def fake(app):
+        def decrypt(enc):
+            chatgpt_session.fail("could not decode a decrypted cookie value")
+
+        return decrypt
+
+    monkeypatch.setattr(chatgpt_session, "_make_decryptor", fake)
+    with pytest.raises(SystemExit):
+        chatgpt_session._cookie_header("testbrowser")
+    assert "could not decode the ChatGPT session cookie" in capsys.readouterr().err

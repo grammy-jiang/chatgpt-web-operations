@@ -247,23 +247,42 @@ def _make_decryptor(app: str):
 
     keys = {b"v10": derive(b"peanuts"), b"v11": derive(_keyring_password(app))}
 
-    def decrypt(enc: bytes) -> str:
+    def plain(enc: bytes) -> str | None:
+        """The value, or None when it does not decode (never exits).
+
+        Accepts any valid UTF-8 without control characters, empty included:
+        Chrome keeps analytics cookies such as _dd_s empty or with non-ASCII
+        text, and on 2026-09-27 an empty _dd_s made every session fail to
+        open under the old printable-ASCII rule.
+        """
         key = keys.get(enc[:3])
         if key is None:
-            fail(f"unexpected cookie encryption version {enc[:3]!r}")
+            return None
         d = Cipher(algorithms.AES(key), modes.CBC(b" " * 16)).decryptor()
         pt = d.update(enc[3:]) + d.finalize()
-        pad = pt[-1]
+        pad = pt[-1] if pt else 0
         pt = pt[:-pad] if 0 < pad <= 16 else pt
-        for cand in (pt, pt[32:]):  # newer Chromium prepends a 32-byte domain hash
+        # Newer Chromium prepends a 32-byte domain hash; strip it only when
+        # there is one, or short garbage would pass as an empty value.
+        cands = (pt, pt[32:]) if len(pt) >= 32 else (pt,)
+        for cand in cands:
             try:
                 s = cand.decode("utf-8")
             except UnicodeDecodeError:
                 continue
-            if s and all(32 <= ord(c) < 127 for c in s):
+            if all(ord(c) >= 32 and ord(c) != 127 for c in s):
                 return s
-        fail("could not decode a decrypted cookie value")
+        return None
 
+    def decrypt(enc: bytes) -> str:
+        if keys.get(enc[:3]) is None:
+            fail(f"unexpected cookie encryption version {enc[:3]!r}")
+        s = plain(enc)
+        if s is None:
+            fail("could not decode a decrypted cookie value")
+        return s
+
+    decrypt.plain = plain  # type: ignore[attr-defined]
     return decrypt
 
 
@@ -636,9 +655,24 @@ def _cookie_pairs(browser: str) -> tuple[list[tuple[str, str]], dict[str, Any] |
     record_rows: list[tuple[str, str, float | None]] = []
     have_session = False
     for name, value, enc, expires_utc in rows:
-        text = decrypt(enc) if enc else value
+        is_session = name.startswith(SESSION_COOKIE_PREFIX)
+        if enc:
+            plain = getattr(decrypt, "plain", None)
+            if plain is not None:
+                text = plain(enc)
+            else:  # an injected decryptor (tests) exits on failure
+                try:
+                    text = decrypt(enc)
+                except SystemExit:
+                    text = None
+        else:
+            text = value
+        if text is None:
+            if is_session:
+                fail("could not decode the ChatGPT session cookie")
+            continue  # an unreadable analytics cookie must never end a run
         pairs.append((name, text))
-        if name.startswith(SESSION_COOKIE_PREFIX):
+        if is_session:
             have_session = True
             epoch = (
                 expires_utc / 1_000_000 - WEBKIT_EPOCH_DELTA_S if expires_utc else None
