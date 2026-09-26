@@ -252,9 +252,38 @@ def _send_single(
     conversation_id = ""
     reply: str | None = None
 
+    # RP_NEWCHAT_FAST=1 (new chats only): post first, without the shared new-chat lock and without the HTTP session and
+    # conversation listing that only a provisional id needs. Since 2026-09-26 the page shows the real id about four seconds
+    # after the post, so the lock and the listing usually cost the whole send budget whenever the read path is throttled
+    # or another session holds the lock. A provisional id still falls back to the locked, time-bounded listing.
+    fast = os.environ.get("RP_NEWCHAT_FAST") == "1" and not args.chat
     try:
-        session = open_session(args.browser)
-        if args.chat:
+        session = None if fast else open_session(args.browser)
+        if fast:
+            since = time.time()
+            step += 1
+            _progress(step, total, "sending as a new chat (fast path)...")
+            with cc.BrowserSender(
+                args.browser,
+                project=args.project,
+                effort=args.effort,
+                model=args.model,
+                visible=args.visible,
+                search=args.search,
+                hints=hints,
+                record_send_body=args.record_send_body,
+                attachments=attachments,
+            ) as sender:
+                conversation_id = sender.send(text, name=prompt_path.stem)
+            step += 1
+            if cc.is_provisional(conversation_id):
+                _progress(step, total, "resolving the new conversation id (fast-path fallback)...")
+                session = open_session(args.browser)
+                with cc.new_chat_lock():
+                    conversation_id = cc.resolve_new_conversation(session, set(), since=since)
+            else:
+                _progress(step, total, "already a real conversation id")
+        elif args.chat:
             step += 1
             _progress(step, total, f"sending to {args.chat}...")
             with cc.BrowserSender(
@@ -301,6 +330,7 @@ def _send_single(
         if not args.no_wait:
             step += 1
             _progress(step, total, "waiting for the reply...")
+            session = session or open_session(args.browser)
             reply = cc.wait_for_reply(session, conversation_id, timeout=args.timeout)
             print(reply)
 
@@ -311,6 +341,7 @@ def _send_single(
         if args.title:
             step += 1
             _progress(step, total, f"renaming to {args.title!r}...")
+            session = session or open_session(args.browser)
             session.rename(conversation_id, args.title)
     except Exception as exc:  # BrowserSender, resolve and wait all raise here
         print(f"send failed: {str(exc)[:200]}")

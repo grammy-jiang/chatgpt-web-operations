@@ -241,6 +241,54 @@ def test_no_wait_skips_the_reply_and_omits_it_from_the_json(
     assert doc["conversation_id"] == REAL_ID
 
 
+def test_fast_path_posts_without_lock_or_session_when_the_id_is_real(monkeypatch, tmp_path) -> None:
+    """RP_NEWCHAT_FAST=1: no HTTP session, no new-chat lock and no listing before a post that returns a real id."""
+    monkeypatch.setenv("RP_NEWCHAT_FAST", "1")
+    fake_sender = FakeSender(result=REAL_ID)
+    monkeypatch.setattr(cc, "BrowserSender", fake_sender)
+    monkeypatch.setattr(cc, "ChatGPTSession", _boom)
+    monkeypatch.setattr(cc, "new_chat_lock", _boom)
+    monkeypatch.setattr(cc, "resolve_new_conversation", _boom)
+    monkeypatch.setattr(cc, "wait_for_reply", _boom)
+
+    out_json = tmp_path / "out.json"
+    rc = send_prompt.main([str(_prompt(tmp_path)), "--project", "g-p-sandbox", "--no-wait", "--json", str(out_json)])
+
+    assert rc == 0
+    assert json.loads(out_json.read_text())["conversation_id"] == REAL_ID
+
+
+def test_fast_path_falls_back_to_the_locked_listing_for_a_provisional_id(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("RP_NEWCHAT_FAST", "1")
+    fake_sender = FakeSender(result=PROVISIONAL_ID)
+    locks: list[str] = []
+
+    class _Lock(_NoopCM):
+        def __enter__(self):
+            locks.append("in")
+            return self
+
+    monkeypatch.setattr(cc, "BrowserSender", fake_sender)
+    monkeypatch.setattr(cc, "ChatGPTSession", lambda browser: FakeSession())
+    monkeypatch.setattr(cc, "new_chat_lock", lambda *a, **kw: _Lock())
+    seen: dict = {}
+
+    def fake_resolve(session, known_ids, *, since=0.0, **kw):
+        seen["known_ids"], seen["since"] = known_ids, since
+        return REAL_ID
+
+    monkeypatch.setattr(cc, "resolve_new_conversation", fake_resolve)
+    monkeypatch.setattr(cc, "wait_for_reply", _boom)
+
+    out_json = tmp_path / "out.json"
+    rc = send_prompt.main([str(_prompt(tmp_path)), "--no-wait", "--json", str(out_json)])
+
+    assert rc == 0
+    assert locks == ["in"]
+    assert seen["known_ids"] == set() and seen["since"] > 0
+    assert json.loads(out_json.read_text())["conversation_id"] == REAL_ID
+
+
 # ---------------------------------------------------------------------------
 # --chat continues an existing conversation without resolving
 # ---------------------------------------------------------------------------
