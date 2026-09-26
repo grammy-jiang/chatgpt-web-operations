@@ -2239,6 +2239,7 @@ class BrowserSender:
         # one that would have worked -- so the ceiling is where the slack
         # belongs.
         composer = self._load_composer(url)
+        logger.info("send: composer ready at %s", page.url)
         # Chat surface only: leave the surface toggle alone when absent.
         chat_toggle = page.get_by_role("radio", name=re.compile(r"^Chat$", re.I))
         if chat_toggle.count() and chat_toggle.first.is_visible():
@@ -2263,6 +2264,7 @@ class BrowserSender:
                 self._upload_files(page, self.attachments)
             composer.fill(text, timeout=budget)
         page.wait_for_timeout(800)
+        logger.info("send: text filled (%d chars)", len(text))
         # Start watching for this send's own reply now, before the click, so
         # record_send_body's stream capture is not missed; its value is not
         # read until the post-click checks below have confirmed the message
@@ -2293,6 +2295,7 @@ class BrowserSender:
                 else:
                     self._focus_composer(composer)
                     page.keyboard.press("Enter")
+        logger.info("send: submitted; confirming the post")
         # Confirm the post: a new user bubble and, for a new chat, a /c/ URL.
         posted = False
         for _ in range(90):

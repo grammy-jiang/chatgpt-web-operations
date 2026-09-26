@@ -83,6 +83,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import os
 import sys
 import time
 from datetime import UTC, datetime
@@ -98,6 +100,24 @@ SECONDS_PER_PROMPT_ESTIMATE = 180.0
 
 def _progress(step: int, total: int, message: str) -> None:
     print(f"{step}/{total} {message}")
+    logging.getLogger("send_prompt").info("%d/%d %s", step, total, message)
+
+
+def _debug_log() -> None:
+    """RP_LOG_FILE=<path>: append every step (this script's and the client's) with a timestamp and pid.
+
+    A caller that captures this process's output and only keeps the exception text (the chat-scheduling benchmark
+    harness) otherwise loses where a slow or failed send spent its time.
+    """
+    path = os.environ.get("RP_LOG_FILE")
+    if not path:
+        return
+    handler = logging.FileHandler(path)
+    handler.setFormatter(logging.Formatter("%(asctime)s pid=%(process)d %(name)s %(levelname)s %(message)s"))
+    root = logging.getLogger()
+    root.addHandler(handler)
+    if root.level > logging.INFO or root.level == logging.NOTSET:
+        root.setLevel(logging.INFO)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -503,6 +523,7 @@ def _send_batch(
 
 
 def main(argv: list[str] | None = None) -> int:
+    _debug_log()
     args = _build_parser().parse_args(argv)
 
     if args.chat and args.project:
