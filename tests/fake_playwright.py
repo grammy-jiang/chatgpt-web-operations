@@ -47,7 +47,7 @@ page's* list, so a test can assert an exact sequence of what happened,
 e.g. ``[c for c in page.calls if c[2] == "click"]``. Only actions that do
 something are recorded (``click``, ``fill``, ``press``, ``wait_for``,
 ``set_input_files``, ``get_attribute``, ``inner_text``, plus the ``Page``
-actions ``goto``, ``screenshot``, ``close``, ``evaluate``,
+actions ``goto``, ``reload``, ``screenshot``, ``close``, ``evaluate``,
 ``wait_for_timeout``); ``count()``, ``is_visible()`` and ``is_enabled()``
 are silent reads, since their answers are already controlled by
 ``set_locator(...)`` and are more directly asserted from there.
@@ -403,6 +403,7 @@ class Page:
         self._url: Any = "about:blank"
         self.last_goto_url: str | None = None
         self.goto_raises: BaseException | None = None
+        self.reload_raises: BaseException | None = None
         self.keyboard = Keyboard(self)
         self.closed = False
         self._locator_states: dict[str, ElementState] = {}
@@ -426,6 +427,11 @@ class Page:
             raise self.goto_raises
         if not callable(self._url):
             self._url = url
+
+    def reload(self, **kw: Any) -> None:
+        self.calls.append(("page", "reload", (), kw))
+        if self.reload_raises is not None:
+            raise self.reload_raises
 
     # -- locators --------------------------------------------------------
     def set_locator(self, selector: str, **kw: Any) -> ElementState:

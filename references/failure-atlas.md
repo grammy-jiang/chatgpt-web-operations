@@ -295,6 +295,16 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
 
 ## Fixed bugs worth not re-introducing
 
+- **"Could not load this ChatGPT conversation."** Under read-path
+  throttling (2026-09-26/27) the page of an existing chat showed this notice
+  and a Retry button instead of the messages, and a follow-up send into the
+  chat failed on it. `BrowserSender._await_chat` now runs after every load of
+  a `/c/<id>` page: it waits (at most `RP_CHAT_LOAD_SETTLE_MS`, 15 s) for a
+  turn or the notice; on the notice it presses Retry, or reloads when there is
+  no button, after 5/10/20/40/60 s (+/-20 % jitter), up to
+  `RP_CHAT_LOAD_RETRIES` (5) times, each retry logged (so in `RP_LOG_FILE`),
+  then raises a `TransportError` naming the chat and the number of loads. A
+  normal load clicks and waits for nothing; a new-chat page is never checked.
 - **Cookie decryptor exits the process.** It accepted a value only when every
   character was printable ASCII. Empty, tab and non-ASCII values all fail
   that, and Chrome clears analytics cookies (`_dd_s`, `g_state`) constantly.

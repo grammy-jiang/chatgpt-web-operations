@@ -42,6 +42,7 @@ import contextlib
 import json
 import logging
 import os
+import random
 import re
 import shutil
 import signal
@@ -1352,6 +1353,37 @@ COMPOSER_SELECTOR = '#prompt-textarea, div.ProseMirror[contenteditable="true"][r
 # div[data-user-message-bubble="true"]. Without this a posted message read as "not posted" and the caller
 # retried, which could start a second chat for the same prompt.
 USER_TURN_SELECTOR = '[data-message-author-role="user"], [data-user-message-bubble="true"]'
+# ChatGPT's own notice when its read of an existing conversation fails: the
+# thread shows "Could not load this ChatGPT conversation" and a Retry button
+# instead of the messages. Seen 2026-09-26/27 while the read path was
+# throttled; a follow-up send into an existing chat failed on it. Small
+# wording variants ("Unable to load conversation ...") match too.
+CHAT_LOAD_FAILURE_RE = re.compile(
+    r"(?:could\s*not|couldn[\u2019']t|unable\s+to|failed\s+to)\s+load\s+"
+    r"(?:this\s+)?(?:chatgpt\s+)?conversation",
+    re.I,
+)
+CHAT_RETRY_BUTTON_RE = re.compile(r"^\s*(?:retry|try again)\s*$", re.I)
+# Any rendered turn of a loaded conversation. Deliberately not
+# USER_TURN_SELECTOR: the send counts user turns before and after posting,
+# and this check must never touch that count.
+CHAT_TURN_SELECTOR = (
+    '[data-message-author-role], [data-user-message-bubble="true"], '
+    'article[data-testid^="conversation-turn"]'
+)
+# How long an existing chat may take to show either a turn or the failure
+# notice before the send carries on as it always did; how many retries the
+# notice gets (its Retry button, else a reload); the backoff before each.
+CHAT_LOAD_SETTLE_MS = int(os.environ.get("RP_CHAT_LOAD_SETTLE_MS", "15000"))
+CHAT_LOAD_RETRIES = int(os.environ.get("RP_CHAT_LOAD_RETRIES", "5"))
+CHAT_LOAD_BACKOFF_MS = (5_000, 10_000, 20_000, 40_000, 60_000)
+
+
+def chat_load_backoff_ms(retry: int) -> int:
+    """The wait before retry ``retry`` (0-based): 5, 10, 20, 40, then 60 s,
+    each with +/-20 % jitter, and never more than 60 s."""
+    base = CHAT_LOAD_BACKOFF_MS[min(retry, len(CHAT_LOAD_BACKOFF_MS) - 1)]
+    return min(int(base * random.uniform(0.8, 1.2)), 60_000)
 
 
 # What the composer shows after an upload, read from its own DOM. Scoped to
@@ -2142,7 +2174,98 @@ class BrowserSender:
             wait_until="domcontentloaded",
             timeout=PAGE_LOAD_MS,
         )
+        if url and "/c/" in url:
+            self._await_chat(url)
         return self._composer()
+
+    def _chat_load_failure(self) -> str:
+        """The text of ChatGPT's "could not load this conversation" notice if
+        it is on the page, else empty."""
+        notice = self.page.get_by_text(CHAT_LOAD_FAILURE_RE)
+        with contextlib.suppress(Exception):
+            if notice.count() and notice.first.is_visible():
+                text = " ".join(notice.first.inner_text(timeout=2_000).split())
+                return text[:160] or "could not load this conversation"
+        return ""
+
+    def _watch_chat_load(self) -> str:
+        """Owner thread only. Wait until the conversation shows a turn (it
+        loaded: return empty) or the failure notice (return its text), for at
+        most ``CHAT_LOAD_SETTLE_MS``. With neither, return empty, so the
+        composer wait and the send go on exactly as before this check."""
+        turns = self.page.locator(CHAT_TURN_SELECTOR)
+        waited = 0
+        while True:
+            notice = self._chat_load_failure()
+            if notice:
+                return notice
+            with contextlib.suppress(Exception):
+                if turns.count():
+                    return ""
+            if waited >= CHAT_LOAD_SETTLE_MS:
+                logger.warning(
+                    "chat page %s showed no turn and no load-failure notice "
+                    "within %d ms; carrying on",
+                    self.page.url,
+                    CHAT_LOAD_SETTLE_MS,
+                )
+                return ""
+            self.page.wait_for_timeout(500)
+            waited += 500
+
+    def _await_chat(self, url: str) -> None:
+        """Owner thread only; right after ``_load_composer`` loaded an
+        existing chat's page.
+
+        When ChatGPT shows "Could not load this ChatGPT conversation" instead
+        of the messages (its own read of the conversation failed, typically
+        while the read path is throttled), press the notice's Retry button --
+        or reload the page when there is none -- after a backoff of 5, 10,
+        20, 40 and 60 s (+/-20 % jitter), up to ``CHAT_LOAD_RETRIES`` times,
+        then raise a ``TransportError`` naming the chat and the number of
+        loads. Each retry is logged, so it lands in ``RP_LOG_FILE`` when that
+        is set. A page that loads normally returns at the first check, with
+        nothing clicked and nothing waited for.
+        """
+        chat = chat_id(url)
+        retries = 0
+        while True:
+            notice = self._watch_chat_load()
+            if not notice:
+                if retries:
+                    logger.info("chat %s loaded after %d retries", chat, retries)
+                return
+            if retries >= CHAT_LOAD_RETRIES:
+                with contextlib.suppress(Exception):
+                    self.page.screenshot(
+                        path=str(self.screenshot_dir / "chatgpt-chat-load-failed.png")
+                    )
+                raise TransportError(
+                    f"chat {chat} did not load after {retries + 1} loads "
+                    f"({retries} retries): {notice}"[:300]
+                )
+            delay = chat_load_backoff_ms(retries)
+            retries += 1
+            logger.warning(
+                "chat %s did not load (%s); retry %d/%d in %.1f s",
+                chat,
+                notice,
+                retries,
+                CHAT_LOAD_RETRIES,
+                delay / 1000,
+            )
+            self.page.wait_for_timeout(delay)
+            button = self.page.get_by_role("button", name=CHAT_RETRY_BUTTON_RE)
+            clicked = False
+            with contextlib.suppress(Exception):
+                if button.count() and button.first.is_visible():
+                    button.first.click(timeout=5_000)
+                    clicked = True
+            if not clicked:
+                self.page.reload(wait_until="domcontentloaded", timeout=PAGE_LOAD_MS)
+            logger.info(
+                "chat %s: %s", chat, "pressed Retry" if clicked else "reloaded the page"
+            )
 
     def _probe_composer(self) -> str:
         self._load_composer()

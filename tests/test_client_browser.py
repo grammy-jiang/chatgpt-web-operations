@@ -1491,3 +1491,186 @@ def test_send_runs_on_the_owner_thread_not_the_callers(make_sender) -> None:
     assert result == REAL_ID
     assert seen[0] is not threading.current_thread()
     assert seen[0].name.startswith("chatgpt-send")
+
+
+# ---------------------------------------------------------------------------
+# _await_chat -- ChatGPT's "Could not load this ChatGPT conversation" notice
+# ---------------------------------------------------------------------------
+
+LOAD_NOTICE_KEY = fp.key_for_text(cc.CHAT_LOAD_FAILURE_RE)
+RETRY_BUTTON_KEY = fp.key_for_role("button", cc.CHAT_RETRY_BUTTON_RE)
+LOAD_NOTICE_TEXT = "Could not load this ChatGPT conversation"
+
+
+def _wire_chat_load(
+    page: fp.Page, *, notice_count, turns_count=1, retry_button=0
+) -> None:
+    page.set_locator(
+        LOAD_NOTICE_KEY, count=notice_count, visible=True, texts=LOAD_NOTICE_TEXT
+    )
+    page.set_locator(cc.CHAT_TURN_SELECTOR, count=turns_count)
+    page.set_locator(RETRY_BUTTON_KEY, count=retry_button, visible=True)
+
+
+def _wait_ms(page: fp.Page) -> list[int]:
+    return [c[2][0] for c in _page_calls(page, "wait_for_timeout")]
+
+
+@pytest.fixture
+def no_jitter(monkeypatch):
+    monkeypatch.setattr(cc.random, "uniform", lambda a, b: 1.0)
+
+
+def test_existing_chat_that_loads_normally_is_not_retried(make_sender) -> None:
+    """The check must cost a normal load nothing: no wait, no click, no reload."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    _wire_chat_load(page, notice_count=0, turns_count=1)
+
+    composer = sender._load_composer(REAL_URL)
+
+    assert composer.selector == cc.COMPOSER_SELECTOR
+    assert not _page_calls(page, "reload")
+    assert not _page_calls(page, "wait_for_timeout")
+    assert not _calls(page, "click")
+
+
+def test_chat_load_failure_presses_retry_then_carries_on(
+    make_sender, no_jitter
+) -> None:
+    """2026-09-26/27: under read-path throttling the thread showed "Could not
+    load this ChatGPT conversation" and a follow-up send into the chat failed.
+    The page's own Retry button is the first remedy, after a 5 s backoff."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    _wire_chat_load(page, notice_count=fp.sequence(1, 0), retry_button=1)
+
+    sender._load_composer(REAL_URL)
+
+    assert len(_calls(page, "click", RETRY_BUTTON_KEY)) == 1
+    assert not _page_calls(page, "reload")
+    assert _wait_ms(page) == [5_000]
+
+
+def test_chat_load_failure_without_a_retry_button_reloads_the_page(
+    make_sender, no_jitter
+) -> None:
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    _wire_chat_load(page, notice_count=fp.sequence(1, 1, 0), retry_button=0)
+
+    sender._load_composer(REAL_URL)
+
+    reloads = _page_calls(page, "reload")
+    assert len(reloads) == 2
+    assert reloads[0][3]["wait_until"] == "domcontentloaded"
+    assert _wait_ms(page) == [5_000, 10_000]
+    assert not _calls(page, "click")
+
+
+def test_chat_load_failure_gives_up_after_the_bound_naming_the_chat(
+    make_sender, no_jitter
+) -> None:
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    _wire_chat_load(page, notice_count=1, retry_button=0)
+
+    loads = cc.CHAT_LOAD_RETRIES + 1
+    with pytest.raises(cc.TransportError, match=rf"{REAL_ID}.*{loads} loads"):
+        sender._load_composer(REAL_URL)
+
+    assert len(_page_calls(page, "reload")) == cc.CHAT_LOAD_RETRIES
+    assert _wait_ms(page) == [5_000, 10_000, 20_000, 40_000, 60_000]
+    shots = _page_calls(page, "screenshot")
+    assert "chatgpt-chat-load-failed.png" in shots[-1][3]["path"]
+    # never waited for a composer on a page that never loaded
+    assert not _calls(page, "wait_for", cc.COMPOSER_SELECTOR)
+
+
+def test_chat_page_with_neither_turns_nor_notice_carries_on_as_before(
+    make_sender,
+) -> None:
+    """A future UI change could rename the turn markup; the check must then
+    cost a bounded settle window and hand over to the composer wait exactly as
+    before, never fail a send by itself."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    _wire_chat_load(page, notice_count=0, turns_count=0)
+
+    composer = sender._load_composer(REAL_URL)
+
+    assert composer.selector == cc.COMPOSER_SELECTOR
+    assert _wait_ms(page) == [500] * (cc.CHAT_LOAD_SETTLE_MS // 500)
+    assert not _page_calls(page, "reload")
+
+
+def test_new_chat_page_never_runs_the_chat_load_check(make_sender) -> None:
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    _wire_chat_load(page, notice_count=1, retry_button=1)
+
+    sender._load_composer()
+
+    assert not _page_calls(page, "reload")
+    assert not _page_calls(page, "wait_for_timeout")
+    assert not _calls(page, "click")
+
+
+def test_send_into_an_existing_chat_retries_a_failed_load_before_posting(
+    make_sender, no_jitter
+) -> None:
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    _wire_click_send_success(page)
+    _wire_post_confirmed(page)
+    _wire_chat_load(page, notice_count=fp.sequence(1, 0), retry_button=1)
+
+    result = sender._send("hello", chat=REAL_ID, name="task")
+
+    assert result == REAL_ID
+    retry = next(
+        i
+        for i, c in enumerate(page.calls)
+        if c[1] == RETRY_BUTTON_KEY and c[2] == "click"
+    )
+    fill = next(
+        i
+        for i, c in enumerate(page.calls)
+        if c[1] == cc.COMPOSER_SELECTOR and c[2] == "fill"
+    )
+    assert retry < fill
+
+
+@pytest.mark.parametrize("factor", [0.8, 1.2])
+def test_chat_load_backoff_grows_within_its_jitter_and_never_exceeds_60_s(
+    monkeypatch, factor
+) -> None:
+    monkeypatch.setattr(cc.random, "uniform", lambda a, b: factor)
+    waits = [cc.chat_load_backoff_ms(i) for i in range(7)]
+    bases = [5_000, 10_000, 20_000, 40_000, 60_000, 60_000, 60_000]
+    assert waits == [min(int(b * factor), 60_000) for b in bases]
+
+
+@pytest.mark.parametrize(
+    ("text", "matches"),
+    [
+        ("Could not load this ChatGPT conversation", True),
+        ("could not load this conversation", True),
+        ("Unable to load conversation 6ab7d951-f5f4", True),
+        ("Couldn’t load conversation", True),
+        ("Failed to load conversation", True),
+        ("Load more conversations", False),
+        ("New chat", False),
+    ],
+)
+def test_chat_load_failure_regex_matches_the_notice_and_its_variants(
+    text, matches
+) -> None:
+    assert bool(cc.CHAT_LOAD_FAILURE_RE.search(text)) is matches
