@@ -104,16 +104,22 @@ def _progress(step: int, total: int, message: str) -> None:
 
 
 def _debug_log() -> None:
-    """RP_LOG_FILE=<path>: append every step (this script's and the client's) with a timestamp and pid.
+    """RP_LOG_FILE=<path>: append every step (this script's and the
+    client's) with a timestamp and pid.
 
-    A caller that captures this process's output and only keeps the exception text (the chat-scheduling benchmark
-    harness) otherwise loses where a slow or failed send spent its time.
+    A caller that captures this process's output and only keeps the exception
+    text (the chat-scheduling benchmark harness) otherwise loses where a slow
+    or failed send spent its time.
     """
     path = os.environ.get("RP_LOG_FILE")
     if not path:
         return
     handler = logging.FileHandler(path)
-    handler.setFormatter(logging.Formatter("%(asctime)s pid=%(process)d %(name)s %(levelname)s %(message)s"))
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s pid=%(process)d %(name)s %(levelname)s %(message)s"
+        )
+    )
     root = logging.getLogger()
     root.addHandler(handler)
     if root.level > logging.INFO or root.level == logging.NOTSET:
@@ -252,10 +258,13 @@ def _send_single(
     conversation_id = ""
     reply: str | None = None
 
-    # RP_NEWCHAT_FAST=1 (new chats only): post first, without the shared new-chat lock and without the HTTP session and
-    # conversation listing that only a provisional id needs. Since 2026-09-26 the page shows the real id about four seconds
-    # after the post, so the lock and the listing usually cost the whole send budget whenever the read path is throttled
-    # or another session holds the lock. A provisional id still falls back to the locked, time-bounded listing.
+    # RP_NEWCHAT_FAST=1 (new chats only): post first, without the shared
+    # new-chat lock and without the HTTP session and conversation listing that
+    # only a provisional id needs. Since 2026-09-26 the page shows the real id
+    # about four seconds after the post, so the lock and the listing usually
+    # cost the whole send budget whenever the read path is throttled or
+    # another session holds the lock. A provisional id still falls back to the
+    # locked, time-bounded listing.
     fast = os.environ.get("RP_NEWCHAT_FAST") == "1" and not args.chat
     try:
         session = None if fast else open_session(args.browser)
@@ -277,10 +286,16 @@ def _send_single(
                 conversation_id = sender.send(text, name=prompt_path.stem)
             step += 1
             if cc.is_provisional(conversation_id):
-                _progress(step, total, "resolving the new conversation id (fast-path fallback)...")
+                _progress(
+                    step,
+                    total,
+                    "resolving the new conversation id (fast-path fallback)...",
+                )
                 session = open_session(args.browser)
                 with cc.new_chat_lock():
-                    conversation_id = cc.resolve_new_conversation(session, set(), since=since)
+                    conversation_id = cc.resolve_new_conversation(
+                        session, set(), since=since
+                    )
             else:
                 _progress(step, total, "already a real conversation id")
         elif args.chat:

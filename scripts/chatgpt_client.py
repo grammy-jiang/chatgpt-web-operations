@@ -1345,14 +1345,22 @@ def virtual_display(visible: bool = False) -> Generator[None]:
 STREAM_SUFFIX = ".stream.txt"
 
 
-# The composer. Until 2026-09-26 it was always ``#prompt-textarea``; that morning ChatGPT shipped a composer that is a
-# ProseMirror ``div`` with ``role="textbox"`` and ``aria-label="New chat in <Project>"`` and no id, and every send failed
-# with "composer did not appear". The union matches either, and both are the same single element on the old page.
-COMPOSER_SELECTOR = '#prompt-textarea, div.ProseMirror[contenteditable="true"][role="textbox"]'
-# A user turn on the page. The same 2026-09-26 release dropped data-message-author-role; a user message is now a
-# div[data-user-message-bubble="true"]. Without this a posted message read as "not posted" and the caller
-# retried, which could start a second chat for the same prompt.
-USER_TURN_SELECTOR = '[data-message-author-role="user"], [data-user-message-bubble="true"]'
+# The composer. Until 2026-09-26 it was always ``#prompt-textarea``; that
+# morning ChatGPT shipped a composer that is a ProseMirror ``div`` with
+# ``role="textbox"`` and ``aria-label="New chat in <Project>"`` and no id, and
+# every send failed with "composer did not appear". The union matches either,
+# and both are the same single element on the old page.
+COMPOSER_SELECTOR = (
+    '#prompt-textarea, div.ProseMirror[contenteditable="true"][role="textbox"]'
+)
+# A user turn on the page. The same 2026-09-26 release dropped
+# data-message-author-role; a user message is now a
+# div[data-user-message-bubble="true"]. Without this a posted message read as
+# "not posted" and the caller retried, which could start a second chat for the
+# same prompt.
+USER_TURN_SELECTOR = (
+    '[data-message-author-role="user"], [data-user-message-bubble="true"]'
+)
 # ChatGPT's own notice when its read of an existing conversation fails: the
 # thread shows "Could not load this ChatGPT conversation" and a Retry button
 # instead of the messages. Seen 2026-09-26/27 while the read path was
@@ -1393,7 +1401,8 @@ def chat_load_backoff_ms(retry: int) -> int:
 # page order.
 COMPOSER_STATE_JS = """
 () => {
-    const composer = document.querySelector('#prompt-textarea, div.ProseMirror[contenteditable="true"][role="textbox"]');
+    const composer = document.querySelector(
+        '#prompt-textarea, div.ProseMirror[contenteditable="true"][role="textbox"]');
     const form = composer ? composer.closest('form') : null;
     const scope = form || document;
     const removeLabels = Array.from(scope.querySelectorAll('button[aria-label]'))
@@ -1543,10 +1552,12 @@ class BrowserSender:
         # send's connector session id is only ever visible there (module
         # docstring).
         self.record_send_body = record_send_body.strip()
-        # RP_RECORD_STREAM=0 records the request body only and never waits for the reply stream. Since the 2026-09-26
-        # UI the f/conversation response stays open long after the reply, so waiting for it held a --no-wait send
-        # for minutes; a caller that reads the reply over HTTP anyway (the chat-scheduling benchmark harness) sets it.
-        # Deep research keeps the default: its connector session id exists only in that stream.
+        # RP_RECORD_STREAM=0 records the request body only and never waits for
+        # the reply stream. Since the 2026-09-26 UI the f/conversation response
+        # stays open long after the reply, so waiting for it held a --no-wait
+        # send for minutes; a caller that reads the reply over HTTP anyway (the
+        # chat-scheduling benchmark harness) sets it. Deep research keeps the
+        # default: its connector session id exists only in that stream.
         self.record_stream = os.environ.get("RP_RECORD_STREAM", "1") != "0"
         # Files to upload through the composer before the prompt is filled
         # (ROADMAP.md, Stage 3 item 3 / B4): the same file input and the
@@ -2410,10 +2421,7 @@ class BrowserSender:
                 # moment, then submit from the keyboard instead of losing the turn.
                 for _ in range(20):
                     page.wait_for_timeout(1_000)
-                    if (
-                        page.locator(USER_TURN_SELECTOR).count()
-                        > turns_before
-                    ):
+                    if page.locator(USER_TURN_SELECTOR).count() > turns_before:
                         break
                 else:
                     self._focus_composer(composer)
@@ -2423,9 +2431,7 @@ class BrowserSender:
         posted = False
         for _ in range(90):
             page.wait_for_timeout(1_000)
-            posted = (
-                page.locator(USER_TURN_SELECTOR).count() > turns_before
-            )
+            posted = page.locator(USER_TURN_SELECTOR).count() > turns_before
             if posted and "/c/" in page.url and not is_provisional(page.url):
                 if self.record_send_body and self.record_stream:
                     self._record_send_stream(info)

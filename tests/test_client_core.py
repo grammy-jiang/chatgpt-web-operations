@@ -212,7 +212,8 @@ def test_an_id_shorter_than_twenty_characters_is_not_treated_as_a_c_url_id() -> 
 
 
 def test_a_local_chatgpt_provisional_id_is_recognized() -> None:
-    """The 2026-09-26 UI shows /c/local-chatgpt%3A<uuid> before the real id, inside a project URL too."""
+    """The 2026-09-26 UI shows /c/local-chatgpt%3A<uuid> before the real id,
+    inside a project URL too."""
     url = (
         "https://chatgpt.com/g/g-p-6aaea9da2bc881918d6f9eb5177cf904-rp-test-sandbox"
         "/c/local-chatgpt%3A2847c643-e935-4a33-bdd9-7b72cafc3df7"
@@ -820,10 +821,14 @@ def test_a_route_call_that_raises_does_not_propagate() -> None:
     handler(_RaisingRoute("https://chatgpt.com/backend-api/conversations"))
     handler(_RaisingRoute("https://chatgpt.com/backend-api/f/conversation"))
 
+
 def test_record_stream_follows_rp_record_stream(monkeypatch) -> None:
-    """RP_RECORD_STREAM=0 keeps the request-body record but never waits for the reply stream (2026-09-26 UI)."""
+    """RP_RECORD_STREAM=0 keeps the request-body record but never waits for
+    the reply stream (2026-09-26 UI)."""
     monkeypatch.delenv("RP_RECORD_STREAM", raising=False)
-    assert cc.BrowserSender("chrome", record_send_body="/tmp/x.json").record_stream is True
+    assert (
+        cc.BrowserSender("chrome", record_send_body="/tmp/x.json").record_stream is True
+    )
     monkeypatch.setenv("RP_RECORD_STREAM", "0")
     sender = cc.BrowserSender("chrome", record_send_body="/tmp/x.json")
     assert sender.record_stream is False
