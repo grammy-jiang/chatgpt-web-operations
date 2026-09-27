@@ -36,8 +36,17 @@ fixed the same hour. Late that night the owner asked whether the day's
 findings were really fixed: each fix was removed once to watch its test
 fail, and the first T3 run since 2026-09-25 found the upload chip's label
 renamed (fixed; `composer-attached` recorded; T3 now runs weekly before
-the send). `TESTING.md` 6.4 has the three rules that came out of it, and
-`tests/test_dom_coverage.py` enforces the one about selectors.
+the send). `TESTING.md` 6.4 has the rules that came out of it, each with what
+enforces it: `tests/test_dom_coverage.py` (selectors),
+`tests/test_findings_ledger.py` with `tests/findings.json` (a finding is
+closed by a test and an atlas entry), the isolation test, and the daily
+wrapper's schedule check. `TESTING.md` 6.5 is the repair loop the owner
+asked for: a failed scheduled check hands its evidence to
+`~/.local/bin/chatgpt-ops-heal.sh`, which lets Claude Code propose a patch
+in a worktree and judges it with `make lint`, `make test` and `make replay
+FIXTURES=<the fresh recording>`; mode `report` by default
+(`~/.config/chatgpt-ops/heal.conf`), `pr` opens a pull request on the
+mirror, merge and deploy stay with the owner.
 
 ## Entry point, 2026-09-25
 

@@ -60,7 +60,7 @@
     "id": "F-2026-09-28-6",
     "title": "the sandbox sweep opened an HTTP session after T3 and met four 403 challenges",
     "atlas": "A footnote from the same night",
-    "fix": "pending",
+    "fix": "1ab5d55",
     "tests": [
       "test_harness_replay.py::test_the_sweep_runs_only_after_the_tiers_that_can_leave_a_conversation"
     ],

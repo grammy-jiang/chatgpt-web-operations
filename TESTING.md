@@ -438,34 +438,22 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
 
 ### 6.4 Rules that come with the plan
 
-Three rules were added on 2026-09-28, after the owner asked whether the
-day's three findings were really fixed and how the next ones would be
-prevented. Each answers one way a fix can be less real than it looks.
+Four rules were added on 2026-09-28, after the owner asked whether the
+day's findings were really fixed and how the next ones would be prevented,
+and then said that a rule in a Markdown file binds only the person who
+reads it. So each rule names what enforces it. "Script" means a test or a
+scheduled check fails when the rule is broken; "prose" means nothing does
+yet, and the row says why.
 
-- **A finding is closed by three things, never fewer:** the fix; a test
-  that fails with the fix removed and passes with it (proven by removing
-  it once, which is how the 2026-09-27 findings were checked); and an entry
-  in `references/failure-atlas.md` that says what the cheap check would
-  have been. A fix without the failing test is a hope.
-- **Every page selector is a named constant, and every named constant is
-  proven against a recorded page or excused by name.**
-  `tests/test_dom_coverage.py` refuses a bare string handed to a Playwright
-  locator in the client and requires each `*_SELECTOR`, `*_JS` and
-  page-facing `*_RE` (and `SEND_BUTTONS`, `RATE_LIMIT_MODAL`) to appear in
-  `tests/replay`, or in its `EXCUSED` table with a reason. Two DOM-reading
-  scripts disagreed about one send button for a day because a selector
-  could live as a literal nobody listed.
-- **Every tier runs on a schedule.** A tier that runs only by hand has
-  already broken: T3 had not run between 2026-09-25 and 2026-09-27 and the
-  upload chip's label changed in between. T0, tier R and the composer
-  recording run daily; T3, T4's scripted send (with an attachment) and the
-  three conversation-side recordings run weekly; T1 and T2 run with every
-  change to a command and on the acceptance procedure.
-- **The suite pins its inputs.** `tests/conftest.py` clears the shell's
-  recording settings for every non-live test; `tests/test_harness_replay.py`
-  runs an inner pytest with the settings leaked and checks a plain test
-  sees none of them. After a change to a wrapper or to any `RP_*` setting,
-  run `chatgpt-ops-check.sh --browser` by hand once before the day ends.
+| Rule | Enforced by | Kind |
+| --- | --- | --- |
+| A finding is closed by three things, never fewer: the fix; a test that fails with the fix removed; an entry in `references/failure-atlas.md`. | `tests/findings.json` is the ledger; `tests/test_findings_ledger.py` checks every listed test exists, the atlas carries each entry's id and phrase, and every "Fixed bugs" bullet dated 2026-09-27 or later carries a ledger id. "Fails with the fix removed" is a date recorded by hand (`removed_and_failed`) until P10 makes it a mutation run. | script, partial |
+| Every page selector is a named constant, and every named constant is proven against a recorded page or excused by name. | `tests/test_dom_coverage.py`: no bare string handed to a Playwright locator in the client; every `*_SELECTOR`, `*_JS`, page-facing `*_RE`, `SEND_BUTTONS` and `RATE_LIMIT_MODAL` appears in `tests/replay` or in its `EXCUSED` table with a reason. | script |
+| Every tier runs on a schedule; a tier that runs only by hand has already broken. | The crontab (daily 05:25: T0, tier R, the composer recording; Sunday 05:40: T3, the scripted send with an attachment, the three conversation-side recordings). `chatgpt-ops-check.sh` warns when the weekly job is missing from the crontab or last ran more than 8 days ago. T1 and T2 run with every change to a command and on the acceptance procedure, by hand: no script checks that. | script for the scheduled tiers, prose for T1 and T2 |
+| The suite pins its inputs. | `tests/conftest.py` clears the shell's recording settings for every non-live test; `tests/test_harness_replay.py` runs an inner pytest with the settings leaked and checks a plain test sees none. | script |
+| A proposed fix is accepted by the gates, not by whoever wrote it. | `make lint`, `make test`, `make replay FIXTURES=<the fresh recording>`: the same three commands whether a person or the repair loop (6.5) wrote the patch. | script |
+| Cron never commits a fixture; promotion is a reviewed step. | Design: the wrappers hold no `git` command and the repair loop pushes a branch at most, never `main`. | prose |
+| After a change to a wrapper or to any `RP_*` setting, run `chatgpt-ops-check.sh --browser` by hand once before the day ends. | The next daily run finds it within 24 h; nothing checks the same day. | prose |
 
 - Cron never commits a fixture. Promotion is a reviewed step with a `make`
   target and the hygiene test.
@@ -477,7 +465,44 @@ prevented. Each answers one way a fix can be less real than it looks.
 - Quota: the plan adds one real send per week plus one per change to the
   sender. Every other item costs no account traffic beyond the daily reads.
 
-### 6.5 Order and rough effort
+### 6.5 The repair loop: a failed check calls an agent, the gates judge it
+
+Added 2026-09-28 on the owner's idea: make the end-to-end checks the
+trigger, and when one fails because ChatGPT changed something, have Claude
+Code or Codex review it and propose the change. The loop is
+`~/.local/bin/chatgpt-ops-heal.sh` (its own repository, next to the two
+wrappers). What is deterministic and what is not:
+
+| Step | Who | Deterministic |
+| --- | --- | --- |
+| Detect | the daily check (T0, tier R, the composer recording) and the weekly one (T3, the send with an attachment, three recordings) | yes: tests and fact comparisons |
+| Collect | the wrapper's run directory, plus `heal/evidence.md`: the result, the log tails, the drift of each recorded page against its fixture, a diff of the sanitized markup, the last send-path events | yes |
+| Propose | Claude Code headless (`claude -p`) in a throwaway git worktree on branch `heal/<run-id>` made from `main`, with `--permission-mode dontAsk` and an allowlist: read, edit, `make test`, `make lint`, `make replay`, `git` inside the worktree. It must decide page-changed / check-wrong / transient, quote the deciding evidence, add a ledger entry, an atlas bullet and a test, and write `heal/report.md`. It cannot run a live tier, send, push, touch the state directory or change a file outside the worktree. `--max-turns 60`, `--max-budget-usd 5`, 30 min. | no: this is the one non-deterministic step, and it only proposes |
+| Judge | the script runs `make lint`, `make test` and `make replay FIXTURES=<the run's dom/>` in the worktree and records `heal/gate.txt` and `heal/patch.diff` | yes |
+| Deliver | mode `report` (default): branch and files stay on this machine and the wrapper's mail carries the summary and the report. Mode `pr`: when every gate passed and files changed, push the branch and open a PR on the mirror with `gh`. Merge, promotion of fixtures and deploy stay with the owner. | yes |
+
+Triggers: an ALERT from either wrapper, or a WARN that says a recorded page
+differs from its fixture. Limits: one heal per run, one per 6 h
+(`~/.local/state/chatgpt-ops/last-heal`), never on OK. Mode:
+`~/.config/chatgpt-ops/heal.conf`, `MODE=off|report|pr`. Codex can take the
+agent's place (`codex exec --sandbox workspace-write` in the same worktree)
+by changing the one command in the script; the gates do not change.
+
+What this does not do, on purpose: it never promotes a recording into
+`tests/fixtures/dom`, never merges, never deploys, and never sends a message
+to prove a fix, because a wrong fix that sends is worse than a right fix
+that waits for Sunday.
+
+First run, 2026-09-28 01:01, by hand in `report` mode on the weekly run
+that had failed at 00:29 (T3 passed, the sweep's HTTP handshake met four
+403 challenges): the agent took 92 s and 8 turns (about 0.55 USD by its own
+estimate), classified it as transient with the check defect already fixed
+on `main` by `1ab5d55`, quoted the deciding log line, changed nothing,
+noted that the ledger still said `pending` for that fix, and ran
+`make replay FIXTURES=<run>/dom` itself (30 passed). The gates passed;
+`patch.diff` was empty. Evidence: that run's `heal/` directory.
+
+### 6.6 Order and rough effort
 
 P1 (1-2 days), P2 (half a day), P3 (half a day plus the cron line), P4 (half
 a day), P5 (1 day); then P6 (1 day), P7 (half a day), P8 (half a day), P9
