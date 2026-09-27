@@ -1771,3 +1771,37 @@ def test_cookie_header_still_fails_on_an_unreadable_session_cookie(
     with pytest.raises(SystemExit):
         chatgpt_session._cookie_header("testbrowser")
     assert "could not decode the ChatGPT session cookie" in capsys.readouterr().err
+
+
+def test_cookie_header_with_the_real_decryptor_on_a_realistic_jar(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Real-path test (2026-09-27): no injected decryptor. The real AES
+    decryptor reads the cookie shapes Chrome keeps: an empty analytics value,
+    non-ASCII text, a value behind the 32-byte domain hash, and one that does
+    not decode, which must be skipped instead of ending the run."""
+    monkeypatch.setattr(chatgpt_session, "_keyring_password", lambda app: b"unused")
+    key = _derive(b"peanuts")
+    rows = [
+        (
+            "chatgpt.com",
+            "__Secure-next-auth.session-token.0",
+            "",
+            _encrypt(b"v10", key, b"session-value"),
+        ),
+        ("chatgpt.com", "_dd_s", "", _encrypt(b"v10", key, b"")),
+        ("chatgpt.com", "g_state", "", _encrypt(b"v10", key, "état ok".encode())),
+        ("chatgpt.com", "oai-did", "", _encrypt(b"v10", key, b"\x01" * 32 + b"hashed")),
+        ("chatgpt.com", "zz_broken", "", _encrypt(b"v10", key, b"\x80\x81\x82")),
+        ("chatgpt.com", "plain_cookie", "plain", b""),
+    ]
+    db = tmp_path / "cookies.db"
+    _make_cookie_db(db, rows)
+    monkeypatch.setitem(chatgpt_session.BROWSERS, "testbrowser", (db, "testapp"))
+    header = chatgpt_session._cookie_header("testbrowser")
+    assert "__Secure-next-auth.session-token.0=session-value" in header
+    assert "_dd_s=" in header
+    assert "g_state=état ok" in header
+    assert "oai-did=hashed" in header
+    assert "plain_cookie=plain" in header
+    assert "zz_broken" not in header
