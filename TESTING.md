@@ -119,6 +119,17 @@ the T4 test-count budget must not be described as covering those sends.
 
 ## 5. Coverage and regression expectations
 
+Added 2026-09-27 (`PLAN-2026-09-27.md`, section 5 B):
+
+- **Real-path boundary tests:** no injected fake at an external boundary.
+  The first one is the cookie-jar test with real AES values (`7364386`).
+- **Recorded fixtures:** refreshed by the daily browser check.
+- **Scripted end-to-end send:** into `rp-test-sandbox`.
+- **Flaky tests:** fixed or quarantined within a week.
+
+The owner's coverage rule is per module, never averaged: 95 % for each core
+module and 90 % for each other module.
+
 The four connector modules have offline CLI and failure-path tests in
 `tests/test_connectors.py`. They include failed privacy writes, failed link
 cleanup, non-mutating previews, malformed responses, lookup errors and

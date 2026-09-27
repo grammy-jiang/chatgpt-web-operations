@@ -1,6 +1,25 @@
 # Handover: chatgpt-web-operations
 
-## Current entry point, 2026-09-25
+## Current entry point, 2026-09-27
+
+Start with `PLAN-2026-09-27.md`. It covers:
+
+- what broke on 2026-09-26 and 2026-09-27 while every suite passed: the new
+  ChatGPT composer, an empty analytics cookie, and a second client in the
+  binnacle repository;
+- the fixes already made, with their commits;
+- the work that remains: one client for every consumer (section 5 A) and
+  test hardening (section 5 B);
+- the owner's rules: per-module coverage of 95 % for core modules and 90 %
+  for the others, never averaged; more kinds of tests; replies in Chinese.
+
+Then read the 2026-09-25 entry point below. Another session had uncommitted
+work in this tree at the time of writing: `scripts/delete_skill.py`,
+`tests/test_delete_skill.py`, `SKILL.md` and
+`references/endpoint-discovery.md`. Leave it alone unless the owner says
+otherwise.
+
+## Entry point, 2026-09-25
 
 For first use or missing access, read `references/setup.md` and the
 credential creation and recovery sections in `references/tunnels.md`.

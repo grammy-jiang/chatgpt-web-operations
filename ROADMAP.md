@@ -110,6 +110,20 @@ The adjacent `chatgpt-project` command was also checked. It supports project
 listing/details/instructions but has no rename/move flags. A generic HTTP
 session that can send arbitrary requests is not a maintained feature CLI.
 
+## Stage 4: one client for every consumer, and test hardening -- planned 2026-09-27
+
+Two parts, both in `PLAN-2026-09-27.md`, section 5:
+
+- **One client.** binnacle's `chatgpt-refresh`, `chatgpt-chats` and
+  `chatgpt-project` still use binnacle's own copies of `chatgpt_session.py`
+  and `chatgpt_cookies.py`. They move onto this skill, and the copies are
+  deleted. `chatgpt-send` moved on 2026-09-27.
+- **Test hardening.** Real-path boundary tests, fixtures recorded by the
+  daily browser check, a scripted end-to-end send, a count of "not posted"
+  events, and a flaky-test rule.
+
+Working rule 2 applies to every repository, not only research-pipeline.
+
 ## Historical decisions
 
 The original stages and abandoned experiments remain in git history,
