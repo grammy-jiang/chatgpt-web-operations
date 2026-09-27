@@ -55,6 +55,8 @@ import time
 from collections.abc import Generator, Iterable, MutableMapping
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from html import escape as _html_escape
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
@@ -1349,18 +1351,25 @@ STREAM_SUFFIX = ".stream.txt"
 # morning ChatGPT shipped a composer that is a ProseMirror ``div`` with
 # ``role="textbox"`` and ``aria-label="New chat in <Project>"`` and no id, and
 # every send failed with "composer did not appear". The union matches either,
-# and both are the same single element on the old page.
-COMPOSER_SELECTOR = (
-    '#prompt-textarea, div.ProseMirror[contenteditable="true"][role="textbox"]'
+# and both are the same single element on the old page. The alternatives are
+# kept apart as a tuple so a page snapshot (``page_snapshot``) can say which
+# one matched, which is how the daily browser check tells a UI change apart
+# from a login problem.
+COMPOSER_SELECTORS = (
+    "#prompt-textarea",
+    'div.ProseMirror[contenteditable="true"][role="textbox"]',
 )
+COMPOSER_SELECTOR = ", ".join(COMPOSER_SELECTORS)
 # A user turn on the page. The same 2026-09-26 release dropped
 # data-message-author-role; a user message is now a
 # div[data-user-message-bubble="true"]. Without this a posted message read as
 # "not posted" and the caller retried, which could start a second chat for the
 # same prompt.
-USER_TURN_SELECTOR = (
-    '[data-message-author-role="user"], [data-user-message-bubble="true"]'
+USER_TURN_SELECTORS = (
+    '[data-message-author-role="user"]',
+    '[data-user-message-bubble="true"]',
 )
+USER_TURN_SELECTOR = ", ".join(USER_TURN_SELECTORS)
 # ChatGPT's own notice when its read of an existing conversation fails: the
 # thread shows "Could not load this ChatGPT conversation" and a Retry button
 # instead of the messages. Seen 2026-09-26/27 while the read path was
@@ -1375,10 +1384,12 @@ CHAT_RETRY_BUTTON_RE = re.compile(r"^\s*(?:retry|try again)\s*$", re.I)
 # Any rendered turn of a loaded conversation. Deliberately not
 # USER_TURN_SELECTOR: the send counts user turns before and after posting,
 # and this check must never touch that count.
-CHAT_TURN_SELECTOR = (
-    '[data-message-author-role], [data-user-message-bubble="true"], '
-    'article[data-testid^="conversation-turn"]'
+CHAT_TURN_SELECTORS = (
+    "[data-message-author-role]",
+    '[data-user-message-bubble="true"]',
+    'article[data-testid^="conversation-turn"]',
 )
+CHAT_TURN_SELECTOR = ", ".join(CHAT_TURN_SELECTORS)
 # How long an existing chat may take to show either a turn or the failure
 # notice before the send carries on as it always did; how many retries the
 # notice gets (its Retry button, else a reload); the backoff before each.
@@ -1410,7 +1421,9 @@ COMPOSER_STATE_JS = """
         .filter((label) => label.startsWith('Remove file'));
     const sendButton =
         scope.querySelector('button[data-testid="send-button"]') ||
-        scope.querySelector('button[aria-label="Send prompt"]');
+        scope.querySelector('button[aria-label="Send prompt"]') ||
+        scope.querySelector('button[aria-label*="Send" i]') ||
+        scope.querySelector('form button[type="submit"]');
     return {
         remove_labels: removeLabels,
         send_exists: Boolean(sendButton),
@@ -1418,6 +1431,372 @@ COMPOSER_STATE_JS = """
     };
 }
 """
+# The send-button alternatives above are SEND_BUTTONS' (the ones _click_send
+# tries) plus the two exact forms older pages used. Until 2026-09-27 this
+# script knew only the exact forms, and the page ChatGPT shipped on
+# 2026-09-26 has a button labelled "Send" with no test id: the first replay
+# run on a recorded, filled composer found the upload path's send-button
+# check blind (tests/replay, TESTING.md section 6 P1).
+
+
+# ---------------------------------------------------------------------------
+# Page facts, snapshots and replay (module level on purpose)
+# ---------------------------------------------------------------------------
+# Everything a send decides from the page's DOM -- which composer matched,
+# whether a send button exists, how many turns there are, whether the "could
+# not load" notice is up -- is computed here by functions that take a
+# Playwright ``Page`` and nothing else. ``BrowserSender`` delegates to them,
+# and so does ``tests/replay``, which loads a *recorded* page into a real
+# headless Chrome with no network and runs exactly these functions on it.
+# Until 2026-09-27 the same logic lived in private sender methods, so it met
+# a real DOM only in a live send, and the composer change of 2026-09-26
+# passed every offline test (TESTING.md, section 6).
+
+# The one script that collects the facts and the markup a snapshot keeps. It
+# is handed the selector alternatives as ``spec`` so the constants above stay
+# the single source. ``html`` is raw here; ``page_snapshot`` sanitizes it.
+SNAPSHOT_JS = """
+(spec) => {  /* page_snapshot */
+    const all = (selectors) => Array.from(
+        document.querySelectorAll(selectors.join(', ')));
+    const matched = (selectors) => selectors.filter(
+        (s) => document.querySelectorAll(s).length > 0);
+    const composer = document.querySelector(spec.composer.join(', '));
+    const form = composer ? (composer.closest('form') || composer) : null;
+    const scope = form || document;
+    const send =
+        scope.querySelector('button[data-testid="send-button"]') ||
+        scope.querySelector('button[aria-label="Send prompt"]') ||
+        scope.querySelector('button[aria-label*="Send" i]') ||
+        scope.querySelector('form button[type="submit"]');
+    const articles = all(['article[data-testid^="conversation-turn"]']);
+    const turnRoots = articles.length ? articles : all(spec.user_turn);
+    return {
+        url: location.href,
+        composer: {
+            found: Boolean(composer),
+            count: all(spec.composer).length,
+            matched: matched(spec.composer),
+            tag: composer ? composer.tagName.toLowerCase() : null,
+            id: composer ? (composer.id || null) : null,
+            aria_label: composer
+                ? (composer.getAttribute('aria-label') || null) : null,
+            in_form: Boolean(composer && composer.closest('form')),
+        },
+        send_button: {
+            found: Boolean(send),
+            testid: send ? (send.getAttribute('data-testid') || null) : null,
+            aria_label: send ? (send.getAttribute('aria-label') || null) : null,
+            disabled: send ? Boolean(send.disabled) : null,
+        },
+        turns: {
+            user: all(spec.user_turn).length,
+            any: all(spec.chat_turn).length,
+            articles: articles.length,
+            matched_user: matched(spec.user_turn),
+            matched_any: matched(spec.chat_turn),
+        },
+        html: {
+            composer: form ? form.outerHTML : null,
+            turns: turnRoots.map((el) => el.outerHTML),
+        },
+    };
+}
+"""
+
+# What a DOM snapshot keeps: attributes only, never text and never a URL.
+# The selectors above read tag names, ids, classes, roles, ARIA and data-
+# attributes; nothing else on the page is a test's business, and a prompt,
+# a reply, a project name in a link or an avatar image must never land in a
+# fixture. Values are cut at SNAPSHOT_VALUE_LIMIT characters.
+SNAPSHOT_KEEP_ATTRIBUTES = frozenset(
+    {
+        "id",
+        "class",
+        "role",
+        "type",
+        "name",
+        "disabled",
+        "contenteditable",
+        "placeholder",
+        "tabindex",
+        "hidden",
+        "readonly",
+        "required",
+        "for",
+        "rows",
+        "cols",
+        "spellcheck",
+        "translate",
+        "autocomplete",
+        "dir",
+        "lang",
+    }
+)
+SNAPSHOT_KEEP_PREFIXES = ("aria-", "data-")
+SNAPSHOT_DROP_SUBTREES = frozenset(
+    {
+        "script",
+        "style",
+        "svg",
+        "template",
+        "noscript",
+        "iframe",
+        "object",
+        "video",
+        "audio",
+        "canvas",
+        "img",
+        "picture",
+        "source",
+        "link",
+        "meta",
+        "head",
+    }
+)
+SNAPSHOT_VOID_ELEMENTS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "param",
+        "source",
+        "track",
+        "wbr",
+    }
+)
+SNAPSHOT_VALUE_LIMIT = 200
+
+
+class _SnapshotSanitizer(HTMLParser):
+    """Rebuild markup with the allowed attributes and no text; see
+    ``sanitize_html``. Comments and declarations have no handler, so they
+    fall away by themselves. A run of text becomes one ``TEXT_STAND_IN``:
+    no content survives, but the element keeps a line of height, so a
+    composer whose paragraphs held a prompt is still *visible* to Playwright
+    in a replay (an empty block has no bounding box, and ``find_composer``
+    waits for a visible one)."""
+
+    TEXT_STAND_IN = '<br data-snapshot-text="">'
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+        self._dropping: list[str] = []
+        self._text_pending = False
+
+    def _flush_text(self) -> None:
+        if self._text_pending:
+            self.parts.append(self.TEXT_STAND_IN)
+            self._text_pending = False
+
+    def handle_data(self, data: str) -> None:
+        if data.strip() and not self._dropping:
+            self._text_pending = True
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.lower()
+        if self._dropping or tag in SNAPSHOT_DROP_SUBTREES:
+            if tag not in SNAPSHOT_VOID_ELEMENTS:
+                self._dropping.append(tag)
+            return
+        self._flush_text()
+        kept = []
+        for name, value in attrs:
+            name = name.lower()
+            if name in SNAPSHOT_KEEP_ATTRIBUTES or name.startswith(
+                SNAPSHOT_KEEP_PREFIXES
+            ):
+                text = "" if value is None else str(value)[:SNAPSHOT_VALUE_LIMIT]
+                kept.append(f' {name}="{_html_escape(text, quote=True)}"')
+        self.parts.append(f"<{tag}{''.join(kept)}>")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+        self.handle_endtag(tag)
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if self._dropping:
+            if self._dropping[-1] == tag:
+                self._dropping.pop()
+            return
+        self._flush_text()
+        if tag in SNAPSHOT_VOID_ELEMENTS:
+            return
+        self.parts.append(f"</{tag}>")
+
+    def close(self) -> None:
+        super().close()
+        self._flush_text()
+
+
+def sanitize_html(markup: str) -> str:
+    """``markup`` reduced to what a selector can see: the tag tree with the
+    allowed attributes (``SNAPSHOT_KEEP_ATTRIBUTES``, ``aria-*``, ``data-*``)
+    and nothing else. Text nodes (each run replaced by one
+    ``<br data-snapshot-text="">`` so the element keeps its height),
+    comments, ``href``/``src``/``style``/``value``/``title``/``alt``, and
+    whole ``script``/``style``/``svg``/``img`` subtrees are dropped.
+    Idempotent: sanitizing the result again changes nothing, which is what
+    ``tests/replay`` relies on when it snapshots a snapshot."""
+    parser = _SnapshotSanitizer()
+    parser.feed(markup or "")
+    parser.close()
+    return "".join(parser.parts)
+
+
+def page_snapshot(page: Any) -> dict[str, Any]:
+    """The facts a send reads from ``page`` right now, plus the sanitized
+    markup they were read from: ``composer`` (found, count, which of
+    ``COMPOSER_SELECTORS`` matched, tag, id, aria-label, in_form),
+    ``send_button`` (found, testid, aria_label, disabled), ``turns`` (user,
+    any, articles, and which alternatives matched), ``url`` and ``html``
+    (``composer``: the composer's form; ``turns``: one string per turn),
+    every string already through ``sanitize_html``. Whatever the page
+    returned that is not a dict becomes an empty group, never an error:
+    a snapshot is evidence, and evidence that cannot be gathered is an
+    empty record, not a failed check."""
+    spec = {
+        "composer": list(COMPOSER_SELECTORS),
+        "user_turn": list(USER_TURN_SELECTORS),
+        "chat_turn": list(CHAT_TURN_SELECTORS),
+    }
+    raw = page.evaluate(SNAPSHOT_JS, spec)
+    facts: dict[str, Any] = dict(raw) if isinstance(raw, dict) else {}
+    markup: dict[str, Any] = (
+        facts["html"] if isinstance(facts.get("html"), dict) else {}
+    )
+    composer_html = markup.get("composer")
+    turns_html = markup.get("turns")
+    facts["html"] = {
+        "composer": sanitize_html(composer_html)
+        if isinstance(composer_html, str)
+        else "",
+        "turns": [
+            sanitize_html(turn)
+            for turn in (turns_html if isinstance(turns_html, list) else [])
+            if isinstance(turn, str)
+        ],
+    }
+    for group in ("composer", "send_button", "turns"):
+        if not isinstance(facts.get(group), dict):
+            facts[group] = {}
+    facts.setdefault("url", str(getattr(page, "url", "")))
+    return facts
+
+
+def snapshot_document(facts: dict[str, Any]) -> str:
+    """The one HTML file a replay loads for a snapshot: the sanitized turns
+    and the composer's form inside a minimal document that carries no text
+    node at all (``tests/test_fixture_hygiene.py`` checks that)."""
+    markup: dict[str, Any] = (
+        facts["html"] if isinstance(facts.get("html"), dict) else {}
+    )
+    turns = [turn for turn in markup.get("turns") or [] if isinstance(turn, str)]
+    composer = str(markup.get("composer") or "")
+    body = "\n".join([*turns, composer]).strip()
+    return (
+        "<!doctype html>\n"
+        '<html><head><meta charset="utf-8">'
+        '<meta name="generator" content="chatgpt-web-operations page_snapshot">'
+        "</head>\n"
+        f"<body><main>\n{body}\n</main></body></html>\n"
+    )
+
+
+# The facts a fresh snapshot is compared with a committed one on. Classes,
+# URLs, the disabled state and the turn counts churn from page to page and
+# are not compared; what is compared is exactly what the selectors depend
+# on, so a difference here means a send would behave differently.
+SNAPSHOT_DRIFT_KEYS = (
+    ("composer", "found"),
+    ("composer", "matched"),
+    ("composer", "tag"),
+    ("composer", "id"),
+    ("composer", "in_form"),
+    ("send_button", "found"),
+    ("send_button", "testid"),
+    ("send_button", "aria_label"),
+)
+
+
+def snapshot_drift(recorded: dict[str, Any], fixture: dict[str, Any]) -> list[str]:
+    """The names (``group.key``) of the ``SNAPSHOT_DRIFT_KEYS`` facts that
+    differ between ``recorded`` (a fresh ``page_snapshot``) and ``fixture``
+    (the committed one). Empty means the page still looks the way the
+    selectors were last proven against."""
+    drift: list[str] = []
+    for group, key in SNAPSHOT_DRIFT_KEYS:
+        mine: dict[str, Any] = (
+            recorded[group] if isinstance(recorded.get(group), dict) else {}
+        )
+        theirs: dict[str, Any] = (
+            fixture[group] if isinstance(fixture.get(group), dict) else {}
+        )
+        if mine.get(key) != theirs.get(key):
+            drift.append(f"{group}.{key}")
+    return drift
+
+
+def find_composer(page: Any, timeout_ms: int = 60_000) -> Any:
+    """Wait for the composer on ``page`` and return its locator. When it
+    never appears, raise the same ``TransportError`` a send raises ("logged
+    out or challenged"); the sender adds its screenshot around this."""
+    from playwright.sync_api import TimeoutError as PWTimeout
+
+    composer = page.locator(COMPOSER_SELECTOR)
+    try:
+        composer.wait_for(state="visible", timeout=timeout_ms)
+    except PWTimeout:
+        raise TransportError(
+            f"composer did not appear at {page.url} (logged out or challenged)"
+        ) from None
+    return composer
+
+
+def chat_load_failure(page: Any) -> str:
+    """The text of ChatGPT's "could not load this conversation" notice if it
+    is on ``page``, else empty."""
+    notice = page.get_by_text(CHAT_LOAD_FAILURE_RE)
+    with contextlib.suppress(Exception):
+        if notice.count() and notice.first.is_visible():
+            text = " ".join(notice.first.inner_text(timeout=2_000).split())
+            return text[:160] or "could not load this conversation"
+    return ""
+
+
+def composer_state(page: Any) -> dict[str, Any]:
+    """What the composer's own form shows (``COMPOSER_STATE_JS``): one
+    "Remove file ..." label per attachment chip, and whether a send button
+    exists and is enabled. A fixed shape whatever the page returned."""
+    raw = page.evaluate(COMPOSER_STATE_JS)
+    state = dict(raw) if isinstance(raw, dict) else {}
+    return {
+        "remove_labels": [str(label) for label in state.get("remove_labels") or []],
+        "send_exists": bool(state.get("send_exists")),
+        "send_enabled": bool(state.get("send_enabled")),
+    }
+
+
+def text_taken(expected: str, actual: str) -> bool:
+    """Did the composer take ``expected``? ``actual`` is what it shows
+    (``inner_text``). Whitespace is ignored on both sides, because
+    ProseMirror re-renders paragraphs and pads lines; the read-back must
+    start with the first 256 characters of the prompt and be at least 90 %
+    as long. An empty prompt is trivially taken."""
+    want = "".join(expected.split())
+    got = "".join(actual.split())
+    if not want:
+        return True
+    return got.startswith(want[:256]) and len(got) >= 0.9 * len(want)
 
 
 def fill_budget_ms(n_chars: int) -> int:
@@ -2010,20 +2389,14 @@ class BrowserSender:
         composer.click(timeout=30_000, force=True)
 
     def _composer(self) -> Any:
-        from playwright.sync_api import TimeoutError as PWTimeout
-
         self._check_rate_limit_dialog()
-        composer = self.page.locator(COMPOSER_SELECTOR)
         try:
-            composer.wait_for(state="visible", timeout=60_000)
-        except PWTimeout:
+            return find_composer(self.page)
+        except TransportError:
             self.page.screenshot(
                 path=str(self.screenshot_dir / "chatgpt-composer-missing.png")
             )
-            raise TransportError(
-                f"composer did not appear at {self.page.url} (logged out or challenged)"
-            ) from None
-        return composer
+            raise
 
     # Uploading the prompt instead of pasting it looked like the answer to slow
     # ProseMirror rendering, and the upload itself works: the file arrives and
@@ -2191,13 +2564,54 @@ class BrowserSender:
 
     def _chat_load_failure(self) -> str:
         """The text of ChatGPT's "could not load this conversation" notice if
-        it is on the page, else empty."""
-        notice = self.page.get_by_text(CHAT_LOAD_FAILURE_RE)
-        with contextlib.suppress(Exception):
-            if notice.count() and notice.first.is_visible():
-                text = " ".join(notice.first.inner_text(timeout=2_000).split())
-                return text[:160] or "could not load this conversation"
-        return ""
+        it is on the page, else empty (``chat_load_failure``)."""
+        return chat_load_failure(self.page)
+
+    def snapshot_page(
+        self,
+        out_dir: str | os.PathLike[str],
+        name: str = "composer",
+        chat: str | None = None,
+    ) -> dict[str, Any]:
+        """Record what the page a send composes on looks like right now.
+        From any thread, like ``send``.
+
+        Writes ``<out_dir>/<name>.html`` -- the sanitized composer form and
+        turns inside a minimal document, which ``tests/replay`` loads into a
+        real headless Chrome -- and ``<out_dir>/<name>.json``, the facts
+        (``page_snapshot``: which selector alternatives matched, the send
+        button, the turn counts, the URL, when). With ``chat`` that chat's
+        page is loaded first; without it the page a new chat composes on is
+        loaded unless the window is already on one (``probe_composer`` ran).
+        Returns the facts. This is what the daily browser check records and
+        compares with the committed fixture (``preflight.py``).
+        """
+        try:
+            return self._owner.submit(
+                self._snapshot_page, Path(out_dir), name, chat
+            ).result()
+        except TransportError:
+            raise
+        except Exception as exc:  # playwright errors have no common base here
+            raise TransportError(f"page snapshot failed: {exc}"[:300]) from exc
+
+    def _snapshot_page(self, out_dir: Path, name: str, chat: str | None) -> dict:
+        if chat:
+            self._load_composer(f"https://chatgpt.com/c/{chat_id(chat)}")
+        elif str(self.page.url) in ("", "about:blank"):
+            self._load_composer()
+        facts = page_snapshot(self.page)
+        facts["recorded_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        facts["browser"] = self.browser
+        out_dir.mkdir(parents=True, exist_ok=True)
+        (out_dir / f"{name}.html").write_text(
+            snapshot_document(facts), encoding="utf-8"
+        )
+        record = {key: value for key, value in facts.items() if key != "html"}
+        (out_dir / f"{name}.json").write_text(
+            json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+        return facts
 
     def _watch_chat_load(self) -> str:
         """Owner thread only. Wait until the conversation shows a turn (it
@@ -2338,14 +2752,7 @@ class BrowserSender:
         composer = self._load_composer()
         self._focus_composer(composer)
         self._upload_files(self.page, paths)
-        raw = self.page.evaluate(COMPOSER_STATE_JS)
-        state = dict(raw) if isinstance(raw, dict) else {}
-        return {
-            "url": str(self.page.url),
-            "remove_labels": [str(label) for label in state.get("remove_labels") or []],
-            "send_exists": bool(state.get("send_exists")),
-            "send_enabled": bool(state.get("send_enabled")),
-        }
+        return {"url": str(self.page.url), **composer_state(self.page)}
 
     def new_chat_url(self) -> str:
         """Where to compose a new conversation.

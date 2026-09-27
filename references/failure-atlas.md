@@ -345,3 +345,16 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   `chatgpt_client.py` that reaches into `sender._<name>`. The rule that
   came out of all three: a new need is a new public method on the sender,
   never a reach past it.
+- **The upload path's send-button check went blind with the 2026-09-26
+  page, and nothing said so.** `COMPOSER_STATE_JS`, which `attach_files`
+  and the T3 upload test read `send_exists` / `send_enabled` from, looked
+  for `button[data-testid="send-button"]` or `aria-label="Send prompt"`.
+  The page ChatGPT shipped on 2026-09-26 labels the button "Send" and gives
+  it no test id, so the check answered "no send button" on a composer that
+  had one. Found on 2026-09-27 by the first replay run over a recorded,
+  filled composer (`tests/fixtures/dom/composer-filled.html`, recorded by
+  the weekly send test): `composer_state()` said `send_exists: False` while
+  the snapshot's own facts said the button was there. The script now tries
+  the same alternatives `_click_send` tries (`SEND_BUTTONS`). The lesson is
+  the reason tier R exists: two scripts read the same DOM for the same
+  fact, and only a real page can show them disagreeing.

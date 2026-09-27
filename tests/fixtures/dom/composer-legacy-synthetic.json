@@ -1,0 +1,30 @@
+{
+  "browser": "synthetic",
+  "composer": {
+    "aria_label": null,
+    "count": 1,
+    "found": true,
+    "id": "prompt-textarea",
+    "in_form": true,
+    "matched": [
+      "#prompt-textarea"
+    ],
+    "tag": "div"
+  },
+  "recorded_at": "hand-written 2026-09-27 from the pre-2026-09-26 composer described in scripts/chatgpt_client.py; not a recording",
+  "send_button": {
+    "aria_label": "Send prompt",
+    "disabled": true,
+    "found": true,
+    "testid": "send-button"
+  },
+  "synthetic": true,
+  "turns": {
+    "any": 0,
+    "articles": 0,
+    "matched_any": [],
+    "matched_user": [],
+    "user": 0
+  },
+  "url": "https://chatgpt.com/"
+}

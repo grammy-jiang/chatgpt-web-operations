@@ -69,6 +69,7 @@ import probe_send_gates as psg
 import profile_context as pc
 import review_topic as rt
 from _common import ensure_venv
+from chatgpt_client import snapshot_drift
 
 GROUP_ORDER = ("host", "link", "account", "run", "browser")
 
@@ -670,15 +671,42 @@ LOGIN_FIX = (
     "log in to chatgpt.com from this machine's own browser, or clear any "
     "Cloudflare challenge, then re-run with --browser"
 )
+# The committed DOM fixture a fresh snapshot is compared with (TESTING.md
+# section 6, P1). RP_SNAPSHOT_DIR turns the recording on; RP_SNAPSHOT_FIXTURE
+# points the comparison at another committed fixture.
+SNAPSHOT_FIXTURE = (
+    Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "dom" / "composer.json"
+)
+SNAPSHOT_FIX = (
+    "the page changed under the selectors: compare <RP_SNAPSHOT_DIR>/composer.html "
+    "with tests/fixtures/dom/composer.html, run `make replay`, fix the client if "
+    "it fails, then promote the new snapshot with `make refresh-dom-fixtures`"
+)
 
 
-def browser_composer_check(cc: Any, browser: str) -> dict[str, Any]:
+def browser_composer_check(
+    cc: Any,
+    browser: str,
+    snapshot_dir: str | None = None,
+    fixture: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
     """Opens a window, loads the page a send would compose on, and confirms
     the composer appears: ``BrowserSender.probe_composer``, the public method
     that does exactly the first half of a send and nothing after it.
 
     Opt-in only: costs one of ``cc.MAX_BROWSERS`` slots and about twenty
     seconds, so it runs last, after every cheap check.
+
+    With ``snapshot_dir`` (default: ``RP_SNAPSHOT_DIR``) the page is also
+    recorded there (``BrowserSender.snapshot_page``: the composer's markup,
+    attributes only, and the facts the selectors depend on) and compared
+    with the committed fixture (``fixture``, default ``RP_SNAPSHOT_FIXTURE``
+    or ``tests/fixtures/dom/composer.json``). A page that differs in what the
+    selectors read is a warning naming the facts, with the fix: that is how
+    a UI change like the one of 2026-09-26 becomes a morning mail instead of
+    a failed run. The probe's own verdict never depends on the recording:
+    a snapshot that could not be written is a warning beside a composer
+    that did appear.
 
     The fix line is offered only for the failure it fits. A composer that
     never appeared means logged out or challenged
@@ -690,19 +718,81 @@ def browser_composer_check(cc: Any, browser: str) -> dict[str, Any]:
     had navigated, and its offline test passed because the fake it ran
     against was kinder than the real object.
     """
+    if snapshot_dir is None:
+        snapshot_dir = os.environ.get("RP_SNAPSHOT_DIR", "")
+    fixture_path = Path(
+        fixture or os.environ.get("RP_SNAPSHOT_FIXTURE") or SNAPSHOT_FIXTURE
+    )
+    facts: dict[str, Any] | None = None
+    snapshot_error = ""
     try:
         with cc.BrowserSender(browser) as sender:
             url = sender.probe_composer()
+            if snapshot_dir:
+                try:
+                    facts = sender.snapshot_page(snapshot_dir)
+                except Exception as exc:  # the probe passed; the record is extra
+                    snapshot_error = str(exc)[:200]
     except Exception as exc:
         detail = str(exc)[:200]
         fix = LOGIN_FIX if "logged out or challenged" in detail else None
         return check("browser", "composer", "block", detail, fix)
+    detail = (
+        f"the composer appeared at {url}; a send would not be blocked by a "
+        "logged-out or challenged session"
+    )
+    if not snapshot_dir:
+        return check("browser", "composer", "ok", detail)
+    if facts is None:
+        return check(
+            "browser",
+            "composer",
+            "warn",
+            f"{detail}; the DOM snapshot failed: {snapshot_error}",
+        )
+    return snapshot_verdict(facts, fixture_path, detail, snapshot_dir)
+
+
+def snapshot_verdict(
+    facts: dict[str, Any], fixture_path: Path, detail: str, snapshot_dir: str
+) -> dict[str, Any]:
+    """The composer check's record once a snapshot was written: compared
+    with the committed fixture when there is one (``snapshot_drift``)."""
+    if not fixture_path.is_file():
+        return check(
+            "browser",
+            "composer",
+            "ok",
+            f"{detail}; snapshot written to {snapshot_dir}, no committed "
+            f"fixture at {fixture_path} to compare with",
+        )
+    try:
+        fixture = json.loads(fixture_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return check(
+            "browser",
+            "composer",
+            "warn",
+            f"{detail}; the committed fixture {fixture_path} is unreadable: {exc}"[
+                :300
+            ],
+        )
+    recorded_at = fixture.get("recorded_at", "?") if isinstance(fixture, dict) else "?"
+    drift = snapshot_drift(facts, fixture if isinstance(fixture, dict) else {})
+    if drift:
+        return check(
+            "browser",
+            "composer",
+            "warn",
+            f"{detail}; the page differs from the fixture recorded {recorded_at} "
+            f"in {', '.join(drift)}",
+            SNAPSHOT_FIX,
+        )
     return check(
         "browser",
         "composer",
         "ok",
-        f"the composer appeared at {url}; a send would not be blocked by a "
-        "logged-out or challenged session",
+        f"{detail}; the page matches the fixture recorded {recorded_at}",
     )
 
 

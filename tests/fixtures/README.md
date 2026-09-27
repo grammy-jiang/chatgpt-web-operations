@@ -21,3 +21,24 @@ public; `--redact KEY` adds a key for one fixture. Recorded so far
 (`gizmos/<the rp-test-sandbox id>`), `settings_user`, `models` (with
 `--keep title`, the preset titles are public), `system_hints_basic`;
 `wham_usage` was written by hand from a live shape with the values changed.
+
+## `dom/`: recorded pages for the replay tier
+
+`dom/<name>.html` is a page ChatGPT served, reduced to what a selector can
+see (`chatgpt_client.sanitize_html`: tag tree, `id`, `class`, `role`,
+`aria-*`, `data-*` and a few form attributes; no text node, no URL, no
+script, no image). `dom/<name>.json` holds the facts recorded with it
+(`page_snapshot`: which selector alternatives matched, the send button, the
+turn counts, the URL, when). `tests/replay` loads the `.html` into a real
+headless Chrome and runs the client's page functions on it; `preflight.py
+--browser` with `RP_SNAPSHOT_DIR` records a fresh pair every day and warns
+when the facts drift from `dom/composer.json`.
+
+Promote a recording with `make refresh-dom-fixtures` (default: the newest
+daily run's `dom/`; `FROM=<dir>` for another), which re-sanitizes it and
+refuses anything the hygiene test would fail. Never from cron. Files whose
+name ends in `-synthetic` are hand-written, not recorded, and are the only
+ones allowed to carry text: `composer-legacy-synthetic` is the pre-2026-09-26
+composer, `chat-load-failed-synthetic` the "Could not load this ChatGPT
+conversation" notice. `composer.*` is the daily check's recording;
+`conversation.*` comes from the weekly send (TESTING.md section 6, P3).

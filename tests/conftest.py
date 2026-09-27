@@ -1,8 +1,12 @@
-"""Shared pytest setup: the T0 network guard and the live-tier gate.
+"""Shared pytest setup: the T0 network guard, the replay-tier loopback rule
+and the live-tier gate.
 
 Every rule here defends one property from TESTING.md section 1: a test
 without a live_* marker must never reach the network, and a live_* test
 must never run on its marker alone, only with its CHATGPT_LIVE value too.
+A ``replay`` test (tier R: a real headless Chrome on recorded pages) may
+open local sockets, because Playwright's own plumbing needs them, but may
+not resolve or connect to anything that is not loopback.
 """
 
 from __future__ import annotations
@@ -30,13 +34,58 @@ LIVE_MARKERS = {
 }
 
 
+# Markers of tiers that run a real headless Chrome on recorded pages and
+# reach no network (TESTING.md tier R). Playwright's sync API runs an asyncio
+# loop whose self-pipe is a socketpair, so these tests keep socket.socket
+# and are held to loopback by name resolution and connection instead.
+LOCAL_MARKERS = frozenset({"replay"})
+LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", ""})
+
+
 def _blocked(*_args: Any, **_kwargs: Any) -> Any:
     raise RuntimeError("tier T0 test tried to open a socket; see TESTING.md")
+
+
+def _loopback_only(host: Any) -> None:
+    """Raise unless ``host`` is loopback: the replay tier's network rule."""
+    name = "" if host is None else str(host)
+    if isinstance(host, bytes):
+        name = host.decode("ascii", "replace")
+    if name not in LOOPBACK_HOSTS:
+        raise RuntimeError(
+            f"tier R (replay) test tried to reach {name!r}, which is not "
+            "loopback; see TESTING.md"
+        )
+
+
+def loopback_getaddrinfo(real: Any) -> Any:
+    """``socket.getaddrinfo`` that resolves loopback names only."""
+
+    def wrapped(host: Any, *args: Any, **kwargs: Any) -> Any:
+        _loopback_only(host)
+        return real(host, *args, **kwargs)
+
+    return wrapped
+
+
+def loopback_create_connection(real: Any) -> Any:
+    """``socket.create_connection`` that connects to loopback only."""
+
+    def wrapped(address: Any, *args: Any, **kwargs: Any) -> Any:
+        _loopback_only(address[0] if address else "")
+        return real(address, *args, **kwargs)
+
+    return wrapped
 
 
 def is_live_marked(item: Any) -> bool:
     """True if ``item`` carries any of the four live markers."""
     return any(item.get_closest_marker(m) for m in LIVE_MARKERS)
+
+
+def is_local_marked(item: Any) -> bool:
+    """True if ``item`` carries a tier-R marker (``LOCAL_MARKERS``)."""
+    return any(item.get_closest_marker(m) for m in LOCAL_MARKERS)
 
 
 def missing_live_var(item: Any, environ: Any = os.environ) -> str | None:
@@ -49,8 +98,19 @@ def missing_live_var(item: Any, environ: Any = os.environ) -> str | None:
 
 @pytest.fixture(autouse=True)
 def _no_network_in_t0(request: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A test with none of the four live markers may not open a socket."""
+    """A test with none of the four live markers may not open a socket; a
+    replay test may open local ones but reach nothing beyond loopback."""
     if is_live_marked(request.node):
+        return
+    if is_local_marked(request.node):
+        monkeypatch.setattr(
+            socket, "getaddrinfo", loopback_getaddrinfo(socket.getaddrinfo)
+        )
+        monkeypatch.setattr(
+            socket,
+            "create_connection",
+            loopback_create_connection(socket.create_connection),
+        )
         return
     monkeypatch.setattr(socket, "socket", _blocked)
     monkeypatch.setattr(socket, "create_connection", _blocked)

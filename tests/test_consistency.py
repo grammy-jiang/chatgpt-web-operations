@@ -233,7 +233,11 @@ def private_sender_uses(source: str) -> list[tuple[int, str]]:
 
 def _sender_callers() -> list[Path]:
     files = [p for p in sorted(SCRIPTS.glob("*.py")) if p.name != "chatgpt_client.py"]
-    return files + sorted((TESTS_DIR / "live").glob("*.py"))
+    return (
+        files
+        + sorted((TESTS_DIR / "live").glob("*.py"))
+        + sorted((TESTS_DIR / "replay").glob("*.py"))
+    )
 
 
 @pytest.mark.parametrize(

@@ -121,6 +121,46 @@ class _FakeSenderBusy:
         return "https://chatgpt.com/"
 
 
+SNAPSHOT_FACTS = {
+    "url": "https://chatgpt.com/",
+    "composer": {
+        "found": True,
+        "count": 1,
+        "matched": ['div.ProseMirror[contenteditable="true"][role="textbox"]'],
+        "tag": "div",
+        "id": None,
+        "aria_label": None,
+        "in_form": True,
+    },
+    "send_button": {
+        "found": True,
+        "testid": "send-button",
+        "aria_label": "Send prompt",
+        "disabled": True,
+    },
+    "turns": {"user": 0, "any": 0, "articles": 0},
+    "recorded_at": "2026-09-27T12:00:00Z",
+}
+
+
+class _FakeSenderSnapshot(_FakeSenderOK):
+    """The composer appeared and ``snapshot_page`` recorded it: writes the
+    two files the real method writes and returns the facts. ``facts`` and
+    ``fail`` are class attributes a test sets before the check runs."""
+
+    facts: dict = SNAPSHOT_FACTS
+    fail: Exception | None = None
+
+    def snapshot_page(self, out_dir: str, name: str = "composer") -> dict:
+        if self.fail is not None:
+            raise self.fail
+        target = Path(out_dir)
+        target.mkdir(parents=True, exist_ok=True)
+        (target / f"{name}.html").write_text("<!doctype html>\n", encoding="utf-8")
+        (target / f"{name}.json").write_text(json.dumps(self.facts), encoding="utf-8")
+        return dict(self.facts)
+
+
 def _fake_cc(
     session: Any,
     *,
@@ -1117,6 +1157,103 @@ def test_browser_composer_check_names_a_busy_slot_without_blaming_the_login() ->
     assert c["fix"] is None
 
 
+def test_browser_composer_check_without_a_snapshot_dir_records_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """RP_SNAPSHOT_DIR unset: the check is exactly what it was before P1."""
+    monkeypatch.delenv("RP_SNAPSHOT_DIR", raising=False)
+    cc = SimpleNamespace(BrowserSender=_FakeSenderSnapshot)
+    c = preflight.browser_composer_check(cc, "chrome", fixture=tmp_path / "none")
+    assert c["state"] == "ok"
+    assert "snapshot" not in c["detail"]
+    assert not list(tmp_path.iterdir())
+
+
+def test_browser_composer_check_records_a_snapshot_and_matches_the_fixture(
+    tmp_path: Path,
+) -> None:
+    fixture = tmp_path / "composer.json"
+    fixture.write_text(json.dumps(SNAPSHOT_FACTS), encoding="utf-8")
+    cc = SimpleNamespace(BrowserSender=_FakeSenderSnapshot)
+    c = preflight.browser_composer_check(
+        cc, "chrome", snapshot_dir=str(tmp_path / "dom"), fixture=fixture
+    )
+    assert c["state"] == "ok"
+    assert "matches the fixture recorded 2026-09-27T12:00:00Z" in c["detail"]
+    assert (tmp_path / "dom" / "composer.html").is_file()
+    assert (tmp_path / "dom" / "composer.json").is_file()
+
+
+def test_browser_composer_check_warns_and_names_the_drift_from_the_fixture(
+    tmp_path: Path,
+) -> None:
+    """The morning mail for a UI change: the composer still appeared, so a
+    send is not blocked, but the page no longer looks the way the selectors
+    were proven against, and the record says in what."""
+    older = json.loads(json.dumps(SNAPSHOT_FACTS))
+    older["composer"]["matched"] = ["#prompt-textarea"]
+    older["composer"]["id"] = "prompt-textarea"
+    older["send_button"]["testid"] = None
+    fixture = tmp_path / "composer.json"
+    fixture.write_text(json.dumps(older), encoding="utf-8")
+    cc = SimpleNamespace(BrowserSender=_FakeSenderSnapshot)
+    c = preflight.browser_composer_check(
+        cc, "chrome", snapshot_dir=str(tmp_path / "dom"), fixture=fixture
+    )
+    assert c["state"] == "warn"
+    assert "differs from the fixture recorded 2026-09-27T12:00:00Z" in c["detail"]
+    assert "composer.matched, composer.id, send_button.testid" in c["detail"]
+    assert c["fix"] == preflight.SNAPSHOT_FIX
+
+
+def test_browser_composer_check_is_ok_with_a_snapshot_and_no_fixture_yet(
+    tmp_path: Path,
+) -> None:
+    cc = SimpleNamespace(BrowserSender=_FakeSenderSnapshot)
+    c = preflight.browser_composer_check(
+        cc, "chrome", snapshot_dir=str(tmp_path / "dom"), fixture=tmp_path / "no.json"
+    )
+    assert c["state"] == "ok"
+    assert "no committed fixture" in c["detail"]
+
+
+def test_browser_composer_check_warns_on_an_unreadable_fixture(tmp_path: Path):
+    fixture = tmp_path / "composer.json"
+    fixture.write_text("{not json", encoding="utf-8")
+    cc = SimpleNamespace(BrowserSender=_FakeSenderSnapshot)
+    c = preflight.browser_composer_check(
+        cc, "chrome", snapshot_dir=str(tmp_path / "dom"), fixture=fixture
+    )
+    assert c["state"] == "warn"
+    assert "unreadable" in c["detail"]
+
+
+def test_browser_composer_check_warns_when_the_snapshot_itself_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The probe passed; the record is extra evidence. Its failure must not
+    turn a composer that appeared into a blocked run."""
+    monkeypatch.setattr(_FakeSenderSnapshot, "fail", RuntimeError("disk full"))
+    cc = SimpleNamespace(BrowserSender=_FakeSenderSnapshot)
+    c = preflight.browser_composer_check(
+        cc, "chrome", snapshot_dir=str(tmp_path / "dom"), fixture=tmp_path / "f.json"
+    )
+    assert c["state"] == "warn"
+    assert "the DOM snapshot failed: disk full" in c["detail"]
+    assert "composer appeared" in c["detail"]
+
+
+def test_browser_composer_check_reads_the_snapshot_dir_from_the_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RP_SNAPSHOT_DIR", str(tmp_path / "from-env"))
+    monkeypatch.setenv("RP_SNAPSHOT_FIXTURE", str(tmp_path / "absent.json"))
+    cc = SimpleNamespace(BrowserSender=_FakeSenderSnapshot)
+    c = preflight.browser_composer_check(cc, "chrome")
+    assert c["state"] == "ok"
+    assert (tmp_path / "from-env" / "composer.json").is_file()
+
+
 def test_the_fake_senders_offer_nothing_the_real_sender_does_not() -> None:
     """Every public name a fake sender offers must be a public method of the
     real BrowserSender, and no fake may offer a private one. This is what
@@ -1125,9 +1262,17 @@ def test_the_fake_senders_offer_nothing_the_real_sender_does_not() -> None:
     2026-09-20 (references/failure-atlas.md)."""
     import chatgpt_client
 
-    for fake in (_FakeSenderOK, _FakeSenderBlocked, _FakeSenderBusy):
-        names = [n for n in vars(fake) if not n.startswith("__")]
-        assert names == ["probe_composer"], f"{fake.__name__} offers {names}"
+    expected = {
+        _FakeSenderOK: ["probe_composer"],
+        _FakeSenderBlocked: ["probe_composer"],
+        _FakeSenderBusy: ["probe_composer"],
+        _FakeSenderSnapshot: ["snapshot_page"],
+    }
+    for fake, offered in expected.items():
+        names = [
+            n for n, v in vars(fake).items() if not n.startswith("__") and callable(v)
+        ]
+        assert names == offered, f"{fake.__name__} offers {names}"
         for name in names:
             assert callable(getattr(chatgpt_client.BrowserSender, name, None)), (
                 f"{fake.__name__}.{name} is not a public BrowserSender method"

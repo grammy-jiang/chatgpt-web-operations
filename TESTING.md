@@ -16,6 +16,7 @@ case it removes what it created.
 | T2 | `live_write` | `CHATGPT_LIVE=write` | the sandbox project only: its own gizmo id and conversations inside it | no |
 | T3 | `live_browser` | `CHATGPT_LIVE=browser` | one Chrome window on the sandbox project; the composer is filled, send is never clicked | no |
 | T4 | `live_send` | `CHATGPT_LIVE=send` | real sends inside the sandbox project, deleted in teardown, at most `CHATGPT_LIVE_SENDS` per run (default 4) | no |
+| R | `replay` | none; `make replay` | a real headless Chrome on the recorded pages in `tests/fixtures/dom`, served through a Playwright route; no account, no network (the Python side is held to loopback by `tests/conftest.py`) | no |
 
 Enforcement, not promises:
 
@@ -76,7 +77,8 @@ Enforcement, not promises:
 | smoke | T1 | each read command exits as documented against the real account; assertions on shape, never on the user's data | `profile_context.py` exits 0; the slider has 5 positions; `tests/live/test_read_preflight.py`: preflight's account and run groups over the guarded session, and `main()` exiting as documented with its eleven default checks in order |
 | round trip | T2 | each write command: act, read back, revert; the cleanup is verified by a read. A round trip that needs a conversation to act on mints one (`tests/live/minting.py`) and is therefore T4, not T2: a test that waits for a chat an earlier run left never runs, because the sweep deletes them | set instructions on the sandbox, read `gizmos/<id>`, restore |
 | browser dry run | T3 | the send path opens: window, cookies, composer found, upload works; never sends | `tests/live/test_browser_upload.py`: `BrowserSender.attach_files` uploads one file, the composer shows its `Remove file …` chip and the send button stays enabled, never clicked |
-| measured send | T4 | the send path end to end, one message per feature, timings recorded in `failure-atlas.md` | search on and off, one attachment, one deep research; `tests/live/test_send_effort.py`, which pins a level the account is **not** already using and asserts the reply recorded it -- the check that would have caught the two-month effort regression; and `tests/live/test_send_chat_flags.py`, which mints a chat and round-trips pin, unpin, archive and unarchive on it |
+| measured send | T4 | the send path end to end, one message per feature, timings recorded in `failure-atlas.md` | search on and off, one attachment, one deep research; `tests/live/test_send_effort.py`, which pins a level the account is **not** already using and asserts the reply recorded it -- the check that would have caught the two-month effort regression; `tests/live/test_send_chat_flags.py`, which mints a chat and round-trips pin, unpin, archive and unarchive on it; and `tests/live/test_send_cli_roundtrip.py`, the scripted end-to-end send through `send_prompt.main` itself (posted, replied with the nonce, deleted and 404), which also records the `conversation` and `composer-filled` pages for tier R and runs weekly from cron (`~/.local/bin/chatgpt-ops-send-check.sh`, Sunday 05:40) |
+| recorded page | R | the client's page functions (`find_composer`, `composer_state`, `chat_load_failure`, `page_snapshot`, `text_taken` on a fill) run by a real Chrome against the DOM ChatGPT actually served, as recorded by the daily browser check and promoted into `tests/fixtures/dom`; a UI change fails here offline once the new recording is promoted | `tests/replay/test_dom_replay.py`: the composer selector matches exactly one element on every recorded and synthetic composer; a fill is read back; the "could not load" notice is detected; a snapshot of a snapshot keeps every fact the selectors depend on |
 
 ## 3. Coverage gate
 
@@ -92,7 +94,10 @@ the venv switch and are exercised by the subprocess CLI tests, which
 coverage cannot see without process tracking. `make test` runs T0 and the
 gate, `make lint` runs ruff, and `make live-read`, `make live-write`,
 `make live-browser`, `make live-send` set the variable and the marker;
-`make fmt` formats with ruff and `make all` runs lint then test.
+`make fmt` formats with ruff and `make all` runs lint then test. `make
+replay` runs tier R (excluded from `make test`, because it needs Chrome),
+and `make refresh-dom-fixtures` promotes the newest recorded page into
+`tests/fixtures/dom` (`FROM=<dir>` for another recording).
 
 ## 4. Current verification procedure
 
@@ -249,6 +254,13 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
   - Exit: a fixture with renamed attributes fails `make replay`; the daily
     run writes a snapshot and compares it; `make replay` runs in the daily
     wrapper after `make test`. Cost: 20-30 s per run.
+  - Done 2026-09-27 (evening): `snapshot_page`, `page_snapshot`,
+    `sanitize_html`, `snapshot_drift` and the page functions in
+    `chatgpt_client.py`; `preflight.browser_composer_check` records under
+    `RP_SNAPSHOT_DIR` and compares with `tests/fixtures/dom/composer.json`;
+    tier R (`tests/replay`, `make replay`); `make refresh-dom-fixtures`;
+    the hygiene test covers `dom/`. The conversation-page fixture waits for
+    P3's first run.
 - **P2. Submit robustness and an event ledger** (`PLAN` B5). Kind: unit
   over fake pages, plus a durable record. Tier: T0.
   - After `fill`, read the composer text back (`textContent`, length and
@@ -279,6 +291,14 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
   - Exit: the test passes once by hand and once from cron. Cost: one message
     per week and one per sender change. Default cadence is weekly; revisit
     if the account shows a rate limit on Sundays.
+  - Done 2026-09-27 (evening): `tests/live/test_send_cli_roundtrip.py`
+    passed by hand in 115 s and recorded `conversation` and
+    `composer-filled` for tier R; the weekly wrapper is
+    `~/.local/bin/chatgpt-ops-send-check.sh` (Sunday 05:40 through
+    `cron-report`; WARN when a recorded page drifts from its fixture, ALERT
+    when the send fails). Its first recording showed that `COMPOSER_STATE_JS`
+    could not see the 2026-09-26 send button (`references/failure-atlas.md`,
+    "Fixed bugs"); fixed the same evening.
 - **P4. Live coverage per command.** Kind: consistency. Tier: T0 for the
   rule, T1 for the new tests.
   - A table in `tests/test_consistency.py`: every command maps to a live
