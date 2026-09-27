@@ -1799,6 +1799,65 @@ def text_taken(expected: str, actual: str) -> bool:
     return got.startswith(want[:256]) and len(got) >= 0.9 * len(want)
 
 
+# ---------------------------------------------------------------------------
+# Evidence that survives: events and screenshots
+# ---------------------------------------------------------------------------
+# Until 2026-09-27 a send that failed left a screenshot in /tmp, gone at the
+# next reboot, and nothing counted how often "message was not posted"
+# happened (PLAN-2026-09-27.md, B5). Now every failure a send can name is one
+# JSON line in the events file and its screenshot lives in the screenshot
+# directory, both under this machine's state directory unless RP_EVENTS_FILE
+# or RP_SCREENSHOT_DIR says otherwise. The weekly digest counts the events.
+STATE_DIR = Path("~/.local/state/chatgpt-web-operations").expanduser()
+EVENT_KINDS = (
+    "composer-missing",  # the composer never appeared: logged out or challenged
+    "composer-blocked",  # a modal covered it and Escape did not clear it politely
+    "chat-load-failed",  # "Could not load this ChatGPT conversation", retries spent
+    "fill-fallback",  # fill() was not read back; retyped through the keyboard
+    "text-not-taken",  # the retype did not take either; the send was abandoned
+    "not-posted",  # submitted, but no new user turn or conversation URL appeared
+    "send-error",  # any other browser failure on the send path
+)
+
+
+def events_file() -> Path:
+    """Where ``record_event`` appends: ``RP_EVENTS_FILE`` or the default."""
+    return Path(
+        os.environ.get("RP_EVENTS_FILE") or STATE_DIR / "events.jsonl"
+    ).expanduser()
+
+
+def default_screenshot_dir() -> Path:
+    """Where a sender keeps its screenshots unless told otherwise:
+    ``RP_SCREENSHOT_DIR`` or ``<state>/screenshots``."""
+    return Path(
+        os.environ.get("RP_SCREENSHOT_DIR") or STATE_DIR / "screenshots"
+    ).expanduser()
+
+
+def record_event(kind: str, **fields: Any) -> str:
+    """Append one JSON line (``ts``, ``pid``, ``kind`` and ``fields``) to the
+    events file and log it. Never raises: evidence must not turn a failing
+    send into a different failure. Returns the path written, or "" when it
+    could not be."""
+    record = {
+        "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "pid": os.getpid(),
+        "kind": kind,
+        **fields,
+    }
+    path = events_file()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+    except OSError as exc:
+        logger.warning("event %s could not be recorded at %s: %s", kind, path, exc)
+        return ""
+    logger.warning("event %s: %s", kind, json.dumps(fields, default=str)[:300])
+    return str(path)
+
+
 def fill_budget_ms(n_chars: int) -> int:
     """How long a send gives the composer to ingest ``n_chars`` of prompt:
     6 s per kB, never under 120 s, capped at 900 s. One function, so a
@@ -1886,7 +1945,7 @@ class BrowserSender:
         self,
         browser: str = "chrome",
         visible: bool = False,
-        screenshot_dir: str = "/tmp",
+        screenshot_dir: str = "",
         project: str = "",
         effort: str = "",
         model: str = "",
@@ -1897,7 +1956,15 @@ class BrowserSender:
     ):
         self.browser = browser
         self.visible = visible
-        self.screenshot_dir = Path(screenshot_dir)
+        # Where this sender's failure screenshots go: the argument, else
+        # RP_SCREENSHOT_DIR, else the state directory (until 2026-09-27 the
+        # default was /tmp, and the evidence of a failed send did not survive
+        # a reboot). Created on first use, never here.
+        self.screenshot_dir = (
+            Path(screenshot_dir).expanduser()
+            if screenshot_dir
+            else default_screenshot_dir()
+        )
         # A ChatGPT project (a "snorlax gizmo", g-p-… id or short_url slug).
         # New conversations are composed on its page, so they belong to it.
         self.project = project.strip()
@@ -2382,19 +2449,36 @@ class BrowserSender:
             return
         except PWTimeout:
             pass
-        with contextlib.suppress(Exception):
-            self.page.screenshot(
-                path=str(self.screenshot_dir / "chatgpt-composer-blocked.png")
-            )
+        record_event(
+            "composer-blocked",
+            url=str(self.page.url),
+            blocking=blocking,
+            screenshot=self._screenshot("chatgpt-composer-blocked.png"),
+        )
         composer.click(timeout=30_000, force=True)
+
+    def _screenshot(self, name: str) -> str:
+        """Save ``name`` under ``screenshot_dir`` and return its path, or ""
+        when it could not be taken. Never raises: a screenshot is evidence
+        about a failure, not a second way to fail."""
+        path = self.screenshot_dir / name
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            self.page.screenshot(path=str(path))
+        except Exception as exc:  # playwright errors have no common base here
+            logger.warning("no screenshot %s: %s", path, exc)
+            return ""
+        return str(path)
 
     def _composer(self) -> Any:
         self._check_rate_limit_dialog()
         try:
             return find_composer(self.page)
         except TransportError:
-            self.page.screenshot(
-                path=str(self.screenshot_dir / "chatgpt-composer-missing.png")
+            record_event(
+                "composer-missing",
+                url=str(self.page.url),
+                screenshot=self._screenshot("chatgpt-composer-missing.png"),
             )
             raise
 
@@ -2507,10 +2591,12 @@ class BrowserSender:
         except TransportError:
             raise
         except Exception as exc:  # playwright errors have no common base here
-            with contextlib.suppress(Exception):
-                self.page.screenshot(
-                    path=str(self.screenshot_dir / "chatgpt-send-error.png")
-                )
+            record_event(
+                "send-error",
+                url=str(getattr(self.page, "url", "")),
+                error=str(exc)[:200],
+                screenshot=self._screenshot("chatgpt-send-error.png"),
+            )
             # Only now does the notice mean anything: the send was tried and
             # it failed. Before the attempt it may be stale history nagging,
             # and treating that as a block is what cost runs.
@@ -2661,10 +2747,13 @@ class BrowserSender:
                     logger.info("chat %s loaded after %d retries", chat, retries)
                 return
             if retries >= CHAT_LOAD_RETRIES:
-                with contextlib.suppress(Exception):
-                    self.page.screenshot(
-                        path=str(self.screenshot_dir / "chatgpt-chat-load-failed.png")
-                    )
+                record_event(
+                    "chat-load-failed",
+                    chat=chat,
+                    loads=retries + 1,
+                    notice=notice[:160],
+                    screenshot=self._screenshot("chatgpt-chat-load-failed.png"),
+                )
                 raise TransportError(
                     f"chat {chat} did not load after {retries + 1} loads "
                     f"({retries} retries): {notice}"[:300]
@@ -2806,6 +2895,10 @@ class BrowserSender:
             composer.fill(text, timeout=budget)
         page.wait_for_timeout(800)
         logger.info("send: text filled (%d chars)", len(text))
+        self._confirm_fill(
+            composer,
+            self.ATTACH_COVER if len(text) > self.ATTACH_ABOVE_BYTES else text,
+        )
         # Start watching for this send's own reply now, before the click, so
         # record_send_body's stream capture is not missed; its value is not
         # read until the post-click checks below have confirmed the message
@@ -2847,7 +2940,70 @@ class BrowserSender:
             if self.record_send_body and self.record_stream:
                 self._record_send_stream(info)
             return chat_id(page.url)  # provisional WEB: id; the caller resolves it
-        page.screenshot(path=str(self.screenshot_dir / "chatgpt-send-fail.png"))
+        record_event(
+            "not-posted",
+            url=str(page.url),
+            turns_before=turns_before,
+            turns_after=page.locator(USER_TURN_SELECTOR).count(),
+            chars=len(text),
+            screenshot=self._screenshot("chatgpt-send-fail.png"),
+        )
         raise TransportError(
             "message was not posted (no new user turn / conversation URL)"
+        )
+
+    def _composer_text(self, composer: Any) -> str:
+        """What the composer shows, or "" when it cannot be read."""
+        with contextlib.suppress(Exception):
+            return str(composer.inner_text(timeout=5_000))
+        return ""
+
+    def _confirm_fill(self, composer: Any, expected: str) -> None:
+        """Owner thread only. After ``fill``, read the composer back and make
+        sure it took ``expected`` (``text_taken``). If it did not, clear it
+        and type through the keyboard once (``insert_text``, the paste
+        path), then read it back again; a composer that still holds
+        something else ends the send with a recorded ``text-not-taken``
+        event and a screenshot, instead of a click on a message that is not
+        there.
+
+        On 2026-09-27 one real send typed its text and never posted it: the
+        click and Enter were both ignored, the next send worked, and
+        nothing had looked at what the composer held before submitting
+        (PLAN-2026-09-27.md, B5). The read-back is that look; the fallback
+        is the cheapest second attempt that does not start a second chat.
+        """
+        shown = self._composer_text(composer)
+        if text_taken(expected, shown):
+            return
+        record_event(
+            "fill-fallback",
+            url=str(self.page.url),
+            expected_chars=len(expected),
+            shown_chars=len(shown),
+        )
+        logger.warning(
+            "the composer shows %d of %d characters after fill; retyping "
+            "through the keyboard",
+            len(shown),
+            len(expected),
+        )
+        self._focus_composer(composer)
+        self.page.keyboard.press("Control+A")
+        self.page.keyboard.press("Delete")
+        self.page.keyboard.insert_text(expected)
+        self.page.wait_for_timeout(800)
+        shown = self._composer_text(composer)
+        if text_taken(expected, shown):
+            return
+        record_event(
+            "text-not-taken",
+            url=str(self.page.url),
+            expected_chars=len(expected),
+            shown_chars=len(shown),
+            screenshot=self._screenshot("chatgpt-fill-failed.png"),
+        )
+        raise TransportError(
+            f"the composer did not take the text ({len(shown)} of {len(expected)} "
+            "characters shown after fill and insert_text)"
         )

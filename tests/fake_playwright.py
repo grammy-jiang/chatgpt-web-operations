@@ -202,6 +202,7 @@ class ElementState:
         enabled: Any = True,
         attributes: Any = None,
         raises: Any = None,
+        swallow_fill: bool = False,
     ) -> None:
         self.count = count
         self.texts = texts
@@ -209,6 +210,10 @@ class ElementState:
         self.enabled = enabled
         self.attributes = attributes
         self.raises = raises
+        # A real composer shows what fill() put in it, so fill() updates
+        # ``texts`` -- unless the test says the page swallowed the fill,
+        # which is the 2026-09-27 "typed but never posted" shape.
+        self.swallow_fill = swallow_fill
 
 
 def key_for_role(role: str, name: Any = None, exact: bool = False) -> str:
@@ -268,6 +273,8 @@ class Locator:
     def fill(self, text: str, timeout: int | None = None, **kw: Any) -> None:
         self._record("fill", (text,), {"timeout": timeout, **kw})
         self._maybe_raise("fill")
+        if not self._state.swallow_fill:
+            self._state.texts = text
 
     def press(self, key: str, **kw: Any) -> None:
         self._record("press", (key,), kw)
@@ -393,6 +400,12 @@ class Keyboard:
 
     def press(self, key: str, **kw: Any) -> None:
         self._page.calls.append(("page", "keyboard.press", (key,), kw))
+
+    def insert_text(self, text: str, **kw: Any) -> None:
+        """Recorded only: which element receives it depends on focus, so a
+        test that wants a read-back to change configures the locator's
+        ``texts`` (a ``sequence``) rather than relying on this."""
+        self._page.calls.append(("page", "keyboard.insert_text", (text,), kw))
 
 
 class Page:

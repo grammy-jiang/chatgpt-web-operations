@@ -20,6 +20,20 @@ plan for the next test work are `TESTING.md`, section 6 (2026-09-27
 evening); the binnacle tool mapping and the owner's decision to clear
 binnacle of ChatGPT tools are `PLAN-2026-09-27.md`, section 5 A.
 
+**State at the end of 2026-09-27.** Plan items P1 (tier R: recorded pages
+in a real Chrome, `make replay`), P2 (fill read-back, events file,
+screenshots in the state directory), P3 (the weekly scripted send, cron
+Sunday 05:40) and P4 (every command has a live test or a named reason;
+twelve read commands' mains run in T1) are done; each has a "Done" line
+under its item in `TESTING.md` 6.3. The daily wrapper records the composer
+page and runs `make replay`; `~/.local/bin` is its own repository and holds
+both wrappers. Next in order: P5 (a recorded fixture per endpoint with
+shape drift), then the one-client work A1-A4 (`refresh_connector.py` is
+the only real gap; binnacle then loses its ChatGPT tools), then P6-P10.
+Two check.log lines of 2026-09-27 evening are hand runs: the ALERT at
+23:53 is the environment leak recorded in `references/failure-atlas.md`,
+fixed the same hour.
+
 ## Entry point, 2026-09-25
 
 For first use or missing access, read `references/setup.md` and the

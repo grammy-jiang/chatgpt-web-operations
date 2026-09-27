@@ -358,3 +358,15 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   the same alternatives `_click_send` tries (`SEND_BUTTONS`). The lesson is
   the reason tier R exists: two scripts read the same DOM for the same
   fact, and only a real page can show them disagreeing.
+- **The daily wrapper's recording setting failed the offline suite it ran
+  next, under cron only.** On 2026-09-27 `chatgpt-ops-check.sh --browser`
+  began exporting `RP_SNAPSHOT_DIR` for `health.py`, and the `make test`
+  it runs afterwards inherited it: three T0 tests with fake senders (which
+  offer no `snapshot_page`) failed, while the same suite was green in every
+  terminal. Found by running the wrapper by hand the same evening (one
+  ALERT line in `check.log`). `tests/conftest.py` now clears the
+  `RP_SNAPSHOT_*` settings and points `RP_EVENTS_FILE` and
+  `RP_SCREENSHOT_DIR` into `tmp_path` for every test that is not live, so
+  the suite reads nothing from the shell it happens to run in. The lesson
+  is the old one with a new face: a test's environment is an input, and an
+  input nobody pinned will change under cron first.

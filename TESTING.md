@@ -11,7 +11,7 @@ case it removes what it created.
 
 | Tier | Marker | Opt-in variable | May touch | In `make test` |
 |------|--------|-----------------|-----------|----------------|
-| T0 | none | — | nothing outside this directory: no network, no browser, no cookie DB, no keyring | yes |
+| T0 | none | — | nothing outside this directory: no network, no browser, no cookie DB, no keyring; `tests/conftest.py` also clears `RP_SNAPSHOT_DIR`/`RP_SNAPSHOT_FIXTURE` and points `RP_EVENTS_FILE`/`RP_SCREENSHOT_DIR` into `tmp_path`, so the shell's recording settings never reach a test and no evidence is written outside it | yes |
 | T1 | `live_read` | `CHATGPT_LIVE=read` | the real account, `GET` and the allowlisted read-only search POST; also this machine's own keyring (session-token renewal, `chatgpt_session.py` "Session token renewal") -- the one local write any live tier makes, tests/live/test_read_session_renewal.py | no |
 | T2 | `live_write` | `CHATGPT_LIVE=write` | the sandbox project only: its own gizmo id and conversations inside it | no |
 | T3 | `live_browser` | `CHATGPT_LIVE=browser` | one Chrome window on the sandbox project; the composer is filled, send is never clicked | no |
@@ -254,13 +254,20 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
   - Exit: a fixture with renamed attributes fails `make replay`; the daily
     run writes a snapshot and compares it; `make replay` runs in the daily
     wrapper after `make test`. Cost: 20-30 s per run.
-  - Done 2026-09-27 (evening): `snapshot_page`, `page_snapshot`,
-    `sanitize_html`, `snapshot_drift` and the page functions in
-    `chatgpt_client.py`; `preflight.browser_composer_check` records under
-    `RP_SNAPSHOT_DIR` and compares with `tests/fixtures/dom/composer.json`;
-    tier R (`tests/replay`, `make replay`); `make refresh-dom-fixtures`;
-    the hygiene test covers `dom/`. The conversation-page fixture waits for
-    P3's first run.
+  - Done 2026-09-27 (evening, commit `550f5d5`): `snapshot_page`,
+    `page_snapshot`, `sanitize_html`, `snapshot_drift` and the page
+    functions in `chatgpt_client.py`; `preflight.browser_composer_check`
+    records under `RP_SNAPSHOT_DIR` and compares with
+    `tests/fixtures/dom/composer.json`; tier R (`tests/replay`, `make
+    replay`, 14 tests); `make refresh-dom-fixtures`; the hygiene test
+    covers `dom/`; the daily wrapper records the composer page and runs
+    `make replay`. Recorded fixtures: `composer` (home page),
+    `conversation` and `composer-filled` (from P3's send). Two findings on
+    the first day: `COMPOSER_STATE_JS` could not see the 2026-09-26 send
+    button (fixed), and the daily wrapper's `RP_SNAPSHOT_DIR` leaked into
+    the `make test` it runs next, failing three fake-sender tests under
+    cron only; `tests/conftest.py` now isolates every non-live test from
+    the shell's `RP_*` recording settings.
 - **P2. Submit robustness and an event ledger** (`PLAN` B5). Kind: unit
   over fake pages, plus a durable record. Tier: T0.
   - After `fill`, read the composer text back (`textContent`, length and
@@ -277,6 +284,15 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
   - Exit: on a fake page that swallows the click, `send_prompt.py` writes
     one event and takes the fallback; each branch has a test; the weekly
     summary prints the count. Cost: none on the account.
+  - Done 2026-09-27 (evening): `BrowserSender._confirm_fill` reads the
+    composer back after `fill` (`text_taken`), retypes once through
+    `keyboard.insert_text` on a mismatch (`fill-fallback` event) and ends
+    the send with `text-not-taken` when the retype does not take either;
+    `record_event` appends to `~/.local/state/chatgpt-web-operations/events.jsonl`
+    (`RP_EVENTS_FILE`) for the seven `EVENT_KINDS`; screenshots default to
+    `<state>/screenshots` (`RP_SCREENSHOT_DIR`) instead of `/tmp`; the
+    weekly digest (`chatgpt-ops-check.sh --summary`) prints the weekly
+    sends and the events per kind. Tests: `tests/test_client_submit.py`.
 - **P3. The scripted end-to-end send, weekly** (`PLAN` B4). Kind: measured
   send. Tier: T4, one send.
   - `tests/live/test_send_cli_roundtrip.py` runs `send_prompt.main([...])`
@@ -316,6 +332,11 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
     `profile_context.py --project <sandbox>`, `clean_chats.py --project
     <sandbox>` dry run. `read_chat.py` runs inside P3's minted chat.
   - Exit: all 30 commands have a row; no row says TODO.
+  - Done 2026-09-27 (evening, commit `f66ce74`): `tests/test_live_coverage.py`
+    (the table and its rule; 9 of 30 excused) and
+    `tests/live/test_read_commands.py` (twelve mains over the guarded
+    session, 12 passed). The guard passes plain attributes through and
+    names the two connector lookup POSTs as reads.
 - **P5. A recorded fixture for every endpoint, with shape-drift detection**
   (`PLAN` B2, HTTP half). Kind: contract. Tier: T0 for the tests; the daily
   HTTP run records.

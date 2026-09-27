@@ -97,6 +97,27 @@ def missing_live_var(item: Any, environ: Any = os.environ) -> str | None:
 
 
 @pytest.fixture(autouse=True)
+def _isolated_recording_environment(
+    request: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A T0 or replay test never reads the shell's RP_* recording settings
+    and never writes evidence outside tmp_path.
+
+    The daily wrapper exports RP_SNAPSHOT_DIR for health.py --browser and
+    then runs make test in the same shell; on 2026-09-27 three T0 tests
+    with fake senders inherited it and failed under the wrapper and nowhere
+    else. Live tiers keep the real environment: their evidence (a send's
+    events, screenshots, DOM snapshots) is the point of running them.
+    """
+    if is_live_marked(request.node):
+        return
+    for name in ("RP_SNAPSHOT_DIR", "RP_SNAPSHOT_FIXTURE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("RP_EVENTS_FILE", str(tmp_path / "rp-evidence" / "events.jsonl"))
+    monkeypatch.setenv("RP_SCREENSHOT_DIR", str(tmp_path / "rp-evidence" / "shots"))
+
+
+@pytest.fixture(autouse=True)
 def _no_network_in_t0(request: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """A test with none of the four live markers may not open a socket; a
     replay test may open local ones but reach nothing beyond loopback."""
