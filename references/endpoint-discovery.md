@@ -650,7 +650,20 @@ and Delete, in both its "Installed" and "Created by me" sections:
   was removed from the account on 2026-09-25, at the user's request, after
   a Download as backup.
 
-Uninstall was not exercised. No command wraps these writes.
+`delete_skill.py NAME [--id SKILL_ID] [--confirm] [--dry-run]` now wraps
+Delete. It resolves one exact name from the installed list, checks readable
+and deletable permissions, and defaults to dry run. `--confirm` permits one
+DELETE attempt; `--dry-run` overrides it. Every real DELETE attempt is
+followed by one installed-list GET, including failed HTTP responses and
+exceptions. Neither request is replayed. Success requires DELETE HTTP 200
+plus a read-back containing neither the resolved id nor the exact name.
+A failed DELETE response remains exit 1 even if the target is absent; the
+command reports whether it is absent, remains installed, or its final state
+could not be established. The CLI adds
+these guards; the UI still has **no confirmation dialog**. The command is
+covered by offline fake-session tests; live mutation was not repeated for
+this implementation. Download has no command wrapper. Uninstall was not
+exercised.
 
 `GET /backend-api/ps/plugins/installed?limit=1000` ->
 `{"plugins": [...], "pagination": {"limit", "next_page_token"}}`: apps

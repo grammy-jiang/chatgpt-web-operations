@@ -89,10 +89,11 @@ skill does not import it.
 
 ## The commands
 
-There are 29 command scripts and five support modules. `clean_chats.py`,
+There are 30 command scripts and five support modules. `clean_chats.py`,
 `project_settings.py`, `pin_chat.py` and `delete_project.py` need `--apply`.
 `create_project.py`, `create_connector.py` and `connect_connector.py` act
-unless `--dry-run` is supplied. `delete_connector.py` needs `--confirm`.
+unless `--dry-run` is supplied. `delete_connector.py` and `delete_skill.py`
+need `--confirm`.
 `send_prompt.py` and `deep_research.py start` post messages.
 `round_status.py --collect --apply` writes local evidence and its ledger.
 `manage_tunnels.py create` acts unless `--dry-run`; its `update` needs
@@ -117,6 +118,7 @@ use POST; HTTP method alone does not determine whether an operation writes.
 | `list_projects.py` | Every project (paged), one project's full instructions and files, and the chats inside one. | 0 found, 1 no such `--id` |
 | `list_automations.py` | ChatGPT's scheduled tasks ("automations", `chatgpt.com/scheduled`): `--filter scheduled\|paused\|finished\|all` (default scheduled; `all` fetches all three and adds a state column), `--prompts` shows the task's own instruction text, `--json PATH`. A non-null `cursor` is reported, never followed (the paging parameter is unknown). | 0 every filter read, 1 a filter's read failed, 2 bad `--filter` |
 | `list_skills.py` | Skills and apps installed on the account: skills from `hazelnuts`, `--apps` adds installed apps and connectors from `ps/plugins/installed`. `--expect NAME` (repeatable) checks a skill is installed and enabled. `safety_check_status` and version fields print verbatim, never interpreted. `--json PATH`. | 0 listed and every `--expect` met, 1 a read failed or an `--expect` unmet, 2 bad arguments |
+| `delete_skill.py` | Delete exactly one uploaded Personal Skill by exact `NAME`; optional `--id SKILL_ID` adds an identity guard. Dry run unless `--confirm`; `--dry-run` overrides it. Refuses missing/ambiguous identities or missing read/delete permissions; reads the installed list once after every DELETE attempt. Success requires HTTP 200 plus verified id/name absence; a failed DELETE response remains exit 1 even if absent. `--browser` selects the session source. | 0 dry run or deleted and verified, 1 session/read/delete/verification failed (including malformed inventory), 2 bad arguments or safety refusal |
 | `list_connectors.py` | List accessible links and custom MCP apps; filter names or ids, inspect details, list available tunnels, or print JSON. Read-only HTTP, including lookup POSTs. | 0 listed, 1 a read failed, 2 bad arguments |
 | `create_connector.py` | Create a custom MCP app on an existing tunnel with No Auth. `--dry-run` previews the request. | 0 created or dry run, 1 create failed or name taken, 2 bad arguments |
 | `connect_connector.py` | Connect a No Auth custom MCP app and discover its tools. Optionally set `--apps-privacy full_access`. `--dry-run` previews both requests. | 0 connected or dry run, 1 connect or privacy update failed, 2 bad arguments |
