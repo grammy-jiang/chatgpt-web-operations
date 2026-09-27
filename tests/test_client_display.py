@@ -179,7 +179,7 @@ def test_a_visible_window_is_what_the_owner_asked_for(monkeypatch) -> None:
 
 
 SS_LINES = """\
-u_str ESTAB 0 0 @e3d49ffe53196f30/bus/labwc/system 12667 * 0 users:(("labwc",pid=1186,fd=12))
+u_str ESTAB 0 0 @abc/bus/labwc/system 12667 * 0 users:(("labwc",pid=1186,fd=12))
 u_str ESTAB 0 0 /run/user/1000/wayland-0 12959 * 0 users:(("labwc",pid=1186,fd=62))
 u_str ESTAB 0 0 /run/user/1000/wayland-0 30001 * 30002 users:(("labwc",pid=1186,fd=70))
 u_str ESTAB 0 0 /run/user/1000/wayland-0 30003 * 30004 users:(("labwc",pid=1186,fd=71))
@@ -209,11 +209,10 @@ def test_socket_inodes_reads_the_fd_links_of_a_process(tmp_path) -> None:
 
 
 def test_compositor_clients_matches_peer_inodes_to_our_processes(monkeypatch):
-    monkeypatch.setattr(
-        cc.subprocess,
-        "run",
-        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=SS_LINES, stderr=""),
-    )
+    def fake_run(*args, **kwargs):
+        return subprocess.CompletedProcess(args, 0, stdout=SS_LINES, stderr="")
+
+    monkeypatch.setattr(cc.subprocess, "run", fake_run)
     monkeypatch.setattr(
         cc, "socket_inodes", lambda pid, proc=None: {30002} if pid == 9 else {1}
     )
