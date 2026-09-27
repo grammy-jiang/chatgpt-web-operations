@@ -474,7 +474,7 @@ def test_attach_files_loads_focuses_uploads_then_reads_the_composer(
     page.url = "https://chatgpt.com/g/g-p-abc/project"
     page.set_locator(UPLOAD_INPUT, count=1)
     page.set_evaluate_result(
-        "Remove file",
+        "remove_labels",
         {
             "remove_labels": ["Remove file 1: a.pdf"],
             "send_exists": True,

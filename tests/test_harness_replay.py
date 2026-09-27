@@ -157,3 +157,37 @@ def test_default_source_follows_the_last_run_id(tmp_path: Path, monkeypatch) -> 
     assert rdf.default_source() == (
         tmp_path / "runs" / "20260927T052501+1000-1-browser" / "dom"
     )
+
+
+# ---------------------------------------------------------------------------
+# the suite is isolated from the shell's recording settings (2026-09-27)
+# ---------------------------------------------------------------------------
+
+
+def test_a_plain_test_never_sees_the_shell_s_recording_settings(
+    pytester, monkeypatch
+) -> None:
+    """The daily wrapper exports RP_SNAPSHOT_DIR before it runs make test;
+    on 2026-09-27 three fake-sender tests inherited it and failed under
+    cron only (references/failure-atlas.md). An inner pytest session run
+    with the variables set in the shell must show a plain test none of
+    them, and must point the evidence paths into its own tmp_path."""
+    monkeypatch.setenv("RP_SNAPSHOT_DIR", "/tmp/leaked-by-the-shell")
+    monkeypatch.setenv("RP_SNAPSHOT_FIXTURE", "/tmp/leaked-fixture.json")
+    monkeypatch.setenv("RP_EVENTS_FILE", "/tmp/leaked-events.jsonl")
+    monkeypatch.setenv("RP_SCREENSHOT_DIR", "/tmp/leaked-shots")
+    pytester.makeconftest(Path(conftest.__file__).read_text(encoding="utf-8"))
+    pytester.makepyfile(
+        test_probe="""
+import os
+
+def test_plain_test_environment():
+    assert "RP_SNAPSHOT_DIR" not in os.environ
+    assert "RP_SNAPSHOT_FIXTURE" not in os.environ
+    assert os.environ["RP_EVENTS_FILE"] != "/tmp/leaked-events.jsonl"
+    assert "rp-evidence" in os.environ["RP_EVENTS_FILE"]
+    assert os.environ["RP_SCREENSHOT_DIR"] != "/tmp/leaked-shots"
+"""
+    )
+    result = pytester.runpytest_subprocess("-q", "-p", "no:cacheprovider")
+    result.assert_outcomes(passed=1)

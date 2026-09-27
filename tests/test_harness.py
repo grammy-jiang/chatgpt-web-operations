@@ -750,12 +750,18 @@ def test_deleting_skips_an_id_that_never_became_a_conversation(chat_id: str) -> 
 # ---------------------------------------------------------------------------
 
 
-def test_browser_upload_verify_passes_a_matching_chip_and_enabled_send() -> None:
-    info = {
-        "remove_labels": ["Remove file 1: rp-test-browser-upload.txt"],
-        "send_exists": True,
-        "send_enabled": True,
-    }
+@pytest.mark.parametrize(
+    "label",
+    [
+        "Remove file 1: rp-test-browser-upload.txt",  # until 2026-09-26
+        "Remove rp-test-browser-upload.txt",  # since 2026-09-26
+        "Remove rp-test-browser-upload(1).txt",  # a second upload of the name
+    ],
+)
+def test_browser_upload_verify_passes_a_matching_chip_and_enabled_send(
+    label: str,
+) -> None:
+    info = {"remove_labels": [label], "send_exists": True, "send_enabled": True}
     assert live_test_browser_upload.verify(info, "rp-test-browser-upload.txt") == []
 
 
@@ -763,14 +769,14 @@ def test_browser_upload_verify_flags_a_missing_remove_chip() -> None:
     info = {"remove_labels": [], "send_exists": True, "send_enabled": True}
     mismatches = live_test_browser_upload.verify(info, "rp-test-browser-upload.txt")
     assert len(mismatches) == 1
-    assert "Remove file" in mismatches[0]
+    assert "Remove" in mismatches[0]
 
 
 def test_browser_upload_verify_flags_a_chip_naming_the_wrong_file() -> None:
-    """A 'Remove file' chip that names a different file must not pass just
-    because some upload succeeded."""
+    """A remove chip that names a different file must not pass just because
+    some upload succeeded."""
     info = {
-        "remove_labels": ["Remove file 1: some-other-file.txt"],
+        "remove_labels": ["Remove some-other-file.txt"],
         "send_exists": True,
         "send_enabled": True,
     }
@@ -781,15 +787,12 @@ def test_browser_upload_verify_flags_a_chip_naming_the_wrong_file() -> None:
 
 def test_browser_upload_verify_flags_a_missing_send_button() -> None:
     info = {
-        "remove_labels": ["Remove file 1: rp-test-browser-upload.txt"],
+        "remove_labels": ["Remove rp-test-browser-upload.txt"],
         "send_exists": False,
         "send_enabled": False,
     }
     mismatches = live_test_browser_upload.verify(info, "rp-test-browser-upload.txt")
-    assert mismatches == [
-        "no send button (neither [data-testid=send-button] nor "
-        '[aria-label="Send prompt"])'
-    ]
+    assert mismatches == ["no send button (none of chatgpt_client's alternatives)"]
 
 
 def test_browser_upload_verify_flags_a_disabled_send_button() -> None:

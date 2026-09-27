@@ -32,7 +32,12 @@ shape drift), then the one-client work A1-A4 (`refresh_connector.py` is
 the only real gap; binnacle then loses its ChatGPT tools), then P6-P10.
 Two check.log lines of 2026-09-27 evening are hand runs: the ALERT at
 23:53 is the environment leak recorded in `references/failure-atlas.md`,
-fixed the same hour.
+fixed the same hour. Late that night the owner asked whether the day's
+findings were really fixed: each fix was removed once to watch its test
+fail, and the first T3 run since 2026-09-25 found the upload chip's label
+renamed (fixed; `composer-attached` recorded; T3 now runs weekly before
+the send). `TESTING.md` 6.4 has the three rules that came out of it, and
+`tests/test_dom_coverage.py` enforces the one about selectors.
 
 ## Entry point, 2026-09-25
 

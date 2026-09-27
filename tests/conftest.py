@@ -141,7 +141,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--keep-sandbox-chats",
         action="store_true",
-        help="skip the live sandbox sweep after write/browser/send, print what stayed",
+        help="skip the live sandbox sweep after write/send, print what stayed",
     )
 
 

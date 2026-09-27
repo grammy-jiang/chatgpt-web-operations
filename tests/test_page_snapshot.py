@@ -281,7 +281,7 @@ def test_chat_load_failure_survives_an_unreadable_notice() -> None:
 def test_composer_state_has_a_fixed_shape_whatever_the_page_returned() -> None:
     page = fp.Page()
     page.set_evaluate_result(
-        "Remove file",
+        "remove_labels",
         {
             "remove_labels": ["Remove file a.pdf", 3],
             "send_exists": 1,
@@ -404,4 +404,18 @@ def test_the_selector_unions_are_the_joined_alternatives() -> None:
     assert cc.CHAT_TURN_SELECTOR == (
         '[data-message-author-role], [data-user-message-bubble="true"], '
         'article[data-testid^="conversation-turn"]'
+    )
+
+
+def test_sanitize_keeps_the_accept_attribute_a_selector_reads() -> None:
+    """UPLOAD_INPUT_FALLBACK_SELECTOR is ``input[type="file"]:not([accept*="image"])``;
+    with ``accept`` dropped, every file input on a recorded page matched it
+    (tier R, 2026-09-28)."""
+    out = cc.sanitize_html(
+        '<input type="file" accept="image/*" class="hidden">'
+        '<input type="file" class="hidden">'
+    )
+    assert out == (
+        '<input type="file" accept="image/*" class="hidden">'
+        '<input type="file" class="hidden">'
     )

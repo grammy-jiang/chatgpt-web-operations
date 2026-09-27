@@ -370,3 +370,27 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   the suite reads nothing from the shell it happens to run in. The lesson
   is the old one with a new face: a test's environment is an input, and an
   input nobody pinned will change under cron first.
+- **The upload chip's remove button was renamed on 2026-09-26, and the one
+  tier that reads it had not run since 2026-09-25.** The T3 dry run
+  (`tests/live/test_browser_upload.py`) uploads a file and asks
+  `COMPOSER_STATE_JS` for the chip's remove button, which it found by the
+  prefix "Remove file" ("Remove file 1: <name>", measured 2026-09-20). The
+  2026-09-26 page labels it "Remove <name>" (and "Remove <name>(1).md" for a
+  second upload of the same name), so the list came back empty and T3
+  failed the first time it was run after the change, on 2026-09-27
+  evening, when the owner asked whether the day's fixes were real. The
+  page also lost `input#upload-files`; the fallback selector had been
+  carrying every upload since. The recording is
+  `tests/fixtures/dom/composer-attached.html`; tier R now asserts the label
+  and the input on it, the weekly send runs T3 first and attaches a file to
+  its one message, and `tests/test_dom_coverage.py` refuses a page selector
+  that is not a named constant proven by tier R or excused by name. The
+  lesson: a tier that runs only by hand has already broken; every tier gets
+  a schedule.
+  A footnote from the same night: the first weekly-script run after the fix
+  reported "T3 failed" while the T3 test had passed. The session-scoped
+  sandbox sweep opened an HTTP session in teardown for the browser tier too,
+  and that one handshake met four Cloudflare 403 challenges in a row (the
+  production ladder, 30/90/180 s: an 8-minute error on a green test). `health.py`
+  authenticated normally a minute later. The sweep now runs only after the
+  write and send tiers, the ones that can leave a conversation behind.

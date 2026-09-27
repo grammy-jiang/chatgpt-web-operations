@@ -1405,11 +1405,30 @@ def chat_load_backoff_ms(retry: int) -> int:
     return min(int(base * random.uniform(0.8, 1.2)), 60_000)
 
 
+# The composer's file input: the id it had until 2026-09-26, then the generic
+# fallback (the current page has three file inputs, labelled "Attach files",
+# "Attach photos" and "Attach photos or videos"; only the first carries no
+# image accept filter). The busy indicators an upload shows while the
+# backend's process_upload_stream runs. The dialogs Escape may clear. The
+# Chat/Work surface toggle, left alone when absent. Every selector the client
+# hands to Playwright is one of these named constants (tests/test_dom_coverage.py
+# refuses a bare literal), so tier R can prove each one against a recorded
+# page or a reason has to be written down for why it cannot.
+UPLOAD_INPUT_SELECTOR = "input#upload-files"
+UPLOAD_INPUT_FALLBACK_SELECTOR = 'input[type="file"]:not([accept*="image"])'
+UPLOAD_BUSY_SELECTOR = (
+    '[aria-label*="Uploading" i], [aria-busy="true"], [role="progressbar"]'
+)
+DIALOG_SELECTOR = '[role="dialog"], [role="alertdialog"]'
+CHAT_SURFACE_RADIO_RE = re.compile(r"^Chat$", re.I)
+
 # What the composer shows after an upload, read from its own DOM. Scoped to
 # the composer's <form> when one is found (SEND_BUTTONS shows the send
 # button lives inside one), so a same-named button elsewhere on the page can
-# never produce a false answer. One label per "Remove file ..." chip, in
-# page order.
+# never produce a false answer. One label per attachment chip's remove
+# button, in page order: "Remove file 1: <name>" until 2026-09-26, "Remove
+# <name>" since (found 2026-09-27 by the T3 upload test and the recorded
+# composer-attached page; the old prefix had made this list empty).
 COMPOSER_STATE_JS = """
 () => {
     const composer = document.querySelector(
@@ -1418,7 +1437,7 @@ COMPOSER_STATE_JS = """
     const scope = form || document;
     const removeLabels = Array.from(scope.querySelectorAll('button[aria-label]'))
         .map((button) => button.getAttribute('aria-label') || '')
-        .filter((label) => label.startsWith('Remove file'));
+        .filter((label) => label.startsWith('Remove '));
     const sendButton =
         scope.querySelector('button[data-testid="send-button"]') ||
         scope.querySelector('button[aria-label="Send prompt"]') ||
@@ -1531,6 +1550,10 @@ SNAPSHOT_KEEP_ATTRIBUTES = frozenset(
         "autocomplete",
         "dir",
         "lang",
+        # UPLOAD_INPUT_FALLBACK_SELECTOR reads it: without it every file
+        # input on a recorded page matched the "not an image input" rule
+        # (found 2026-09-28 by tier R, the first time it looked for the input).
+        "accept",
     }
 )
 SNAPSHOT_KEEP_PREFIXES = ("aria-", "data-")
@@ -2358,7 +2381,7 @@ class BrowserSender:
         429 the dispatcher needs. Assuming the block was never measured; this
         way every occurrence measures it.
         """
-        dialogs = self.page.locator('[role="dialog"], [role="alertdialog"]')
+        dialogs = self.page.locator(DIALOG_SELECTOR)
         seen = ""
         for i in range(min(dialogs.count(), 3)):
             try:
@@ -2412,7 +2435,7 @@ class BrowserSender:
         limit instead of reporting it.
         """
         self._check_rate_limit_dialog()
-        dialogs = self.page.locator('[role="dialog"], [role="alertdialog"]')
+        dialogs = self.page.locator(DIALOG_SELECTOR)
         seen = ""
         for i in range(min(dialogs.count(), 3)):
             with contextlib.suppress(Exception):
@@ -2510,9 +2533,9 @@ class BrowserSender:
         them, so looping one at a time would leave only the last file
         attached.
         """
-        file_input = page.locator("input#upload-files")
+        file_input = page.locator(UPLOAD_INPUT_SELECTOR)
         if not file_input.count():
-            file_input = page.locator('input[type="file"]:not([accept*="image"])')
+            file_input = page.locator(UPLOAD_INPUT_FALLBACK_SELECTOR)
         file_input.first.wait_for(state="attached", timeout=30_000)
         file_input.first.set_input_files(paths[0] if len(paths) == 1 else list(paths))
         # Measured 2026-09-20 on a 60-byte file: the chip appears at once,
@@ -2523,9 +2546,7 @@ class BrowserSender:
         # ("message was not posted"). So: wait for busy to appear and then
         # clear; if it never appears within UPLOAD_QUIET_MS, assume the
         # upload was instant.
-        busy = page.locator(
-            '[aria-label*="Uploading" i], [aria-busy="true"], [role="progressbar"]'
-        )
+        busy = page.locator(UPLOAD_BUSY_SELECTOR)
         seen_busy = False
         waited = 0
         while waited < self.UPLOAD_MAX_MS:
@@ -2871,7 +2892,7 @@ class BrowserSender:
         composer = self._load_composer(url)
         logger.info("send: composer ready at %s", page.url)
         # Chat surface only: leave the surface toggle alone when absent.
-        chat_toggle = page.get_by_role("radio", name=re.compile(r"^Chat$", re.I))
+        chat_toggle = page.get_by_role("radio", name=CHAT_SURFACE_RADIO_RE)
         if chat_toggle.count() and chat_toggle.first.is_visible():
             state = chat_toggle.first.get_attribute("aria-checked") or ""
             if state != "true":

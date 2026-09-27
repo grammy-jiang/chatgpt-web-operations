@@ -40,7 +40,9 @@ Enforcement, not promises:
   continue unless the name is exactly `rp-test-sandbox`, so a stale id can
   never point the tests at a real project.
 - Teardown deletes every conversation a test created, in `finally`. A
-  session-scoped fixture then sweeps the sandbox: it pages through
+  session-scoped fixture then sweeps the sandbox after the write and send
+  tiers (not after T3, which creates nothing; since 2026-09-28 it opens no
+  HTTP session for T3, one Cloudflare-challengeable handshake fewer): it pages through
   `gizmos/<sandbox_id>/conversations`, notes every id with the guard and
   PATCHes each one `is_visible: false`, whatever its title (an earlier
   version kept only `rp-test …` titles, and ChatGPT's own auto-title after
@@ -210,6 +212,11 @@ Each gap names the measurement behind it.
    property-based tests, no mutation score, and no rule that lists which
    command has no live test (the preflight lesson of 2026-09-20: 31 tested
    functions had never met the account).
+7. **A tier nobody runs** (added 2026-09-28). T3, the upload dry run, had
+   not run between 2026-09-25 and 2026-09-27; the upload chip's label and
+   the file input's id both changed on 2026-09-26, and the first T3 run
+   after that, on 2026-09-27 evening, failed. The tier was correct and
+   opt-in, which is the same as absent.
 
 ### 6.3 The plan
 
@@ -430,6 +437,35 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
   points are what break (`PLAN` B3).
 
 ### 6.4 Rules that come with the plan
+
+Three rules were added on 2026-09-28, after the owner asked whether the
+day's three findings were really fixed and how the next ones would be
+prevented. Each answers one way a fix can be less real than it looks.
+
+- **A finding is closed by three things, never fewer:** the fix; a test
+  that fails with the fix removed and passes with it (proven by removing
+  it once, which is how the 2026-09-27 findings were checked); and an entry
+  in `references/failure-atlas.md` that says what the cheap check would
+  have been. A fix without the failing test is a hope.
+- **Every page selector is a named constant, and every named constant is
+  proven against a recorded page or excused by name.**
+  `tests/test_dom_coverage.py` refuses a bare string handed to a Playwright
+  locator in the client and requires each `*_SELECTOR`, `*_JS` and
+  page-facing `*_RE` (and `SEND_BUTTONS`, `RATE_LIMIT_MODAL`) to appear in
+  `tests/replay`, or in its `EXCUSED` table with a reason. Two DOM-reading
+  scripts disagreed about one send button for a day because a selector
+  could live as a literal nobody listed.
+- **Every tier runs on a schedule.** A tier that runs only by hand has
+  already broken: T3 had not run between 2026-09-25 and 2026-09-27 and the
+  upload chip's label changed in between. T0, tier R and the composer
+  recording run daily; T3, T4's scripted send (with an attachment) and the
+  three conversation-side recordings run weekly; T1 and T2 run with every
+  change to a command and on the acceptance procedure.
+- **The suite pins its inputs.** `tests/conftest.py` clears the shell's
+  recording settings for every non-live test; `tests/test_harness_replay.py`
+  runs an inner pytest with the settings leaked and checks a plain test
+  sees none of them. After a change to a wrapper or to any `RP_*` setting,
+  run `chatgpt-ops-check.sh --browser` by hand once before the day ends.
 
 - Cron never commits a fixture. Promotion is a reviewed step with a `make`
   target and the hygiene test.

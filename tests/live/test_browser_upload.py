@@ -31,6 +31,7 @@ VERIFICATION.md for current execution results.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -54,20 +55,26 @@ def verify(info: dict[str, Any], filename: str) -> list[str]:
     tests/live/test_send_chat_flags.py and
     tests/live/test_write_project_settings.py use for their own round trips.
 
-    Measured 2026-09-20: once the upload has settled, the chip "Remove file
-    1: <name>" is present and the send button is enabled.
+    Measured 2026-09-20: once the upload has settled, the chip's remove
+    button "Remove file 1: <name>" is present and the send button is
+    enabled. Since 2026-09-26 the button reads "Remove <name>" (found
+    2026-09-27, the first T3 run after the UI change; the recorded page is
+    tests/fixtures/dom/composer-attached.html), so the check asks for a
+    label starting with "Remove" that names the file.
+
+    ``filename`` may be renamed by ChatGPT when the same name was uploaded
+    before ("rp-test-attach(1).md" for a second "rp-test-attach.md"), so the
+    stem is what must appear in the label.
     """
     mismatches: list[str] = []
     labels = [str(label) for label in info.get("remove_labels") or []]
+    stem = Path(filename).stem
     if not labels:
-        mismatches.append("no button aria-label starting with 'Remove file'")
-    elif not any(filename in label for label in labels):
-        mismatches.append(f"no remove-file label names {filename!r}; got {labels!r}")
+        mismatches.append("no button aria-label starting with 'Remove'")
+    elif not any(stem in label for label in labels):
+        mismatches.append(f"no remove label names {filename!r}; got {labels!r}")
     if not info.get("send_exists"):
-        mismatches.append(
-            "no send button (neither [data-testid=send-button] nor "
-            '[aria-label="Send prompt"])'
-        )
+        mismatches.append("no send button (none of chatgpt_client's alternatives)")
     elif not info.get("send_enabled"):
         mismatches.append("send button is present but not enabled")
     return mismatches
@@ -84,6 +91,11 @@ def test_uploading_a_file_shows_its_remove_chip_and_leaves_send_enabled(
 
     with cc.BrowserSender("chrome", project=sandbox_id, visible=False) as sender:
         info = sender.attach_files([str(upload_path)])
+        # Tier R's record of this exact page (TESTING.md section 6, P1):
+        # the composer with one attachment, its chip and its send button.
+        snapshot_dir = os.environ.get("RP_SNAPSHOT_DIR")
+        if snapshot_dir:
+            sender.snapshot_page(snapshot_dir, "composer-attached")
 
     assert info["url"].startswith("https://chatgpt.com/"), info["url"]
     mismatches = verify(info, upload_path.name)

@@ -5,8 +5,9 @@ Three facts about one real send made by ``send_prompt.main`` -- the same
 function ``python3 scripts/send_prompt.py`` runs -- into the sandbox
 project:
 
-1. it posted: exit 0 and a real, resolved conversation id in the ``--json``
-   record;
+1. it posted, with one small attachment uploaded through the composer (the
+   upload path is part of a real send since 2026-09-28): exit 0 and a real,
+   resolved conversation id in the ``--json`` record;
 2. the reply arrived: the record's ``reply`` and ``read_chat.main([id,
    "--text"])`` both carry the nonce the prompt asked for;
 3. it is cleaned up: the chat is deleted in ``finally`` and
@@ -25,7 +26,8 @@ With ``RP_SNAPSHOT_DIR`` set it also records two DOM fixtures for tier R
 button exists; never clicked). ``make refresh-dom-fixtures FROM=<dir>``
 with ``--name`` promotes them.
 
-Weekly from cron (``~/.local/bin/chatgpt-ops-send-check.sh``), and by hand
+Weekly from cron (``~/.local/bin/chatgpt-ops-send-check.sh``, which runs the T3
+upload dry run first, recording ``composer-attached``), and by hand
 after any change to ``BrowserSender`` or ``send_prompt.py``. One send per
 run; the T4 cap counts it.
 """
@@ -71,6 +73,10 @@ def test_send_prompt_main_posts_gets_a_reply_and_is_cleaned_up(
         f"Reply with exactly this token and nothing else: {nonce}\n", encoding="utf-8"
     )
     record = tmp_path / "send.json"
+    attachment = tmp_path / "rp-test-attachment.md"
+    attachment.write_text(
+        "rp-test attachment for the weekly send; nothing to act on\n", encoding="utf-8"
+    )
     reader = GuardedConversationReader(live_session, cc)
     monkeypatch.setattr(send_prompt, "open_session", lambda *a, **k: reader)
     monkeypatch.setattr(read_chat, "open_session", lambda *a, **k: reader)
@@ -87,6 +93,8 @@ def test_send_prompt_main_posts_gets_a_reply_and_is_cleaned_up(
                 str(record),
                 "--timeout",
                 "240",
+                "--attach",
+                str(attachment),
             ]
         )
         printed = capsys.readouterr().out

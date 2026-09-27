@@ -142,7 +142,14 @@ def _sweep_sandbox_after_live_writes(request: Any, tier: str, sandbox_id: str) -
     §1).
     """
     yield
-    if tier not in ("write", "browser", "send"):
+    # Only the tiers that can create a conversation are swept. T3 (browser)
+    # opens a window and never sends, so it has nothing to sweep, and until
+    # 2026-09-28 the sweep still opened an HTTP session for it: that
+    # handshake met four Cloudflare 403 challenges in a row while the T3 test
+    # itself had passed, turned a green tier into an 8-minute error and
+    # stopped the weekly script before its send. One handshake fewer is one
+    # challenge fewer.
+    if tier not in ("write", "send"):
         return
     import chatgpt_client
 

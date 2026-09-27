@@ -41,4 +41,6 @@ name ends in `-synthetic` are hand-written, not recorded, and are the only
 ones allowed to carry text: `composer-legacy-synthetic` is the pre-2026-09-26
 composer, `chat-load-failed-synthetic` the "Could not load this ChatGPT
 conversation" notice. `composer.*` is the daily check's recording;
-`conversation.*` comes from the weekly send (TESTING.md section 6, P3).
+`conversation.*` and `composer-filled.*` come from the weekly send
+(TESTING.md section 6, P3); `composer-attached.*` is the composer after a
+real upload (2026-09-27), the page the T3 upload test's `verify()` reads.
