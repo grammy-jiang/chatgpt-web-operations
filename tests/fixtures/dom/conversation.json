@@ -1,0 +1,33 @@
+{
+  "browser": "chrome",
+  "composer": {
+    "aria_label": "Ask ChatGPT",
+    "count": 1,
+    "found": true,
+    "id": null,
+    "in_form": true,
+    "matched": [
+      "div.ProseMirror[contenteditable=\"true\"][role=\"textbox\"]"
+    ],
+    "tag": "div"
+  },
+  "recorded_at": "2026-09-27T13:45:39Z",
+  "send_button": {
+    "aria_label": null,
+    "disabled": null,
+    "found": false,
+    "testid": null
+  },
+  "turns": {
+    "any": 1,
+    "articles": 0,
+    "matched_any": [
+      "[data-user-message-bubble=\"true\"]"
+    ],
+    "matched_user": [
+      "[data-user-message-bubble=\"true\"]"
+    ],
+    "user": 1
+  },
+  "url": "https://chatgpt.com/g/g-p-00000000000000000000000000000001-rp-test-sandbox/c/00000000-0000-4000-8000-000000000001"
+}

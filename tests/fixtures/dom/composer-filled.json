@@ -1,0 +1,29 @@
+{
+  "browser": "chrome",
+  "composer": {
+    "aria_label": "New chat in rp-test-sandbox",
+    "count": 1,
+    "found": true,
+    "id": null,
+    "in_form": true,
+    "matched": [
+      "div.ProseMirror[contenteditable=\"true\"][role=\"textbox\"]"
+    ],
+    "tag": "div"
+  },
+  "recorded_at": "2026-09-27T13:45:47Z",
+  "send_button": {
+    "aria_label": "Send",
+    "disabled": false,
+    "found": true,
+    "testid": null
+  },
+  "turns": {
+    "any": 0,
+    "articles": 0,
+    "matched_any": [],
+    "matched_user": [],
+    "user": 0
+  },
+  "url": "https://chatgpt.com/g/g-p-00000000000000000000000000000001/project"
+}
