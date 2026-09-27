@@ -1,6 +1,7 @@
 # Test plan: chatgpt-web-operations
 
-Updated 2026-09-25. Current results are in `VERIFICATION.md`. The bar the user set: every core module at 95% line
+Updated 2026-09-27 (section 6: the audit and the plan for the next test
+work). Current results are in `VERIFICATION.md`. The bar the user set: every core module at 95% line
 coverage or more and every other module at 90% or more, measured per module
 and never as an average; several kinds of tests, not only unit tests; and no
 test may touch the user's ChatGPT workspace unless it was opted in, in which
@@ -151,3 +152,257 @@ provider output. It also checks that HTTP redirects cannot forward the
 Authorization header. Tunnel mutation acceptance must use one newly created
 disposable tunnel and record its id before the update/delete checks. The
 regular ChatGPT live tiers do not authorize or perform Platform mutations.
+
+## 6. Audit of 2026-09-27 and the plan for the next test work
+
+Measured on 2026-09-27 (evening) on tree `57094f3`, after the owner asked
+for a status check and a plan with more test cases and more kinds of tests.
+Every number below comes from a command run that evening; nothing is
+carried over from an older record.
+
+### 6.1 What exists
+
+| Measure | Value on 2026-09-27 |
+| --- | --- |
+| `make test` | 1,792 passed in 11.5 s; 28 live tests deselected |
+| Coverage gate | every module OK. Core: `_common.py` 100 %, `chatgpt_client.py` 99.5 %, `chatgpt_cookies.py` 100 %, `chatgpt_session.py` 98.4 %, `round_state.py` 100 %. Lowest other module: `review_topic.py` 91.8 % |
+| `make lint` | clean, 91 files |
+| Live tests | T1: 8 files. T2: 2 files. T3: 1 file. T4: 2 files, one send each |
+| Daily canary | `~/.local/bin/chatgpt-ops-check.sh --browser` at 05:25 runs `health.py --browser` and `make test`; 11 evidence directories since 2026-09-24, every `tests.log` green |
+| Recorded fixtures | 7 recorded HTTP payloads and 1 hand-written one; no DOM snapshot |
+| Test libraries | pytest and pytest-cov only |
+
+The kinds in section 2 all exist. The harness has 74 tests of its own.
+
+### 6.2 What the suite could not see
+
+Each gap names the measurement behind it.
+
+1. **The browser boundary is faked end to end offline.** `tests/fake_playwright.py`
+   answers whatever `set_locator(...)` was told. `COMPOSER_SELECTOR`,
+   `USER_TURN_SELECTOR`, `SEND_BUTTONS`, `COMPOSER_STATE_JS` and the
+   chat-load notice regex meet real DOM only in T3 (opt-in) and in the daily
+   `--browser` probe, which checks one thing: a composer appears. The
+   composer change of 2026-09-26 passed every offline test.
+2. **Fifteen endpoints have no recorded fixture.** Seven payloads are
+   recorded (`tests/fixtures/README.md`). The conversations list and detail,
+   `pins`, `hazelnuts`, `ps/plugins/installed`, `automations`,
+   `global/search`, `links/list_accessible`, `connectors/batch`,
+   `mcp/tunnels`, `me` and `api/auth/session` are parsed against dicts
+   written by hand in the tests. No test says which endpoints lack one.
+3. **A submit failure leaves no durable evidence.** `BrowserSender._send`
+   writes `chatgpt-send-fail.png` to `/tmp`, which does not survive a
+   reboot, and raises. Nothing counts "not posted". One occurrence
+   (2026-09-27) is on record.
+4. **The real send path has no scheduled run.** T4 is opt-in and manual.
+   The daily check never sends, by design. Between manual runs the send
+   path is unmeasured.
+5. **Local boundaries have no tier.** T0 forbids the cookie DB and the
+   keyring, correctly. Only T1, which needs the network, reaches them for
+   real. "The session cookie decrypts on this machine" needs no network and
+   has no home.
+6. **Suite hygiene.** No random test order, no per-test timeout, no
+   property-based tests, no mutation score, and no rule that lists which
+   command has no live test (the preflight lesson of 2026-09-20: 31 tested
+   functions had never met the account).
+
+### 6.3 The plan
+
+Three phases. Each item names its kind, its tier, what it proves, its exit
+criterion and its cost. Phase 1 closes the gaps behind the incidents of
+2026-09-26 and 2026-09-27. Phase 2 adds kinds of tests. Phase 3 belongs to
+the one-client work in `PLAN-2026-09-27.md`, section 5 A.
+
+#### Phase 1: close the incident gaps
+
+- **P1. Recorded DOM snapshots and a replay tier.** Kind: recorded page.
+  Tier: new, `replay`, in `make replay`; real Playwright and headless Chrome,
+  no Xvfb, no network.
+  - The client gets a public `BrowserSender.snapshot_page(dir)`. It saves
+    `composer.html`, the outerHTML of the composer's form subtree after a
+    sanitizer that drops text nodes, `src`, `href` and `value` and keeps
+    tag names, `id`, `class`, `role`, `aria-*`, `data-*`, `contenteditable`,
+    `placeholder`, `type` and `disabled`; and `snapshot.json`: the URL, which
+    alternative of `COMPOSER_SELECTOR` matched, the send button's test id or
+    label, the `COMPOSER_STATE_JS` result and the Chrome version.
+  - `preflight.browser_composer_check` calls it when `RP_SNAPSHOT_DIR` is
+    set; the daily wrapper passes its run directory. The daily run compares
+    `snapshot.json` with `tests/fixtures/dom/composer.json` and reports WARN
+    naming the keys that differ. `make refresh-dom-fixtures` promotes a
+    snapshot into `tests/fixtures/dom/` (sanitize, then the hygiene test).
+    A person or an agent commits it; cron never does.
+  - The conversation-page snapshot (`conversation.html`, with turns) comes
+    from the weekly send (P3), which owns a chat for a minute. A
+    `chat-load-failed.html` is recorded when the notice is ever seen again.
+  - `tests/replay/`: `page.route("https://chatgpt.com/**")` serves the
+    fixture and aborts everything else; the T0 socket guard stays on
+    (Playwright drives Chrome over pipes). The tests run the real code:
+    `probe_composer()` finds exactly one composer; `COMPOSER_STATE_JS`
+    finds the send button; `fill_composer()` puts a text into the ProseMirror
+    snapshot and reads it back; `USER_TURN_SELECTOR` and
+    `CHAT_TURN_SELECTOR` count the turns of `conversation.html`;
+    `_chat_load_failure()` detects the notice fixture. The pre-2026-09-26
+    composer (`#prompt-textarea`) stays as a second fixture, so both
+    generations pass.
+  - Limit: a static snapshot cannot emulate posting. The app's JavaScript
+    creates the user bubble and the `/c/` URL. Posting stays with P3.
+  - Exit: a fixture with renamed attributes fails `make replay`; the daily
+    run writes a snapshot and compares it; `make replay` runs in the daily
+    wrapper after `make test`. Cost: 20-30 s per run.
+- **P2. Submit robustness and an event ledger** (`PLAN` B5). Kind: unit
+  over fake pages, plus a durable record. Tier: T0.
+  - After `fill`, read the composer text back (`textContent`, length and
+    prefix) and read `send_enabled` from `COMPOSER_STATE_JS`. On a mismatch:
+    select all, delete, `keyboard.insert_text`, read back again. Log which
+    path was taken.
+  - Every composer-missing, chat-load-failed, fill-fallback and not-posted
+    becomes one line in `~/.local/state/chatgpt-web-operations/events.jsonl`
+    (`RP_EVENTS_FILE`): time, kind, chat or URL, screenshot path, attempt.
+    `screenshot_dir` moves from `/tmp` to
+    `~/.local/state/chatgpt-web-operations/screenshots/` (`RP_SCREENSHOT_DIR`),
+    so the evidence survives a reboot. `chatgpt-ops-check.sh --summary`
+    counts events per kind per week.
+  - Exit: on a fake page that swallows the click, `send_prompt.py` writes
+    one event and takes the fallback; each branch has a test; the weekly
+    summary prints the count. Cost: none on the account.
+- **P3. The scripted end-to-end send, weekly** (`PLAN` B4). Kind: measured
+  send. Tier: T4, one send.
+  - `tests/live/test_send_cli_roundtrip.py` runs `send_prompt.main([...])`
+    with `open_session` patched to the guarded session, into the sandbox,
+    with `--json`. Three facts: exit 0 and a chat id in the JSON; `read_chat
+    --text` prints the reply to a nonce; teardown deletes the chat and
+    `GET conversation/<id>` returns 404. The test also records
+    `conversation.html` for P1.
+  - Schedule: `chatgpt-ops-check.sh --send`, Sunday 05:40, `CHATGPT_LIVE=send
+    CHATGPT_LIVE_SENDS=1`, mails on failure. Rule: run `make live-send` after
+    any change to `BrowserSender` or `send_prompt.py`, before the commit.
+  - Exit: the test passes once by hand and once from cron. Cost: one message
+    per week and one per sender change. Default cadence is weekly; revisit
+    if the account shows a rate limit on Sundays.
+- **P4. Live coverage per command.** Kind: consistency. Tier: T0 for the
+  rule, T1 for the new tests.
+  - A table in `tests/test_consistency.py`: every command maps to a live
+    test function or to one reason: `manual-acceptance` (connectors, Deep
+    research, discovery), `platform-credentials` (`manage_tunnels.py`),
+    `offline-only` (`review_topic.py`), `browser-diagnostic`
+    (`measure_window.py`). A T0 test fails on a missing command or on a
+    named function that does not exist (checked with `ast`, not by
+    collecting).
+  - New T1 tests run `main()` over the guarded session: `delete_skill.py`
+    (an unknown name exits 2 after one GET; an existing name dry-runs with
+    exit 0 and no DELETE), `list_connectors.py --json`, `list_chats.py`,
+    `list_projects.py --match rp-test`, `probe_account.py`,
+    `probe_cookies.py`, `model_settings.py`, `probe_send_gates.py`,
+    `profile_context.py --project <sandbox>`, `clean_chats.py --project
+    <sandbox>` dry run. `read_chat.py` runs inside P3's minted chat.
+  - Exit: all 30 commands have a row; no row says TODO.
+- **P5. A recorded fixture for every endpoint, with shape-drift detection**
+  (`PLAN` B2, HTTP half). Kind: contract. Tier: T0 for the tests; the daily
+  HTTP run records.
+  - `record_fixture.py --from-session`: the daily run records each read
+    endpoint into `<run>/http/<name>.json` after sanitizing; `make
+    refresh-fixtures` promotes into `tests/fixtures/http/`. Cron never
+    commits.
+  - A T0 consistency test: every endpoint constant in `scripts/*.py` (the
+    set the endpoint-documentation test already computes) has a fixture and
+    a contract test that parses it. Today 15 are missing (6.2, item 2).
+  - Drift: the daily run compares the key set of the fresh payload with the
+    committed fixture, values dropped, and reports WARN "shape drift" with
+    the added and removed keys.
+  - Exit: zero endpoints without a fixture; the drift check runs daily.
+
+#### Phase 2: new kinds of tests
+
+- **P6. Loopback replay: the real HTTP client against a local fake
+  server.** Kind: integration. Tier: new, `loopback`, in `make loopback`;
+  sockets to 127.0.0.1 only.
+  - `chatgpt_session.BASE` reads `CHATGPT_BASE_URL`, documented as
+    test-only; the default stays `https://chatgpt.com`.
+  - `tests/loopback/server.py`: `http.server` on 127.0.0.1 serving the
+    recorded fixtures by path, with a fault script: a 403 challenge once
+    then 200; 429; 424; truncated JSON; a 20 s stall; `Set-Cookie` with
+    `Max-Age=7776000` on `/api/auth/session`.
+  - What runs for real: `Session._request` (urllib), the production retry
+    ladder (30/90/180 s) and the health policy (5/10 s), the cookie header
+    from a synthetic jar, renewal parsing, every command's `main()` with
+    its exit code, and one subprocess run of `python3 scripts/list_chats.py`
+    (venv switch, argv, exit code).
+  - Exit: the health timeout of 2026-09-23 (two 403s, then the ladder) is
+    reproduced offline in under 10 s under both policies.
+- **P7. A local real-path tier.** Kind: real-path boundary (`PLAN` B1).
+  Tier: new, `live_local`, `CHATGPT_LIVE=local`, `make live-local`;
+  read-only on this machine, no network.
+  - Chrome's cookie DB opens (a copy, read-only) and the session cookie
+    decrypts through the real `_keyring_password()` over D-Bus and real AES;
+    `probe_cookies.py main()` exits 0; `load_stored_session()` returns a
+    record with an expiry. No value is printed.
+  - The daily wrapper runs it before `health.py`.
+  - Exit: the empty `_dd_s` jar of 2026-09-27, replayed as a T0 fixture,
+    fails the old decoder and passes the current one; the live tier passes
+    daily.
+- **P8. Property-based tests.** Kind: property. Tier: T0. Adds `hypothesis`
+  to `requirements.txt`.
+  - `tests/test_properties.py`, under 20 s, each property with an explicit
+    oracle: cookie decoding never raises and is the identity on printable
+    UTF-8; `choose_session` and `renewed_session` pick the later expiry for
+    any pair; `rewrite_send_body` is idempotent and preserves unknown keys;
+    `stream_events` accepts any concatenation of valid frames with garbage
+    between them; `chat_id` and `is_provisional` on generated URLs;
+    `record_fixture.sanitize` leaves no email, `user-`, `org-` or `g-p-`
+    pattern (the hygiene regexes are the oracle); `coverage_gate.verdicts`
+    is monotone in the percentage; `table()` column widths.
+  - Exit: ten properties, a fixed seed in the daily run, a shrunk example
+    printed on failure.
+- **P9. Order independence, timeouts and the flaky ledger** (`PLAN` B6).
+  Kind: hygiene. Tier: T0.
+  - `pytest-randomly` (random order per run; `-p no:randomly` reproduces)
+    and `pytest-timeout` (60 s per T0 test, 900 s per live test) in
+    `requirements.txt`; `make test-repeat N=10`.
+  - `tests/FLAKY.md`: date, test, symptom, cause, fix or quarantine,
+    deadline one week. Quarantine is `@pytest.mark.quarantine(until=...,
+    reason=...)`, and a T0 test fails once `until` has passed. The daily
+    `tests.log` files are the record; 11 runs are green since 2026-09-24.
+  - Exit: ten randomized repeats pass; the ledger exists, empty or not.
+- **P10. Mutation testing pilot.** Kind: mutation score. Tier: by hand, never
+  in cron.
+  - `mutmut` in the venv, `make mutate MODULE=...`, first on
+    `chatgpt_cookies.py`, `_common.py` and `round_state.py`, then
+    `chatgpt_session.py`. Target: a kill rate of 80 % or more on core
+    modules. Each surviving mutant gets a test or a one-line reason in
+    `VERIFICATION.md`. Monthly, when no send is in flight.
+  - Exit: the pilot's report is in `VERIFICATION.md` with the surviving
+    mutants named. Cost: hours of CPU on the Pi.
+
+#### Phase 3: tests that come with the one-client work
+
+- **P11.** `refresh_connector.py` (`PLAN` A1): offline tests for name
+  resolution (exact, unique substring, ambiguous, none), the 424 ladder
+  with a fake clock, `--no-retry` and `--json`; a T1 test for `--list` and
+  resolution (`POST links/list_accessible` joins `READ_POSTS`, it only
+  reads); the real refresh in the manual connector acceptance (section 4,
+  step 5) and in the weekly run of P3 when the tunnel is up.
+- **P12.** `clean_chats.py --id ... --backup DIR` and `project_settings.py
+  --name NAME` (`PLAN` A2): offline tests, and one T4 round trip: mint,
+  back up, delete, 404.
+- **P13.** Once binnacle's `chatgpt-*` names point at this skill (`PLAN`
+  A3), the weekly run calls them by their installed names, because entry
+  points are what break (`PLAN` B3).
+
+### 6.4 Rules that come with the plan
+
+- Cron never commits a fixture. Promotion is a reviewed step with a `make`
+  target and the hygiene test.
+- A test that cannot run fails or is deselected by its marker. It never
+  skips silently. This rule applies to every new tier.
+- Every new tier gets a marker in `pytest.ini`, a `make` target, a row in
+  sections 1 and 2, and a line in the daily wrapper when it runs daily.
+- New dependencies go through `requirements.txt` and `bootstrap.sh`.
+- Quota: the plan adds one real send per week plus one per change to the
+  sender. Every other item costs no account traffic beyond the daily reads.
+
+### 6.5 Order and rough effort
+
+P1 (1-2 days), P2 (half a day), P3 (half a day plus the cron line), P4 (half
+a day), P5 (1 day); then P6 (1 day), P7 (half a day), P8 (half a day), P9
+(half a day), P10 (half a day for the pilot, then monthly); P11-P13 with
+the one-client work.

@@ -13,11 +13,12 @@ Start with `PLAN-2026-09-27.md`. It covers:
 - the owner's rules: per-module coverage of 95 % for core modules and 90 %
   for the others, never averaged; more kinds of tests; replies in Chinese.
 
-Then read the 2026-09-25 entry point below. Another session had uncommitted
-work in this tree at the time of writing: `scripts/delete_skill.py`,
-`tests/test_delete_skill.py`, `SKILL.md` and
-`references/endpoint-discovery.md`. Leave it alone unless the owner says
-otherwise.
+Then read the 2026-09-25 entry point below. The `delete_skill.py` work that
+was uncommitted in this tree on the morning of 2026-09-27 was the owner's
+and is committed (`57094f3`). The audit of the test suite and the ordered
+plan for the next test work are `TESTING.md`, section 6 (2026-09-27
+evening); the binnacle tool mapping and the owner's decision to clear
+binnacle of ChatGPT tools are `PLAN-2026-09-27.md`, section 5 A.
 
 ## Entry point, 2026-09-25
 
