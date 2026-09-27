@@ -191,3 +191,21 @@ def test_plain_test_environment():
     )
     result = pytester.runpytest_subprocess("-q", "-p", "no:cacheprovider")
     result.assert_outcomes(passed=1)
+
+
+# ---------------------------------------------------------------------------
+# the sandbox sweep runs only after the tiers that can leave a conversation
+# ---------------------------------------------------------------------------
+
+
+def test_the_sweep_runs_only_after_the_tiers_that_can_leave_a_conversation():
+    """T3 opens a window and never sends; sweeping after it only added an
+    HTTP handshake, and on 2026-09-28 that handshake met four Cloudflare 403
+    challenges on a green test (references/failure-atlas.md, F-2026-09-28-6)."""
+    from live import conftest as live_conftest
+
+    assert live_conftest.SWEPT_TIERS == ("write", "send")
+    assert live_conftest.needs_sweep("write") is True
+    assert live_conftest.needs_sweep("send") is True
+    assert live_conftest.needs_sweep("browser") is False
+    assert live_conftest.needs_sweep("read") is False

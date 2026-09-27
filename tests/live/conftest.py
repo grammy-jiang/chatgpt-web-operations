@@ -91,6 +91,20 @@ def live_session(tier: str, sandbox_id: str, live_transport: Any) -> Any:
     return guarded
 
 
+# Only the tiers that can create a conversation are swept. T3 (browser)
+# opens a window and never sends, so it has nothing to sweep, and until
+# 2026-09-28 the sweep still opened an HTTP session for it: that handshake
+# met four Cloudflare 403 challenges in a row while the T3 test itself had
+# passed, turned a green tier into an 8-minute error and stopped the weekly
+# script before its send. One handshake fewer is one challenge fewer.
+SWEPT_TIERS = ("write", "send")
+
+
+def needs_sweep(tier: str) -> bool:
+    """Whether the session-end sandbox sweep runs for ``tier``."""
+    return tier in SWEPT_TIERS
+
+
 def sweep_targets(listing_pages: Any) -> list[tuple[str, str]]:
     """Every conversation ``(id, title)`` across ``listing_pages``, unfiltered.
 
@@ -142,14 +156,7 @@ def _sweep_sandbox_after_live_writes(request: Any, tier: str, sandbox_id: str) -
     §1).
     """
     yield
-    # Only the tiers that can create a conversation are swept. T3 (browser)
-    # opens a window and never sends, so it has nothing to sweep, and until
-    # 2026-09-28 the sweep still opened an HTTP session for it: that
-    # handshake met four Cloudflare 403 challenges in a row while the T3 test
-    # itself had passed, turned a green tier into an 8-minute error and
-    # stopped the weekly script before its send. One handshake fewer is one
-    # challenge fewer.
-    if tier not in ("write", "send"):
+    if not needs_sweep(tier):
         return
     import chatgpt_client
 

@@ -18,6 +18,7 @@ run must fail, never skip (TESTING.md section 6.4).
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,28 @@ import pytest
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "dom"
 REPLAY_ORIGIN = "https://chatgpt.com/"
+
+
+def fixture_dirs() -> list[Path]:
+    """Where a fixture is looked up, first match wins: ``RP_DOM_FIXTURES``
+    (a fresh recording, for example a daily run's ``dom/``) overlaid on the
+    committed ``tests/fixtures/dom``. ``make replay FIXTURES=<dir>`` sets it:
+    that is the offline acceptance gate for a proposed fix, run against the
+    page ChatGPT served this morning before anything is promoted."""
+    override = os.environ.get("RP_DOM_FIXTURES", "").strip()
+    dirs = [Path(override).expanduser()] if override else []
+    return [*dirs, FIXTURES]
+
+
+def fixture_path(name: str, suffix: str) -> Path:
+    """``<name>.<suffix>`` from the first directory that has it."""
+    for directory in fixture_dirs():
+        candidate = directory / f"{name}.{suffix}"
+        if candidate.is_file():
+            return candidate
+    raise FileNotFoundError(f"no {name}.{suffix} in {fixture_dirs()}")
+
+
 LAUNCH_ARGS = (
     "--disable-background-networking",
     "--disable-component-update",
@@ -36,13 +59,18 @@ LAUNCH_ARGS = (
 
 
 def fixture_names(prefix: str) -> list[str]:
-    """The stems of ``tests/fixtures/dom/<prefix>*.html``, sorted."""
-    return sorted(path.stem for path in FIXTURES.glob(f"{prefix}*.html"))
+    """The stems of ``<prefix>*.html`` across ``fixture_dirs()``, sorted."""
+    names = {
+        path.stem
+        for directory in fixture_dirs()
+        for path in directory.glob(f"{prefix}*.html")
+    }
+    return sorted(names)
 
 
 def facts_of(name: str) -> dict[str, Any]:
     """The JSON facts recorded beside ``<name>.html``."""
-    return json.loads((FIXTURES / f"{name}.json").read_text(encoding="utf-8"))
+    return json.loads(fixture_path(name, "json").read_text(encoding="utf-8"))
 
 
 @pytest.fixture(scope="session")
@@ -85,7 +113,7 @@ def replay(replay_browser: Any) -> Any:
         return page
 
     def load(name: str, url: str = REPLAY_ORIGIN) -> Any:
-        markup = (FIXTURES / f"{name}.html").read_text(encoding="utf-8")
+        markup = fixture_path(name, "html").read_text(encoding="utf-8")
         return _show(markup, url)
 
     load.html = lambda markup, url=REPLAY_ORIGIN: _show(markup, url)  # type: ignore[attr-defined]

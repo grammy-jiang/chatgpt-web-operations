@@ -1,0 +1,69 @@
+[
+  {
+    "id": "F-2026-09-27-1",
+    "title": "COMPOSER_STATE_JS could not see the 2026-09-26 send button",
+    "atlas": "went blind with the",
+    "fix": "550f5d5",
+    "tests": [
+      "replay/test_dom_replay.py::test_composer_state_agrees_with_the_recorded_send_button",
+      "replay/test_dom_replay.py::test_a_send_button_alternative_matches_the_recorded_button"
+    ],
+    "removed_and_failed": "2026-09-28"
+  },
+  {
+    "id": "F-2026-09-27-2",
+    "title": "RP_SNAPSHOT_DIR leaked from the daily wrapper into make test",
+    "atlas": "recording setting failed the offline",
+    "fix": "f23cad1",
+    "tests": [
+      "test_harness_replay.py::test_a_plain_test_never_sees_the_shell_s_recording_settings",
+      "test_preflight.py::test_browser_composer_check_ok_when_the_composer_appears"
+    ],
+    "removed_and_failed": "2026-09-28"
+  },
+  {
+    "id": "F-2026-09-27-3",
+    "title": "fixture promotion rewrote a recorded selector as an id",
+    "atlas": "rewrote a selector as an id",
+    "fix": "550f5d5",
+    "tests": [
+      "test_harness_replay.py::test_promote_writes_a_sanitized_document_and_record",
+      "replay/test_dom_replay.py::test_turn_selectors_count_the_recorded_conversation_when_one_is_recorded"
+    ],
+    "removed_and_failed": "2026-09-28"
+  },
+  {
+    "id": "F-2026-09-27-4",
+    "title": "the upload chip's remove button was renamed; input#upload-files is gone",
+    "atlas": "upload chip's remove button was renamed",
+    "fix": "3bf5636",
+    "tests": [
+      "replay/test_dom_replay.py::test_the_attached_composer_names_the_file_in_its_remove_label",
+      "replay/test_dom_replay.py::test_the_upload_input_is_found_by_the_fallback_on_every_recorded_page",
+      "test_harness.py::test_browser_upload_verify_passes_a_matching_chip_and_enabled_send",
+      "live/test_browser_upload.py::test_uploading_a_file_shows_its_remove_chip_and_leaves_send_enabled"
+    ],
+    "removed_and_failed": null
+  },
+  {
+    "id": "F-2026-09-28-5",
+    "title": "sanitize_html dropped accept; every file input matched the upload fallback",
+    "atlas": "dropped the `accept` attribute",
+    "fix": "3bf5636",
+    "tests": [
+      "test_page_snapshot.py::test_sanitize_keeps_the_accept_attribute_a_selector_reads",
+      "replay/test_dom_replay.py::test_the_upload_input_is_found_by_the_fallback_on_every_recorded_page"
+    ],
+    "removed_and_failed": null
+  },
+  {
+    "id": "F-2026-09-28-6",
+    "title": "the sandbox sweep opened an HTTP session after T3 and met four 403 challenges",
+    "atlas": "A footnote from the same night",
+    "fix": "pending",
+    "tests": [
+      "test_harness_replay.py::test_the_sweep_runs_only_after_the_tiers_that_can_leave_a_conversation"
+    ],
+    "removed_and_failed": null
+  }
+]

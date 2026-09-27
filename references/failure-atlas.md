@@ -345,8 +345,8 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   `chatgpt_client.py` that reaches into `sender._<name>`. The rule that
   came out of all three: a new need is a new public method on the sender,
   never a reach past it.
-- **The upload path's send-button check went blind with the 2026-09-26
-  page, and nothing said so.** `COMPOSER_STATE_JS`, which `attach_files`
+- **(F-2026-09-27-1) The upload path's send-button check went blind with the
+  2026-09-26 page, and nothing said so.** `COMPOSER_STATE_JS`, which `attach_files`
   and the T3 upload test read `send_exists` / `send_enabled` from, looked
   for `button[data-testid="send-button"]` or `aria-label="Send prompt"`.
   The page ChatGPT shipped on 2026-09-26 labels the button "Send" and gives
@@ -358,8 +358,8 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   the same alternatives `_click_send` tries (`SEND_BUTTONS`). The lesson is
   the reason tier R exists: two scripts read the same DOM for the same
   fact, and only a real page can show them disagreeing.
-- **The daily wrapper's recording setting failed the offline suite it ran
-  next, under cron only.** On 2026-09-27 `chatgpt-ops-check.sh --browser`
+- **(F-2026-09-27-2) The daily wrapper's recording setting failed the offline
+  suite it ran next, under cron only.** On 2026-09-27 `chatgpt-ops-check.sh --browser`
   began exporting `RP_SNAPSHOT_DIR` for `health.py`, and the `make test`
   it runs afterwards inherited it: three T0 tests with fake senders (which
   offer no `snapshot_page`) failed, while the same suite was green in every
@@ -370,8 +370,8 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   the suite reads nothing from the shell it happens to run in. The lesson
   is the old one with a new face: a test's environment is an input, and an
   input nobody pinned will change under cron first.
-- **The upload chip's remove button was renamed on 2026-09-26, and the one
-  tier that reads it had not run since 2026-09-25.** The T3 dry run
+- **(F-2026-09-27-4) The upload chip's remove button was renamed on 2026-09-26,
+  and the one tier that reads it had not run since 2026-09-25.** The T3 dry run
   (`tests/live/test_browser_upload.py`) uploads a file and asks
   `COMPOSER_STATE_JS` for the chip's remove button, which it found by the
   prefix "Remove file" ("Remove file 1: <name>", measured 2026-09-20). The
@@ -387,10 +387,26 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   that is not a named constant proven by tier R or excused by name. The
   lesson: a tier that runs only by hand has already broken; every tier gets
   a schedule.
-  A footnote from the same night: the first weekly-script run after the fix
+  (F-2026-09-28-6) A footnote from the same night: the first weekly-script run after the fix
   reported "T3 failed" while the T3 test had passed. The session-scoped
   sandbox sweep opened an HTTP session in teardown for the browser tier too,
   and that one handshake met four Cloudflare 403 challenges in a row (the
   production ladder, 30/90/180 s: an 8-minute error on a green test). `health.py`
   authenticated normally a minute later. The sweep now runs only after the
   write and send tiers, the ones that can leave a conversation behind.
+- **(F-2026-09-27-3) Promoting a recorded page rewrote a selector as an id.**
+  `make refresh-dom-fixtures` ran the JSON facts through the generic fixture
+  sanitizer, whose `user-<id>` rule turned the recorded selector
+  `[data-user-message-bubble="true"]` into `[data-user-XXXXXXXX-bubble="true"]`;
+  the first `make replay` over the promoted `conversation` fixture failed on
+  it (2026-09-27). Only the URL field is scrubbed now, and the promotion test
+  asserts a selector survives. The tier that compares live-computed facts
+  with the fixture is what caught it, the same evening it was introduced.
+- **(F-2026-09-28-5) The sanitizer dropped the `accept` attribute, and every
+  file input on a recorded page matched the upload fallback selector.**
+  `UPLOAD_INPUT_FALLBACK_SELECTOR` is `input[type="file"]:not([accept*="image"])`;
+  with `accept` gone from the recording, three inputs matched where the live
+  page matches one. Found by tier R the first time a test looked for the
+  input (2026-09-28); `accept` is kept, and all four recorded pages were
+  re-recorded. An attribute a selector reads must survive the sanitizer, and
+  the only way to know which ones is to run every selector on the recording.

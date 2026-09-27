@@ -8,8 +8,10 @@ test:
 
 # Tier R: the client's page functions on recorded DOM fixtures in a real
 # headless Chrome, no network (TESTING.md section 6, P1). Needs Chrome.
+# FIXTURES=<dir> overlays a fresh recording (a run's dom/) on the committed
+# fixtures: the offline acceptance gate for a fix, before promotion.
 replay:
-	$(PY) -m pytest tests/replay -q -m replay
+	$(if $(FIXTURES),RP_DOM_FIXTURES=$(FIXTURES)) $(PY) -m pytest tests/replay -q -m replay
 
 # Promote a recorded DOM snapshot into tests/fixtures/dom/ after re-sanitizing
 # it: FROM=<dir> selects the snapshot directory (default: the newest daily
