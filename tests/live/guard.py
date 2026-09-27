@@ -15,12 +15,15 @@ allowed only for an id in ``self.created`` -- and never for the sandbox id,
 even if it were somehow present there too, because a project this guard did
 not itself create must never be deletable through it.
 
-One path is an exception to "tier read allows GET only": ``READ_POSTS``
-lists ``POST /backend-api/global/search``, a POST that only reads: the
-page's search box; it can neither create nor change anything. ``_check``
-allows a POST whose stripped path is in ``READ_POSTS`` in every tier,
-before the tier-read refusal, so search_chats.py (ROADMAP.md R6) runs the
-same way under T1 as it does under T2 to T4. Only the method is exempted,
+Three paths are an exception to "tier read allows GET only": ``READ_POSTS``
+lists the POSTs that only read -- the page's search box
+(``global/search``), and the two connector lookups ``list_connectors.py``
+makes (``aip/connectors/links/list_accessible`` and
+``aip/connectors/batch``, added 2026-09-27 for the T1 command tests); none
+of them can create or change anything. ``_check`` allows a POST whose
+stripped path is in ``READ_POSTS`` in every tier, before the tier-read
+refusal, so search_chats.py (ROADMAP.md R6) and list_connectors.py run the
+same way under T1 as they do under T2 to T4. Only the method is exempted,
 not the path: a PATCH or any other non-GET method to that same path is
 still refused exactly as before.
 
@@ -35,7 +38,13 @@ from typing import Any
 CONVERSATION_PREFIX = "/backend-api/conversation/"
 GIZMO_PREFIX = "/backend-api/gizmos/"
 PROJECTS_PATH = "/backend-api/projects"
-READ_POSTS = frozenset({"/backend-api/global/search"})
+READ_POSTS = frozenset(
+    {
+        "/backend-api/global/search",
+        "/backend-api/aip/connectors/links/list_accessible",
+        "/backend-api/aip/connectors/batch",
+    }
+)
 
 
 class GuardViolation(RuntimeError):
@@ -84,6 +93,16 @@ class GuardedSession:
         self.known: set[str] = set(known_ids or [])
         self.created: set[str] = set()
         self.calls: list[tuple[str, str]] = []
+
+    def __getattr__(self, name: str) -> Any:
+        """Plain attributes of the wrapped session (``user_id``, ``cookie``,
+        ``token``: what list_connectors.py and probe_send_gates.py read)
+        pass through; only ``call`` is guarded, because only ``call`` acts.
+        Private names never pass, so a typo cannot reach ``inner``'s
+        internals by accident."""
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return getattr(self.inner, name)
 
     def _check(self, path: str, method: str, payload: Any) -> None:
         """Raise GuardViolation before ``inner`` ever sees a disallowed call."""

@@ -244,6 +244,55 @@ def test_write_tier_also_allows_the_global_search_post() -> None:
     assert inner.calls == [("POST", "/backend-api/global/search")]
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/backend-api/aip/connectors/links/list_accessible",
+        "/backend-api/aip/connectors/batch",
+    ],
+)
+def test_read_tier_allows_the_connector_lookup_posts_and_nothing_near_them(
+    path: str,
+) -> None:
+    """list_connectors.py's two lookups are POSTs that only read (SKILL.md,
+    "Read-only HTTP, including lookup POSTs"), so the T1 command test can
+    run its main(); the neighbouring create/connect/delete paths stay
+    refused, and so does any other method on the same path."""
+    inner = _FakeInner()
+    guarded = live_guard.GuardedSession(inner, "read")
+    status, _body = guarded.call(path, method="POST", payload={})
+    assert status == 200
+    assert inner.calls == [("POST", path)]
+    for refused in (
+        ("/backend-api/aip/connectors/mcp", "POST"),
+        ("/backend-api/aip/connectors/links/noauth", "POST"),
+        ("/backend-api/aip/connectors/mcp/refresh_actions", "POST"),
+        (path, "DELETE"),
+        (path, "PATCH"),
+    ):
+        with pytest.raises(live_guard.GuardViolation):
+            guarded.call(refused[0], method=refused[1], payload={})
+    assert inner.calls == [("POST", path)]
+
+
+def test_guarded_session_passes_plain_attributes_through_but_never_private_ones():
+    """list_connectors.py reads ``session.session.user_id`` and
+    probe_send_gates.py reads ``.cookie`` / ``.token``; a guarded session
+    must offer them or the T1 command tests cannot run those mains. Only
+    ``call`` acts, so only ``call`` is guarded."""
+    inner = _FakeInner()
+    inner.user_id = "user-XXXXXXXX"
+    inner._secret = "never"
+    guarded = live_guard.GuardedSession(inner, "read")
+    assert guarded.user_id == "user-XXXXXXXX"
+    with pytest.raises(AttributeError):
+        _ = guarded._secret
+    with pytest.raises(AttributeError):
+        _ = guarded.no_such_attribute
+    with pytest.raises(live_guard.GuardViolation):
+        guarded.call("/backend-api/conversation/x", method="PATCH")
+
+
 def test_read_tier_still_refuses_a_post_to_any_other_path() -> None:
     """The exemption is one exact path, not every POST."""
     inner = _FakeInner()
