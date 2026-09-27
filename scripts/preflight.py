@@ -146,6 +146,32 @@ def inflight_browsers_check(pids: set[int], max_browsers: int) -> dict[str, Any]
     return check("host", "in-flight browsers", "ok", "no in-flight browser process")
 
 
+def virtual_displays_check(pids: set[int], max_browsers: int) -> dict[str, Any]:
+    """Xvfb servers running now. A send starts one and stops it, so more
+    than ``max_browsers`` plus one (a diagnostic window) means runs died
+    before their cleanup: 30 were found on 2026-09-28, each holding memory
+    and an X display number. A warning, never a block: a leaked display
+    stops nothing, and the fix is one command."""
+    allowed = max_browsers + 1
+    if len(pids) > allowed:
+        return check(
+            "host",
+            "virtual displays",
+            "warn",
+            f"{len(pids)} Xvfb virtual display(s) running, at most {allowed} "
+            f"expected (RP_MAX_BROWSERS={max_browsers} plus one diagnostic); "
+            f"the rest were leaked by runs that died before cleanup: "
+            f"{sorted(pids)[:8]}{'...' if len(pids) > 8 else ''}",
+            "when no send is in flight: pkill -x Xvfb",
+        )
+    return check(
+        "host",
+        "virtual displays",
+        "ok",
+        f"{len(pids)} Xvfb virtual display(s) running (at most {allowed} expected)",
+    )
+
+
 def tooling_check(
     xvfb: bool, chrome: bool, playwright: bool, cryptography: bool, dbus: bool
 ) -> dict[str, Any]:
@@ -259,6 +285,7 @@ def host_checks(cc: Any, workdir: Path | None) -> list[dict[str, Any]]:
         memory_check(cc.available_mb(), cc.MIN_AVAILABLE_MB),
         load_check(os.getloadavg()[0], os.cpu_count()),
         inflight_browsers_check(cc.scripted_browser_pids(), cc.MAX_BROWSERS),
+        virtual_displays_check(cc.xvfb_pids(), cc.MAX_BROWSERS),
         tooling_check(
             shutil.which("Xvfb") is not None,
             shutil.which("google-chrome") is not None

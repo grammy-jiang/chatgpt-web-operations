@@ -43,6 +43,7 @@ DEFAULT_NAMES = [
     "available memory",
     "load average",
     "in-flight browsers",
+    "virtual displays",
     "browser tooling",
     "keyring bus",
     "wireless link",

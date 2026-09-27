@@ -76,7 +76,7 @@ Enforcement, not promises:
 | regression | T0 | one test per `failure-atlas.md` entry, named after it | "one unreadable cookie must not end the session" |
 | safety | T0 | the properties the user relies on: a dry run never mutates; read commands issue no mutations (read-only POSTs are allowed); `BrowserSender` dismisses the conversation-history rate-limit notice and attempts the send, and sends Escape only to other modals; the live guard rejects an id outside the sandbox; the fixture scanner finds a planted email | |
 | robustness | T0 | every parser survives `{}`, `None` fields, wrong types and half-written messages | parametrized |
-| smoke | T1 | each read command exits as documented against the real account; assertions on shape, never on the user's data | `profile_context.py` exits 0; the slider has 5 positions; `tests/live/test_read_preflight.py`: preflight's account and run groups over the guarded session, and `main()` exiting as documented with its eleven default checks in order |
+| smoke | T1 | each read command exits as documented against the real account; assertions on shape, never on the user's data | `profile_context.py` exits 0; the slider has 5 positions; `tests/live/test_read_preflight.py`: preflight's account and run groups over the guarded session, and `main()` exiting as documented with its twelve default checks in order |
 | round trip | T2 | each write command: act, read back, revert; the cleanup is verified by a read. A round trip that needs a conversation to act on mints one (`tests/live/minting.py`) and is therefore T4, not T2: a test that waits for a chat an earlier run left never runs, because the sweep deletes them | set instructions on the sandbox, read `gizmos/<id>`, restore |
 | browser dry run | T3 | the send path opens: window, cookies, composer found, upload works; never sends | `tests/live/test_browser_upload.py`: `BrowserSender.attach_files` uploads one file, the composer shows its `Remove file …` chip and the send button stays enabled, never clicked |
 | measured send | T4 | the send path end to end, one message per feature, timings recorded in `failure-atlas.md` | search on and off, one attachment, one deep research; `tests/live/test_send_effort.py`, which pins a level the account is **not** already using and asserts the reply recorded it -- the check that would have caught the two-month effort regression; `tests/live/test_send_chat_flags.py`, which mints a chat and round-trips pin, unpin, archive and unarchive on it; and `tests/live/test_send_cli_roundtrip.py`, the scripted end-to-end send through `send_prompt.main` itself (posted, replied with the nonce, deleted and 404), which also records the `conversation` and `composer-filled` pages for tier R and runs weekly from cron (`~/.local/bin/chatgpt-ops-send-check.sh`, Sunday 05:40) |
@@ -145,7 +145,7 @@ CLI discovery. A failed link delete must prevent app deletion. A failed or
 mismatched privacy update must return a nonzero exit status.
 
 The health live test accepts the production authentication options and
-checks all fifteen current checks, including the skills inventory. Historic
+checks all sixteen current checks, including the skills inventory. Historic
 comments saying that the live tests were never run have been removed.
 
 The 2026-09-20 baseline counts and coverage figures remain in git history.

@@ -665,17 +665,58 @@ BROWSER_BINARIES = frozenset(
 )
 
 
+def scripted_markers() -> tuple[str, ...]:
+    """Argument substrings that mark a browser process as ours: Playwright's
+    temporary profile path (``PW_MARKER``) and, when a shared profile is
+    configured, its ``--user-data-dir``. The second was missing until
+    2026-09-28: the shared-profile window a send uses by default carried no
+    "playwright" in its arguments, so it was invisible to preflight's
+    in-flight check and to the sender's own lifetime watchdog, whose kill
+    set is ``_own_pids & scripted_browser_pids()``."""
+    markers = [PW_MARKER]
+    if PROFILE_DIR:
+        markers.append(f"--user-data-dir={PROFILE_DIR}")
+    return tuple(markers)
+
+
 def scripted_browser_pids() -> set[int]:
-    """PIDs of browser processes started by Playwright, never the user's own.
+    """PIDs of browser processes started by this skill, never the user's own.
 
     Two things must both hold: argv[0] is a browser binary
-    (``BROWSER_BINARIES``), and the arguments carry ``PW_MARKER``. The
-    first test is what keeps a shell script, a pytest run or an editor
-    whose command line merely *mentions* both words from counting as a
-    window: on 2026-09-21 a bash sampler with "playwright" and "chrome" in
-    its text held preflight's "in-flight browsers" block for an hour.
+    (``BROWSER_BINARIES``), and the arguments carry one of
+    ``scripted_markers()``. The first test is what keeps a shell script, a
+    pytest run or an editor whose command line merely *mentions* the words
+    from counting as a window: on 2026-09-21 a bash sampler with
+    "playwright" and "chrome" in its text held preflight's "in-flight
+    browsers" block for an hour.
     """
-    pids: set[int] = set()
+    return {pid for pid, argv in _process_argvs() if is_scripted_browser(argv)}
+
+
+def is_scripted_browser(argv: list[str]) -> bool:
+    """Is ``argv`` a browser this skill started? argv[0] must be a browser
+    binary and the arguments must carry one of ``scripted_markers()``."""
+    if not argv or os.path.basename(argv[0]) not in BROWSER_BINARIES:
+        return False
+    arguments = " ".join(argv[1:])
+    return any(marker in arguments for marker in scripted_markers())
+
+
+def is_xvfb(argv: list[str]) -> bool:
+    """Is ``argv`` an ``Xvfb`` server?"""
+    return bool(argv) and os.path.basename(argv[0]) == "Xvfb"
+
+
+def xvfb_pids() -> set[int]:
+    """PIDs of running ``Xvfb`` servers. A send uses one and frees it; more
+    than one or two at a time means runs died before their cleanup
+    (``virtual_display``); preflight's host group reports them."""
+    return {pid for pid, argv in _process_argvs() if is_xvfb(argv)}
+
+
+def _process_argvs() -> Generator[tuple[int, list[str]]]:
+    """``(pid, argv)`` for every process ``/proc`` shows; one that ends
+    while we look is skipped."""
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
             continue
@@ -683,12 +724,7 @@ def scripted_browser_pids() -> set[int]:
             raw = (entry / "cmdline").read_bytes()
         except OSError:
             continue  # the process ended while we looked
-        argv = raw.decode("utf-8", "replace").split("\0")
-        if not argv or os.path.basename(argv[0]) not in BROWSER_BINARIES:
-            continue
-        if PW_MARKER in " ".join(argv[1:]):
-            pids.add(int(entry.name))
-    return pids
+        yield int(entry.name), raw.decode("utf-8", "replace").split("\0")
 
 
 @contextlib.contextmanager
@@ -1301,10 +1337,21 @@ def reexec_with_playwright(argv: list[str] | None = None) -> None:
 
 @contextlib.contextmanager
 def virtual_display(visible: bool = False) -> Generator[None]:
-    """Xvfb virtual screen (default) or the on-screen display (visible)."""
+    """Xvfb virtual screen (default) or the on-screen display (visible).
+
+    The default is what keeps a send off the owner's desktop: the window is
+    drawn on an X server nobody looks at. Inside the block ``DISPLAY`` names
+    that server, and every variable that could route Chrome, or the GTK
+    under it, to the Wayland compositor of the desktop session instead is
+    removed or pinned to X11 (``DESKTOP_ENV_KEYS``); ``BrowserSender``'s
+    ``--ozone-platform=x11`` settles it on Chrome's side too. The Xvfb dies
+    with this process (``_die_with_parent``), and is killed when it ignores
+    SIGTERM: 30 orphaned displays were found on 2026-09-28, left by runs
+    that had been killed before their cleanup ran.
+    """
     ensure_desktop_env()
     xvfb = None if visible else shutil.which("Xvfb")
-    saved = {k: os.environ.get(k) for k in ("DISPLAY", "WAYLAND_DISPLAY")}
+    saved = {k: os.environ.get(k) for k in DESKTOP_ENV_KEYS}
     proc = None
     try:
         if xvfb:
@@ -1315,6 +1362,7 @@ def virtual_display(visible: bool = False) -> Generator[None]:
                 [xvfb, f":{n}", "-screen", "0", "1280x1024x24", "-nolisten", "tcp"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                preexec_fn=_die_with_parent,
             )
             for _ in range(100):
                 if os.path.exists(f"/tmp/.X11-unix/X{n}"):
@@ -1322,6 +1370,9 @@ def virtual_display(visible: bool = False) -> Generator[None]:
                 time.sleep(0.05)
             os.environ["DISPLAY"] = f":{n}"
             os.environ.pop("WAYLAND_DISPLAY", None)
+            os.environ["GDK_BACKEND"] = "x11"
+            os.environ["XDG_SESSION_TYPE"] = "x11"
+            logger.info("scripted window on Xvfb display :%d (pid %d)", n, proc.pid)
         else:
             os.environ.setdefault("DISPLAY", ":0")
             if os.path.exists(f"{os.environ['XDG_RUNTIME_DIR']}/wayland-0"):
@@ -1335,8 +1386,88 @@ def virtual_display(visible: bool = False) -> Generator[None]:
                 os.environ[k] = v
         if proc:
             proc.terminate()
-            with contextlib.suppress(subprocess.TimeoutExpired):
+            try:
                 proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    proc.wait(timeout=5)
+
+
+# Environment a scripted window must not inherit unchanged: with these set
+# for the desktop session, Chrome or GTK can pick the Wayland compositor over
+# the Xvfb display and the window lands on the owner's screen.
+DESKTOP_ENV_KEYS = ("DISPLAY", "WAYLAND_DISPLAY", "GDK_BACKEND", "XDG_SESSION_TYPE")
+
+
+def _die_with_parent() -> None:
+    """``preexec_fn`` for a helper process: ask the kernel to send it SIGTERM
+    when the process that started it dies (Linux ``prctl(PR_SET_PDEATHSIG)``),
+    so an Xvfb started for a send cannot outlive a Python process killed
+    before its ``finally`` ran. Never raises: on a platform without prctl
+    the helper simply starts unprotected, as before."""
+    with contextlib.suppress(Exception):
+        import ctypes
+
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, int(signal.SIGTERM))
+
+
+def wayland_peer_inodes(ss_text: str) -> set[int]:
+    """The socket inodes of every client connected to a Wayland compositor,
+    from ``ss -xp`` output: a line whose local path ends in ``/wayland-<n>``
+    is the compositor's side of one connection, and its peer inode (``*
+    <inode>``) is the client's socket. A listening socket has peer 0 and is
+    skipped. Pure, so it is tested on recorded ``ss`` lines."""
+    peers: set[int] = set()
+    for line in ss_text.splitlines():
+        tokens = line.split()
+        if not any(re.search(r"/wayland-\d+$", t) for t in tokens):
+            continue
+        for i, token in enumerate(tokens[:-1]):
+            if token == "*" and tokens[i + 1].isdigit() and int(tokens[i + 1]) > 0:
+                peers.add(int(tokens[i + 1]))
+    return peers
+
+
+def socket_inodes(pid: int, proc: Path = Path("/proc")) -> set[int]:
+    """The inodes of the sockets ``pid`` holds open (``/proc/<pid>/fd``)."""
+    inodes: set[int] = set()
+    try:
+        for fd in (proc / str(pid) / "fd").iterdir():
+            try:
+                target = os.readlink(fd)
+            except OSError:
+                continue
+            match = re.fullmatch(r"socket:\[(\d+)\]", target)
+            if match:
+                inodes.add(int(match.group(1)))
+    except OSError:
+        pass
+    return inodes
+
+
+def compositor_clients(pids: Iterable[int]) -> list[int]:
+    """Which of ``pids`` hold a connection to a Wayland compositor: the
+    proof that a window is on the desktop rather than on its Xvfb display.
+    Memory maps cannot tell (GTK maps ``libwayland-client`` under X11 too,
+    which is how the first version of this check cried wolf on
+    2026-09-28); an established socket to ``wayland-<n>`` can. ``ss`` is
+    the one source of peer inodes on Linux; without it the answer is
+    "none", which records nothing rather than a guess."""
+    try:
+        out = subprocess.run(
+            ["ss", "-xp", "-H", "state", "established"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    peers = wayland_peer_inodes(out)
+    if not peers:
+        return []
+    return sorted(pid for pid in pids if socket_inodes(pid) & peers)
 
 
 # The sibling suffix a send's recorded reply stream is written under
@@ -1840,6 +1971,7 @@ EVENT_KINDS = (
     "text-not-taken",  # the retype did not take either; the send was abandoned
     "not-posted",  # submitted, but no new user turn or conversation URL appeared
     "send-error",  # any other browser failure on the send path
+    "window-on-desktop",  # the scripted window is not on its Xvfb display
 )
 
 
@@ -1949,6 +2081,13 @@ class BrowserSender:
     WIDTH, HEIGHT = 1000, 800
     LAUNCH_ARGS = (
         f"--window-size={WIDTH},{HEIGHT}",
+        # The window is drawn on the Xvfb display virtual_display() names in
+        # DISPLAY, and nowhere else. Without this Chrome may pick the Wayland
+        # compositor of the owner's desktop session instead (its platform
+        # choice follows environment variables and its own defaults, which
+        # change with releases), and the scripted window then opens on the
+        # owner's screen, in front, taking the keyboard focus (2026-09-28).
+        "--ozone-platform=x11",
         "--disable-dev-shm-usage",
         "--disable-extensions",
         "--disable-background-networking",
@@ -2135,6 +2274,7 @@ class BrowserSender:
         before = scripted_browser_pids()
         ctx = self._launch(pw)
         self._own_pids = scripted_browser_pids() - before
+        self._desktop_check()
         ctx.add_cookies(cookies)
         # rewrite_send_body only has work to do when one of these is set;
         # block_unused must not be handed a hook otherwise, or every send
@@ -2148,6 +2288,41 @@ class BrowserSender:
         self.page = ctx.new_page()
         if self.record_send_body:
             self.page.on("request", self._record_request)
+
+    def _desktop_check(self) -> None:
+        """Right after launch: is this window where it belongs, on the Xvfb
+        display and not on the owner's desktop? A window that reached the
+        desktop shows up in two ways: one of our processes holds a socket to
+        the Wayland compositor (``compositor_clients``), or ``DISPLAY`` is
+        the desktop's own. Either is recorded as a ``window-on-desktop``
+        event and logged; the send goes on, because the window still works,
+        but the owner's complaint of 2026-09-28 (a Chrome window in front of
+        everything, taking the focus while they dictate) becomes a counted
+        fact instead of a guess. A window asked for with ``visible=True`` is
+        exempt."""
+        if self.visible:
+            return
+        display = os.environ.get("DISPLAY", "")
+        on_wayland = compositor_clients(self._own_pids)
+        if on_wayland or display in ("", ":0"):
+            record_event(
+                "window-on-desktop",
+                display=display,
+                wayland_pids=on_wayland,
+                pids=sorted(self._own_pids),
+            )
+            logger.warning(
+                "the scripted window is on the desktop (DISPLAY=%r, wayland "
+                "processes %s); it should be on an Xvfb display",
+                display,
+                on_wayland,
+            )
+        else:
+            logger.info(
+                "scripted window on DISPLAY=%s, processes %s",
+                display,
+                sorted(self._own_pids),
+            )
 
     def _launch(self, pw: Any) -> Any:
         """A browser context that keeps its HTTP cache between sends.

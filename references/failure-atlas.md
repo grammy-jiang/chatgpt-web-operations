@@ -410,3 +410,45 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   input (2026-09-28); `accept` is kept, and all four recorded pages were
   re-recorded. An attribute a selector reads must survive the sanitizer, and
   the only way to know which ones is to run every selector on the recording.
+- **(F-2026-09-28-7) The shared-profile window carried no "playwright" in its
+  arguments, so the in-flight check and the lifetime watchdog never saw the
+  window a send uses by default.** `scripted_browser_pids()` required
+  `PW_MARKER` ("playwright", Playwright's temporary profile path) in the
+  arguments; since the shared profile `/tmp/rp-browser-profile` became the
+  default, that string was absent from the default send window. Preflight
+  said "no in-flight browser process" beside a running send, and the
+  watchdog's kill set, `_own_pids & scripted_browser_pids()`, was empty, so
+  the 1500 s lifetime ceiling was never enforced on the default path. Found
+  2026-09-28 while looking for the window the owner had seen on the desktop.
+  `scripted_markers()` now names the shared profile too, and
+  `is_scripted_browser` is tested on the real argument vectors.
+- **(F-2026-09-28-8) Thirty orphaned Xvfb servers.** `virtual_display()`
+  stopped its Xvfb in `finally`, which never runs when the Python process is
+  killed (a `timeout`, a SIGKILL, a parent that died first); 30 displays from
+  2026-09-25 to 2026-09-27 were still running on 2026-09-28, each holding
+  memory and an X display number, and no check counted them. Xvfb now dies
+  with its parent (`prctl(PR_SET_PDEATHSIG)` in `_die_with_parent`), is
+  killed when it ignores SIGTERM, and preflight's host group warns
+  ("virtual displays") when more than `RP_MAX_BROWSERS + 1` are running,
+  with the one-line fix.
+- **(F-2026-09-28-9) A scripted window could reach the desktop.** On
+  2026-09-28 the owner reported a Chrome window opening in front of every
+  other window and taking the focus while they dictated. The send's window
+  is meant to live on an Xvfb display, but nothing pinned Chrome to it:
+  `virtual_display()` removed `WAYLAND_DISPLAY` and left `XDG_SESSION_TYPE`
+  and `GDK_BACKEND` alone, and Chrome's platform choice follows those
+  variables and its own release defaults. Not reproduced, and whether the
+  window the owner saw was this skill's is not established (the Claude in
+  Chrome extension raises the owner's own Chrome whenever an agent uses it).
+  What changed so the question answers itself next time: Chrome is launched
+  with `--ozone-platform=x11`, the block pins `GDK_BACKEND` and
+  `XDG_SESSION_TYPE` to X11, and right after launch `_desktop_check` records
+  a `window-on-desktop` event when a window of ours holds a socket to the
+  Wayland compositor (`compositor_clients`, from `ss -xp` peer inodes) or
+  sits on the desktop's `DISPLAY`. The first version of that check read
+  the process's memory maps for `libwayland-client` and cried wolf twice
+  the same night: GTK maps that library under X11 too. The probe that
+  settled it: the send window on `:99`, five established connections to
+  its Xvfb, no socket shared with `labwc`, `--ozone-platform=x11` in its
+  arguments. An empty events file after a popup means the popup was not
+  ours.

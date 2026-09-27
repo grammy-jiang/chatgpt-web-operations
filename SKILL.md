@@ -522,8 +522,25 @@ probe script run by hand is how a second window appears.
 Refusing to open is correct: a window opened into swap makes every Playwright
 call time out, so the send fails anyway and the host suffers. The lifetime
 ceiling is enforced by SIGKILL, not `close()`, because a hung Playwright call
-blocks its owner thread. Only processes carrying Playwright's temporary
-profile are ever killed.
+blocks its owner thread. Only processes carrying one of the skill's own
+markers (Playwright's temporary profile path, or the shared profile
+`/tmp/rp-browser-profile`) are ever killed.
+
+**The window never appears on your desktop.** A send draws its window on an
+Xvfb display nobody looks at: inside the send `DISPLAY` names that server,
+the Wayland and GTK variables are removed or pinned to X11, and Chrome is
+launched with `--ozone-platform=x11`, so it cannot pick the desktop's
+compositor. Right after launch the sender checks where the window went and
+records a `window-on-desktop` event in
+`~/.local/state/chatgpt-web-operations/events.jsonl` when it is not on its
+Xvfb display. `--visible` is the one exception, and it is opt-in. If a
+Chrome window still comes to the front while nothing here runs with
+`--visible`, read the events file: no event means the window was not this
+skill's; most often it is your own Chrome, raised by the Claude in Chrome
+extension whenever an agent uses it. Xvfb displays left behind by runs
+killed before their cleanup are reported by `preflight.py` (host group,
+"virtual displays") and cleared with `pkill -x Xvfb` when no send is in
+flight; since 2026-09-28 an Xvfb also dies with the process that started it.
 
 ## Rate limits
 

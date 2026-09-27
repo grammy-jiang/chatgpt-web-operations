@@ -36,13 +36,14 @@ pytestmark = pytest.mark.live_read
 
 STATES = {"ok", "warn", "block"}
 
-# The fifteen checks a bare `health.py` makes with a working link and
-# account: preflight's own eleven (DEFAULT_NAMES in
+# The sixteen checks a bare `health.py` makes with a working link and
+# account: preflight's own twelve (DEFAULT_NAMES in
 # tests/live/test_read_preflight.py), then health's three and the skills inventory.
 DEFAULT_NAMES = [
     "available memory",
     "load average",
     "in-flight browsers",
+    "virtual displays",
     "browser tooling",
     "keyring bus",
     "wireless link",

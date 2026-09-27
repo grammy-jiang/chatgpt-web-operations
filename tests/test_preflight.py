@@ -179,6 +179,7 @@ def _fake_cc(
         available_mb=lambda: available_mb,
         MIN_AVAILABLE_MB=min_available_mb,
         scripted_browser_pids=lambda: set(pids),
+        xvfb_pids=lambda: set(),
         MAX_BROWSERS=max_browsers,
         ChatGPTSession=lambda browser: session,
         BrowserSender=sender_cls,
@@ -616,6 +617,7 @@ def test_host_checks_returns_five_checks_without_a_workdir(
         "available memory",
         "load average",
         "in-flight browsers",
+        "virtual displays",
         "browser tooling",
         "keyring bus",
     ]
@@ -628,7 +630,7 @@ def test_host_checks_adds_disk_space_last_with_a_workdir(
     client = _fake_cc(None)
     checks = preflight.host_checks(client, tmp_path)
     assert [c["name"] for c in checks][-1] == "disk space"
-    assert len(checks) == 6
+    assert len(checks) == 7
 
 
 def test_host_checks_reflects_a_low_memory_client(clean_host: None) -> None:

@@ -65,5 +65,40 @@
       "test_harness_replay.py::test_the_sweep_runs_only_after_the_tiers_that_can_leave_a_conversation"
     ],
     "removed_and_failed": null
+  },
+  {
+    "id": "F-2026-09-28-7",
+    "title": "the shared-profile send window escaped the in-flight check and the watchdog",
+    "atlas": "carried no \"playwright\" in its",
+    "fix": "pending",
+    "tests": [
+      "test_client_display.py::test_the_shared_profile_window_counts_as_scripted",
+      "test_client_display.py::test_process_scans_use_the_argv_predicates"
+    ],
+    "removed_and_failed": null
+  },
+  {
+    "id": "F-2026-09-28-8",
+    "title": "orphaned Xvfb servers from runs killed before cleanup",
+    "atlas": "Thirty orphaned Xvfb servers",
+    "fix": "pending",
+    "tests": [
+      "test_client_session.py::test_xvfb_is_started_and_terminated_on_a_headless_host",
+      "test_client_session.py::test_xvfb_wait_survives_a_terminate_timeout_and_kills",
+      "test_client_display.py::test_virtual_displays_check_warns_and_names_the_fix_when_displays_leaked"
+    ],
+    "removed_and_failed": null
+  },
+  {
+    "id": "F-2026-09-28-9",
+    "title": "a scripted window could reach the desktop instead of its Xvfb display",
+    "atlas": "A scripted window could reach the desktop",
+    "fix": "pending",
+    "tests": [
+      "test_client_display.py::test_launch_args_pin_chrome_to_the_x11_display",
+      "test_client_display.py::test_a_window_talking_to_the_compositor_is_recorded",
+      "test_client_display.py::test_a_window_on_the_desktop_display_is_recorded"
+    ],
+    "removed_and_failed": null
   }
 ]

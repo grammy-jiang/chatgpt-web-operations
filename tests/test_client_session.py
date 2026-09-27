@@ -1394,12 +1394,17 @@ def clean_display_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 class _FakePopen:
     def __init__(self) -> None:
+        self.pid = 4242
         self.terminated = False
+        self.killed = False
         self.waited_timeout: float | None = None
         self.wait_raises: Exception | None = None
 
     def terminate(self) -> None:
         self.terminated = True
+
+    def kill(self) -> None:
+        self.killed = True
 
     def wait(self, timeout: float | None = None) -> None:
         self.waited_timeout = timeout
@@ -1465,20 +1470,32 @@ def test_xvfb_is_started_and_terminated_on_a_headless_host(
 
     monkeypatch.setattr(cc.subprocess, "Popen", fake_popen)
     monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
+    monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
+    monkeypatch.delenv("GDK_BACKEND", raising=False)
 
     with cc.virtual_display(visible=False):
         assert os.environ["DISPLAY"] == ":99"
         assert "WAYLAND_DISPLAY" not in os.environ
+        # Nothing may route Chrome or GTK to the desktop's compositor: the
+        # owner's complaint of 2026-09-28 (a window in front, taking focus).
+        assert os.environ["GDK_BACKEND"] == "x11"
+        assert os.environ["XDG_SESSION_TYPE"] == "x11"
 
     assert os.environ["WAYLAND_DISPLAY"] == "wayland-0"
+    assert os.environ["XDG_SESSION_TYPE"] == "wayland"
+    assert "GDK_BACKEND" not in os.environ
     assert fake_proc.terminated is True
+    assert fake_proc.killed is False
     assert fake_proc.waited_timeout == 5
-    argv = popen_calls[0][0]
+    argv, kwargs = popen_calls[0]
     assert argv[0] == "/usr/bin/Xvfb"
     assert argv[1] == ":99"
+    # The Xvfb dies with this process, whatever kills it (30 orphans found
+    # on 2026-09-28 from runs killed before their finally ran).
+    assert kwargs["preexec_fn"] is cc._die_with_parent
 
 
-def test_xvfb_wait_survives_a_terminate_timeout(
+def test_xvfb_wait_survives_a_terminate_timeout_and_kills(
     monkeypatch: pytest.MonkeyPatch, clean_display_env: None
 ) -> None:
     monkeypatch.setattr(cc.shutil, "which", lambda name: "/usr/bin/Xvfb")
@@ -1492,6 +1509,17 @@ def test_xvfb_wait_survives_a_terminate_timeout(
     with cc.virtual_display(visible=False):
         pass
     assert fake_proc.terminated is True
+    assert fake_proc.killed is True  # SIGTERM ignored: SIGKILL follows
+
+
+def test_die_with_parent_never_raises_without_prctl(monkeypatch) -> None:
+    import ctypes
+
+    def boom(*a, **k):
+        raise OSError("no libc")
+
+    monkeypatch.setattr(ctypes, "CDLL", boom)
+    assert cc._die_with_parent() is None
 
 
 def _exists_sequence(*results: bool):

@@ -46,7 +46,13 @@ asked for: a failed scheduled check hands its evidence to
 in a worktree and judges it with `make lint`, `make test` and `make replay
 FIXTURES=<the fresh recording>`; mode `report` by default
 (`~/.config/chatgpt-ops/heal.conf`), `pr` opens a pull request on the
-mirror, merge and deploy stay with the owner.
+mirror, merge and deploy stay with the owner. Later that night the owner
+reported a Chrome window opening in front of their desktop: the launch now
+pins Chrome to X11 on its Xvfb display and records a `window-on-desktop`
+event if a window of ours ever reaches the desktop; the same look found
+the shared-profile window invisible to the in-flight check and the
+watchdog (fixed) and 30 orphaned Xvfb servers (killed; Xvfb now dies with
+its parent; preflight counts them). Atlas F-2026-09-28-7 to 9.
 
 ## Entry point, 2026-09-25
 
