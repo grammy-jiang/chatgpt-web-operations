@@ -141,7 +141,7 @@
     "id": "F-2026-09-29-13",
     "title": "a damaged encrypted cookie raised ValueError out of the decoder and ended the session",
     "atlas": "A damaged cookie value raised out of the decoder",
-    "fix": "pending",
+    "fix": "d740121",
     "tests": [
       "test_properties.py::test_decoding_never_raises_on_any_bytes"
     ],
@@ -151,7 +151,7 @@
     "id": "F-2026-09-29-14",
     "title": "the SSE and JSON Lines readers split a line at U+0085, U+2028 and U+2029",
     "atlas": "The stream and JSON Lines readers split lines where no",
-    "fix": "pending",
+    "fix": "d740121",
     "tests": [
       "test_properties.py::test_stream_events_returns_every_payload_through_the_noise",
       "test_properties.py::test_jsonl_readers_return_every_record_written"
@@ -162,7 +162,7 @@
     "id": "F-2026-09-29-15",
     "title": "the fixture sanitizer left strays the hygiene check refuses",
     "atlas": "The fixture sanitizer was weaker than the hygiene",
-    "fix": "pending",
+    "fix": "d740121",
     "tests": [
       "test_properties.py::test_sanitize_leaves_nothing_the_hygiene_check_refuses"
     ],
