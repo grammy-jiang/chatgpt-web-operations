@@ -67,11 +67,32 @@ The send now reads its own `f/conversation` POST's status and a new chat's
 real address before the count. Second, the daily check of 2026-09-28 05:25
 reported FAIL because one timed-out read ended `health.py` before it wrote
 its JSON; the session now returns such an error as data, and `health.py`
-always writes its document. Open: the real send through `chatgpt-send` (the
-scripted browser met a Cloudflare challenge at 00:49 and was not retried
-while another project's run waited to send), P12's T4 round trip, then
-P6-P10. The ThreadDeck and atlas callers were not changed; their runs of
-2026-09-27/28 may hold turns sent twice and chats deleted as failures.
+always writes its document. The ThreadDeck and atlas callers were not
+changed; their runs of 2026-09-27/28 may hold turns sent twice and chats
+deleted as failures.
+
+**State at 2026-09-29, 03:15.** Plan items P6 to P13 are done, each with a
+"Done" line under its item in `TESTING.md` 6.3. New tiers: L (`make
+loopback`, the real HTTP path against a fake chatgpt.com on 127.0.0.1) and
+TL (`make live-local`, the real cookie DB, keyring and AES, no network),
+both daily from the wrapper; property tests (`tests/test_properties.py`);
+random order, per-test timeouts, the quarantine marker and
+`tests/FLAKY.md`; and the mutation runner `make mutate MODULE=<file>`, by
+hand, whose pilot left `round_state.py`, `chatgpt_cookies.py`,
+`_common.py` and `chatgpt_session.py` at 100, 91.7, 89.2 and 98.3 %
+(`VERIFICATION.md`). These tiers found eight more defects, all fixed with
+a test that fails without the fix (atlas F-2026-09-29-12 to 15, and the
+pilot's survivors): a stalled login and a page instead of JSON escaped the
+retry ladders, a damaged cookie raised out of the decoder, the stream and
+JSON Lines readers split lines at U+2028, and two tests could not fail.
+The send-evidence fix of F-2026-09-29-10 held on the real page: the atlas
+run sent twelve messages after it, each judged posted by its request while
+the turn count stayed at 5, and none was reported not posted. Open: the
+real send through `chatgpt-send` (A3's last exit criterion); the scripted
+browser met Cloudflare's "Verify you are human" page again at 03:04, as it
+did intermittently all night on every kind of page. P12's round trip now
+runs inside the weekly send; its first real run is Sunday 05:40.
+`chatgpt_client.py` is the next module for the mutation runner.
 
 ## Entry point, 2026-09-25
 
