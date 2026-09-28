@@ -452,3 +452,35 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   its Xvfb, no socket shared with `labwc`, `--ozone-platform=x11` in its
   arguments. An empty events file after a popup means the popup was not
   ours.
+- **(F-2026-09-29-10) A posted message read as not posted.** The send
+  decided "posted" by counting user turns on the page (`USER_TURN_SELECTOR`)
+  and by nothing else. The events file's first two days (2026-09-27 and
+  2026-09-28, runs of two other projects: ThreadDeck's phase workers and the
+  python-migration-atlas P10.4 workers) held 42 `not-posted` events, and 40
+  of them were messages the server had stored. 30 were new chats whose
+  address had already become `/g/g-p-.../c/<id>` while the count read 0;
+  ChatGPT gives a chat that id only once the message is stored, and the six
+  read back over HTTP answered `conversation_deleted` (they existed, and
+  were deleted later). 10 were follow-ups in two long atlas chats where the
+  count read 4 or 5 before and the same or one fewer after; the
+  conversation JSON holds every one of those ten messages, each posted two
+  minutes before its event, and one of them twice (six minutes apart, the
+  second after the first was reported not posted). The
+  last 2 are undecided (the address was still the project page). Each
+  false event failed the send (exit 1), and the callers went on from a
+  failure. Why the count missed is not established: the scripted browser
+  met a Cloudflare challenge when this was found, so the page could not be
+  recorded; a long thread that renders only part of its turns fits the
+  follow-ups, and a thread that did not render after the address changed
+  fits the new chats. What changed: `post_evidence` accepts three things,
+  strongest first: the page's own `f/conversation` POST answered 2xx (the
+  sender hooks the page's request and response events and reads only what
+  came after its own click), a new chat's real `/c/<id>` address, and one
+  more user turn. A post the count did not see is a `post-unseen` event
+  with a screenshot, so a drifting selector is counted instead of retried;
+  a POST on the wire also ends the 20 s wait before the Enter fallback,
+  which could otherwise submit a second time; and a stored message whose
+  chat address never showed returns a provisional id that the caller
+  resolves from the listing (`posted-no-id`). The events predate the
+  display change of F-2026-09-28-9. The lesson: judge a send by the request
+  that carries it, not by what the page happens to render.

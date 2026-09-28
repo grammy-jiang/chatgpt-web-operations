@@ -52,7 +52,8 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Generator, Iterable, MutableMapping
+import uuid
+from collections.abc import Generator, Iterable, MutableMapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from html import escape as _html_escape
@@ -1505,6 +1506,46 @@ USER_TURN_SELECTORS = (
     '[data-user-message-bubble="true"]',
 )
 USER_TURN_SELECTOR = ", ".join(USER_TURN_SELECTORS)
+
+
+def post_evidence(
+    *,
+    new_chat: bool,
+    url: str,
+    turns_before: int,
+    turns_now: int,
+    statuses: Sequence[int],
+) -> tuple[str, ...]:
+    """What shows that a submitted message reached ChatGPT, strongest first.
+
+    - ``"request"``: the page's own ``f/conversation`` POST was answered
+      with a 2xx status (``statuses``, collected by the sender's response
+      hook since the click). This is the submission itself.
+    - ``"url"``: a new chat's address became a real ``/c/<id>``. ChatGPT
+      gives a chat that id only once the server has stored the message;
+      until then the address is a provisional ``WEB:``/``local-chatgpt:``
+      id or the page the chat was composed on.
+    - ``"turn"``: one more user turn is on the page than before.
+
+    Empty when nothing shows it. Until 2026-09-29 the send trusted the turn
+    count alone, and the count misses posted messages: 40 of 42
+    "not-posted" events of 2026-09-27/28 were messages the server had
+    stored (30 new chats whose address was already ``/c/<id>`` with no
+    turn counted, 10 follow-ups in long chats where the count stayed level
+    or fell). Each one told the caller to send again, and the retries sent
+    the same prompt twice (``references/failure-atlas.md``,
+    F-2026-09-29-10).
+    """
+    found: list[str] = []
+    if any(isinstance(s, int) and 200 <= s < 300 for s in statuses):
+        found.append("request")
+    if new_chat and "/c/" in url and not is_provisional(url):
+        found.append("url")
+    if turns_now > turns_before:
+        found.append("turn")
+    return tuple(found)
+
+
 # ChatGPT's own notice when its read of an existing conversation fails: the
 # thread shows "Could not load this ChatGPT conversation" and a Retry button
 # instead of the messages. Seen 2026-09-26/27 while the read path was
@@ -1973,7 +2014,9 @@ EVENT_KINDS = (
     "chat-load-failed",  # "Could not load this ChatGPT conversation", retries spent
     "fill-fallback",  # fill() was not read back; retyped through the keyboard
     "text-not-taken",  # the retype did not take either; the send was abandoned
-    "not-posted",  # submitted, but no new user turn or conversation URL appeared
+    "not-posted",  # submitted, but nothing shows it reached ChatGPT (post_evidence)
+    "post-unseen",  # posted (request or URL), but no new user turn was counted
+    "posted-no-id",  # posted, but the new chat's /c/<id> never showed; resolved later
     "send-error",  # any other browser failure on the send path
     "window-on-desktop",  # the scripted window is not on its Xvfb display
 )
@@ -2191,6 +2234,13 @@ class BrowserSender:
         # None when nothing here is pinned. _record_request reads it to
         # tell "what the page built" from "what was actually sent".
         self._last_sent_body: str | None = None
+        # What the page's own f/conversation POSTs did, counted by the hooks
+        # _watch_send_posts puts on the page: how many went out, and the
+        # status of each answer. _send reads only what came after its own
+        # click (post_evidence).
+        self._send_requests = 0
+        self._send_statuses: list[int] = []
+        self._watched_page: Any = None
         self._stack = contextlib.ExitStack()
         self.page: Any = None
         # Playwright's sync objects may only be used from the thread that
@@ -2397,10 +2447,7 @@ class BrowserSender:
         recorded (ROADMAP.md, Stage 3 items 1-2).
         """
         req = route.request
-        if req.method != "POST":
-            return False
-        path = req.url.split("?", 1)[0].split("#", 1)[0]
-        if not path.endswith(self.RECORD_ENDPOINT):
+        if not self.is_send_post(req.method, req.url):
             return False
         try:
             body = json.loads(req.post_data) if req.post_data else None
@@ -2474,10 +2521,7 @@ class BrowserSender:
         provisional record, which is then exact. Without a rewrite the file
         keeps its plain ``"post_data"`` field.
         """
-        if req.method != "POST":
-            return
-        path = req.url.split("?", 1)[0].split("#", 1)[0]
-        if not path.endswith(self.RECORD_ENDPOINT):
+        if not self.is_send_post(req.method, req.url):
             return
         if self.effort or self.model or self.search or self.hints:
             doc: dict[str, Any] = {
@@ -2501,10 +2545,41 @@ class BrowserSender:
         not -- has arrived.
         """
         req = response.request
-        if req.method != "POST":
+        return self.is_send_post(req.method, req.url)
+
+    @classmethod
+    def is_send_post(cls, method: str, url: str) -> bool:
+        """True for the message's own POST: a URL whose path (query and
+        fragment stripped) ends with exactly ``RECORD_ENDPOINT``. Never a
+        GET, and never the ``.../f/conversation/prepare`` handshake."""
+        if method != "POST":
             return False
-        path = req.url.split("?", 1)[0].split("#", 1)[0]
-        return path.endswith(self.RECORD_ENDPOINT)
+        path = url.split("?", 1)[0].split("#", 1)[0]
+        return path.endswith(cls.RECORD_ENDPOINT)
+
+    def _watch_send_posts(self, page: Any) -> None:
+        """Hook ``page`` once: count each send POST and keep each answer's
+        status, for ``post_evidence``. A second send on the same page adds
+        no second pair of hooks."""
+        if self._watched_page is page:
+            return
+        page.on("request", self._note_send_request)
+        page.on("response", self._note_send_response)
+        self._watched_page = page
+
+    def _note_send_request(self, req: Any) -> None:
+        with contextlib.suppress(Exception):
+            if self.is_send_post(req.method, req.url):
+                self._send_requests += 1
+
+    def _note_send_response(self, response: Any) -> None:
+        """Keep the status of a send POST's answer. Playwright raises the
+        ``response`` event when the headers arrive, so a streamed reply's
+        status is known long before the stream ends."""
+        with contextlib.suppress(Exception):
+            req = response.request
+            if self.is_send_post(req.method, req.url):
+                self._send_statuses.append(int(response.status))
 
     def _record_send_stream(self, info: Any) -> None:
         """Write this send's own reply stream to a sibling ``.stream.txt``.
@@ -3078,6 +3153,8 @@ class BrowserSender:
                 chat_toggle.first.click(timeout=3_000)
                 page.wait_for_timeout(500)
         turns_before = page.locator(USER_TURN_SELECTOR).count()
+        new_chat = not chat
+        self._watch_send_posts(page)
         budget = fill_budget_ms(len(text))
         if len(text) > self.ATTACH_ABOVE_BYTES:
             # Before _attach_prompt runs: it uploads the prompt itself
@@ -3110,6 +3187,19 @@ class BrowserSender:
             if self.record_send_body and self.record_stream
             else contextlib.nullcontext()
         )
+        # Only what happens after this mark belongs to this send.
+        requests_mark = self._send_requests
+        statuses_mark = len(self._send_statuses)
+
+        def evidence() -> tuple[str, ...]:
+            return post_evidence(
+                new_chat=new_chat,
+                url=str(page.url),
+                turns_before=turns_before,
+                turns_now=page.locator(USER_TURN_SELECTOR).count(),
+                statuses=self._send_statuses[statuses_mark:],
+            )
+
         with capture as info:
             sent = self._click_send(page, budget)
             if not sent:
@@ -3119,37 +3209,75 @@ class BrowserSender:
                 # The button can report a successful click without the app acting on
                 # it, most often while an attachment is still settling. Give it a
                 # moment, then submit from the keyboard instead of losing the turn.
+                # A send POST on the wire means the click worked: Enter then
+                # would only reach an emptied composer, or send twice.
                 for _ in range(20):
                     page.wait_for_timeout(1_000)
-                    if page.locator(USER_TURN_SELECTOR).count() > turns_before:
+                    if self._send_requests > requests_mark or evidence():
                         break
                 else:
                     self._focus_composer(composer)
                     page.keyboard.press("Enter")
         logger.info("send: submitted; confirming the post")
-        # Confirm the post: a new user bubble and, for a new chat, a /c/ URL.
-        posted = False
+        # Confirm the post (post_evidence): the POST's own answer, a new
+        # chat's real /c/ URL, or one more user turn; then wait for the
+        # real /c/ URL a new chat is given.
+        found: tuple[str, ...] = ()
         for _ in range(90):
             page.wait_for_timeout(1_000)
-            posted = page.locator(USER_TURN_SELECTOR).count() > turns_before
-            if posted and "/c/" in page.url and not is_provisional(page.url):
-                if self.record_send_body and self.record_stream:
-                    self._record_send_stream(info)
-                return chat_id(page.url)
-        if posted and "/c/" in page.url:
+            found = evidence()
+            if found and "/c/" in page.url and not is_provisional(page.url):
+                break
+        url_now = str(page.url)
+        turns_after = page.locator(USER_TURN_SELECTOR).count()
+        statuses = self._send_statuses[statuses_mark:]
+        if found:
+            if "turn" not in found:
+                # Posted, and the page did not show it the way the send
+                # expects: the turn selectors may have drifted, or the thread
+                # did not render. Counted, so a drift is seen before it
+                # matters; the screenshot shows which.
+                record_event(
+                    "post-unseen",
+                    url=url_now,
+                    evidence=list(found),
+                    turns_before=turns_before,
+                    turns_after=turns_after,
+                    post_statuses=statuses,
+                    chars=len(text),
+                    screenshot=self._screenshot("chatgpt-post-unseen.png"),
+                )
             if self.record_send_body and self.record_stream:
                 self._record_send_stream(info)
-            return chat_id(page.url)  # provisional WEB: id; the caller resolves it
+            if "/c/" in url_now:
+                return chat_id(url_now)  # may be provisional; the caller resolves it
+            # The server took the message, but the page never showed the new
+            # chat's address. Sending again would post it twice, so this
+            # returns a provisional id, which every caller already resolves
+            # from the account's listing (resolve_new_conversation).
+            placeholder = f"WEB:{uuid.uuid4()}"
+            record_event(
+                "posted-no-id",
+                url=url_now,
+                evidence=list(found),
+                post_statuses=statuses,
+                chars=len(text),
+            )
+            return placeholder
         record_event(
             "not-posted",
-            url=str(page.url),
+            url=url_now,
             turns_before=turns_before,
-            turns_after=page.locator(USER_TURN_SELECTOR).count(),
+            turns_after=turns_after,
+            post_requests=self._send_requests - requests_mark,
+            post_statuses=statuses,
             chars=len(text),
             screenshot=self._screenshot("chatgpt-send-fail.png"),
         )
+        answered = f"; the send request was answered {statuses}" if statuses else ""
         raise TransportError(
-            "message was not posted (no new user turn / conversation URL)"
+            "message was not posted (no send request answered 2xx, no new "
+            f"conversation URL, no new user turn{answered})"
         )
 
     def _composer_text(self, composer: Any) -> str:

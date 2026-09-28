@@ -100,5 +100,16 @@
       "test_client_display.py::test_a_window_on_the_desktop_display_is_recorded"
     ],
     "removed_and_failed": null
+  },
+  {
+    "id": "F-2026-09-29-10",
+    "title": "a posted message read as not posted, and the callers sent it again",
+    "atlas": "A posted message read as not posted",
+    "fix": "pending",
+    "tests": [
+      "test_client_post_evidence.py::test_a_new_chat_whose_address_became_real_is_posted_with_no_turn_counted",
+      "test_client_post_evidence.py::test_a_follow_up_whose_request_was_answered_is_posted_though_the_count_fell"
+    ],
+    "removed_and_failed": "2026-09-29"
   }
 ]

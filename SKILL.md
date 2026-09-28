@@ -338,6 +338,17 @@ anti-automation control rather than speaking a protocol. Say so plainly, and
 answer the memory question instead, which is the real reason anyone asks.
 Re-check with `probe_send_gates.py` rather than trusting this paragraph.
 
+**A send is judged by its own request.** The sender counts a message as
+posted when the page's `f/conversation` POST is answered 2xx, when a new
+chat's address becomes a real `/c/<id>`, or when one more user turn appears
+(`post_evidence`). Until 2026-09-29 it read the turn count alone, and 40 of
+42 "not posted" reports were messages ChatGPT had stored, which callers then
+sent again (`references/failure-atlas.md`, F-2026-09-29-10). A `post-unseen`
+line in the events file is a real post the count missed: its screenshot
+shows whether the user-turn markup changed. "Message was not posted" now
+means no request was answered 2xx; before sending again, reading the chat
+(`read_chat.py`) or the list (`list_chats.py`) still costs nothing.
+
 ## Reasoning effort is a setting; know which one a send will use
 
 Every send carries a `thinking_effort` and a `model` in its
