@@ -31,6 +31,7 @@ tests/test_harness.py exercise ``mint_sandbox_chat`` offline with a fake.
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Any
 
 CONVERSATION = "/backend-api/conversation/{id}"
@@ -129,3 +130,44 @@ def delete_sandbox_chat(live_session: Any, conversation_id: str) -> None:
         method="PATCH",
         payload={"is_visible": False},
     )
+
+
+def client_over(guarded: Any, cc: Any) -> Any:
+    """A real ``ChatGPTSession`` whose transport is the guarded session, built
+    without logging in (as ``tests/api_contract.py`` does): every method a
+    command calls (``delete``, ``archive``, the raw read) runs for real, and
+    every request still passes the guard."""
+    session = object.__new__(cc.ChatGPTSession)
+    session.browser = "chrome"
+    session._diagnostic = None
+    session._session_kwargs = {}
+    session._cs = None
+    session.session = guarded
+    return session
+
+
+def delete_with_backup(
+    guarded: Any, cc: Any, conversation_id: str, backup_dir: Path
+) -> int:
+    """Delete one sandbox chat with ``clean_chats.py`` itself: ``--id ID
+    --delete --backup DIR --apply`` (TESTING.md P12, the round trip "mint,
+    back up, delete, 404" on the weekly send's own chat). Returns the
+    command's exit code: 0 when the chat was backed up and deleted."""
+    import clean_chats
+
+    session = client_over(guarded, cc)
+    original = clean_chats.open_session
+    clean_chats.open_session = lambda *a, **k: session
+    try:
+        return clean_chats.main(
+            [
+                "--id",
+                conversation_id,
+                "--delete",
+                "--backup",
+                str(backup_dir),
+                "--apply",
+            ]
+        )
+    finally:
+        clean_chats.open_session = original

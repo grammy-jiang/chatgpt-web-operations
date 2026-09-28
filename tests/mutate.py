@@ -14,7 +14,8 @@ found in its AST, is applied one at a time (the module is re-parsed and
 written back with ``ast.unparse``); each mutant runs the offline test files
 that name the module or a script importing it (``-x``, file order, no
 cache) and is *killed* when a
-test fails or times out, *survived* when all pass. A baseline run on the
+test fails or times out or the suite cannot run at all (the mutant broke
+an import), *survived* when all pass. A baseline run on the
 unchanged module must pass first. The report names every survivor by line,
 with the original line and the change.
 
@@ -335,7 +336,9 @@ def _mutate(root: Path, module: str, args: argparse.Namespace) -> int:
             )
     finally:
         target.write_text(original, encoding="utf-8")
-    killed = sum(o.status in ("killed", "timeout") for o in outcomes)
+    # A mutant that makes the suite time out or unable to run (a collection
+    # error: the module no longer imports) was detected, like a failed test.
+    killed = sum(o.status in ("killed", "timeout", "error") for o in outcomes)
     rate = 100.0 * killed / len(outcomes) if outcomes else 0.0
     print(f"\n{module}: {killed}/{len(outcomes)} killed ({rate:.1f} %)")
     survivors = [o for o in outcomes if o.status == "survived"]
@@ -343,7 +346,7 @@ def _mutate(root: Path, module: str, args: argparse.Namespace) -> int:
     for o in survivors:
         print(f"  survived: line {o.line}: {o.kind}    {o.source_line}")
     for o in errors:
-        print(f"  error (not counted as killed): line {o.line}: {o.kind}")
+        print(f"  killed by an error (no test could run): line {o.line}: {o.kind}")
     if args.json:
         Path(args.json).write_text(
             json.dumps(

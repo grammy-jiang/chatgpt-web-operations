@@ -10,8 +10,10 @@ project:
    resolved conversation id in the ``--json`` record;
 2. the reply arrived: the record's ``reply`` and ``read_chat.main([id,
    "--text"])`` both carry the nonce the prompt asked for;
-3. it is cleaned up: the chat is deleted in ``finally`` and
-   ``GET conversation/<id>`` answers 404 afterwards.
+3. it is cleaned up by ``clean_chats.py`` itself (``--id ID --delete
+   --backup DIR --apply``, TESTING.md P12): the backup holds the
+   conversation with the nonce, and ``GET conversation/<id>`` answers 404
+   afterwards. If the command fails, the chat is still deleted directly.
 
 The HTTP half runs through the guarded session: ``open_session`` in both
 commands is replaced by a ``GuardedConversationReader`` over
@@ -43,7 +45,11 @@ from typing import Any
 
 import pytest
 
-from live.minting import GuardedConversationReader, delete_sandbox_chat
+from live.minting import (
+    GuardedConversationReader,
+    delete_sandbox_chat,
+    delete_with_backup,
+)
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(SCRIPTS) not in sys.path:
@@ -83,6 +89,8 @@ def test_send_prompt_main_posts_gets_a_reply_and_is_cleaned_up(
     monkeypatch.delenv("RP_NEWCHAT_FAST", raising=False)
 
     conversation_id = ""
+    backup_dir = tmp_path / "backup"
+    cleaned: int | None = None
     try:
         rc = send_prompt.main(
             [
@@ -126,10 +134,17 @@ def test_send_prompt_main_posts_gets_a_reply_and_is_cleaned_up(
                 filled = sender.snapshot_page(snapshot_dir, "composer-filled")
                 assert filled["composer"]["found"] is True, filled["composer"]
     finally:
-        delete_sandbox_chat(live_session, conversation_id)
+        if conversation_id and not cc.is_provisional(conversation_id):
+            cleaned = delete_with_backup(live_session, cc, conversation_id, backup_dir)
+        if cleaned != 0:
+            delete_sandbox_chat(live_session, conversation_id)  # never leave it
 
-    # 3. cleaned up
+    # 3. cleaned up by clean_chats.py: backed up, deleted, 404
     if conversation_id:
+        assert cleaned == 0, "clean_chats.py --id --delete --backup --apply failed"
+        saved = list(backup_dir.glob(f"*_{conversation_id}.json"))
+        assert len(saved) == 1, [p.name for p in saved]
+        assert nonce in saved[0].read_text(encoding="utf-8"), "backup lacks the nonce"
         status, _body = live_session.call(
             f"/backend-api/conversation/{conversation_id}"
         )
