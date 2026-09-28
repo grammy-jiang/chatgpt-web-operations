@@ -573,3 +573,19 @@ The rules that came out of them are in `worker-rounds.md`.
   that searched that listing found nothing. The listing now pages 50 per
   request, follows the cursor up to `--limit`, and exits 1 with the HTTP
   status when a page fails.
+- **(F-2026-09-29-17) the plugin upload met Cloudflare's error 1010.** The
+  archive's PUT goes to a signed blob URL on `*.oaiusercontent.com`, not to
+  chatgpt.com, so it left the session and went out with urllib's own
+  User-Agent; the host is behind Cloudflare, which answered HTTP 403 with
+  the body "error code: 1010" (a refused client signature), while the
+  page's identical request got 201. `manage_plugins.py` now sends the
+  session's browser User-Agent on that PUT. Found by the first T2 run on
+  2026-09-29; every offline test had passed.
+- **(F-2026-09-29-18) a plugin.json without the Agent Plugins `$schema` is
+  read under another name.** A new release of `rp-test-plugin` from an
+  archive whose `plugin.json` had `name` right but no `$schema` answered
+  HTTP 400 "Plugin upload name must match the existing plugin"; the same
+  manifest with the `$schema` line, 201. For a new plugin the name ChatGPT
+  would take is unknown, and a plugin cannot be deleted, so
+  `manage_plugins.py` refuses such an archive before any request
+  (2026-09-29).

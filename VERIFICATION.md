@@ -297,3 +297,26 @@ exits 0 (live read, 2026-09-29). The four new offline tests fail with the
 fix removed (F-2026-09-29-16). The worker-round rules learned on the same
 project are in `references/worker-rounds.md`; they are operating guidance
 from real runs, not a separately verified feature.
+
+## Plugin management (2026-09-29, morning)
+
+`manage_plugins.py` was built from one captured action per request (Claude
+in Chrome, the user's own Chrome, a throwaway plugin `rp-test-plugin`;
+`references/endpoint-discovery.md`, "Seen on 2026-09-29: plugins").
+
+| Check | Result |
+|-------|--------|
+| capture: upload, install, download, new version, skill off and on, uninstall | every request recorded with its body; the page's route table read from its scripts |
+| delete | not available for a personal account: no control, no route, `DELETE .../public/plugins/workspace/<id>` 400 and `DELETE .../ps/plugins/<id>` 404 on the throwaway plugin |
+| `list`, `show`, `download` by hand | exit 0; 4 own plugins listed with install state; a 1,179-byte zip downloaded |
+| T1 `test_manage_plugins_lists_shows_downloads_and_previews` | passed, 6.6 s |
+| T2 `test_plugin_round_trip_on_the_sandbox_plugin`, first run | failed: the blob PUT answered 403 "error code: 1010" (F-2026-09-29-17) |
+| T2, second run | failed: the release answered 400 "Plugin upload name must match the existing plugin" for a manifest without `$schema` (F-2026-09-29-18) |
+| T2, after both fixes | passed, 19.5 s: new release, install, skill off and on, download of the new version, uninstall, each read back |
+
+The sandbox plugin is kept, uninstalled, as `tests/live/sandbox.json`
+names it. Debugging the two defects added two releases to it by hand
+(0.0.2 again and 0.1.2), and the passing T2 run one more (0.1.1790638260);
+each T2 run adds a release, and a plugin's releases cannot be removed
+either.
+

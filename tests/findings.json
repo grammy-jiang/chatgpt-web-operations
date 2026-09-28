@@ -180,5 +180,25 @@
       "test_stage1.py::test_project_chats_with_a_zero_limit_reads_nothing"
     ],
     "removed_and_failed": "2026-09-29"
+  },
+  {
+    "id": "F-2026-09-29-17",
+    "title": "the plugin archive upload met Cloudflare's error 1010",
+    "atlas": "the plugin upload met Cloudflare's error 1010",
+    "fix": "2f2a75d",
+    "tests": [
+      "test_manage_plugins.py::test_put_blob_sends_the_captured_headers"
+    ],
+    "removed_and_failed": "2026-09-29"
+  },
+  {
+    "id": "F-2026-09-29-18",
+    "title": "a plugin.json without the Agent Plugins $schema is read under another name",
+    "atlas": "a plugin.json without the Agent Plugins",
+    "fix": "2f2a75d",
+    "tests": [
+      "test_manage_plugins.py::test_inspect_archive_refuses_a_manifest_without_the_schema"
+    ],
+    "removed_and_failed": "2026-09-29"
   }
 ]

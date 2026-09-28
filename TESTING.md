@@ -13,7 +13,7 @@ case it removes what it created.
 |------|--------|-----------------|-----------|----------------|
 | T0 | none | — | nothing outside this directory: no network, no browser, no cookie DB, no keyring; `tests/conftest.py` also clears `RP_SNAPSHOT_DIR`/`RP_SNAPSHOT_FIXTURE` and points `RP_EVENTS_FILE`/`RP_SCREENSHOT_DIR` into `tmp_path`, so the shell's recording settings never reach a test and no evidence is written outside it | yes |
 | T1 | `live_read` | `CHATGPT_LIVE=read` | the real account, `GET` and the allowlisted read-only search POST; also this machine's own keyring (session-token renewal, `chatgpt_session.py` "Session token renewal") -- the one local write any live tier makes, tests/live/test_read_session_renewal.py | no |
-| T2 | `live_write` | `CHATGPT_LIVE=write` | the sandbox project only: its own gizmo id and conversations inside it | no |
+| T2 | `live_write` | `CHATGPT_LIVE=write` | the sandbox project only: its own gizmo id and conversations inside it; and the sandbox plugin `rp-test-plugin` (a new release, install, a skill switch, uninstall; never a new plugin, which could not be deleted) | no |
 | T3 | `live_browser` | `CHATGPT_LIVE=browser` | one Chrome window on the sandbox project; the composer is filled, send is never clicked | no |
 | TL | `live_local` | `CHATGPT_LIVE=local` | this machine only: Chrome's cookie database (a copy, read-only), the keyring over D-Bus, real AES; no network (the T0 socket guard stays on), and no value is printed or asserted on | no |
 | T4 | `live_send` | `CHATGPT_LIVE=send` | real sends inside the sandbox project, deleted in teardown, at most `CHATGPT_LIVE_SENDS` per run (default 4) | no |
@@ -35,8 +35,10 @@ Enforcement, not promises:
   permits `POST /backend-api/global/search`, which only reads. In T2 to T4 a non-`GET` is allowed only
   when its path names the sandbox gizmo or a `conversation/<id>` whose id the
   guard has seen in `gizmos/<sandbox>/conversations` or created itself during
-  the test. Everything else raises. The guard has its own T0 tests over fake
-  paths.
+  the test. A plugin POST is allowed only under the sandbox plugin's id
+  (`tests/live/sandbox.json`, `plugin`), and never one that would create a
+  plugin: an uploaded plugin cannot be deleted. Everything else raises. The
+  guard has its own T0 tests over fake paths.
 - The live suite reuses one authenticated HTTP transport per tier. Each
   test gets a separate guard. Token-renewal tests explicitly create their
   own sessions when that behavior is the subject of the test.

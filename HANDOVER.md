@@ -95,6 +95,15 @@ did intermittently all night on every kind of page. P12's round trip now
 runs inside the weekly send; its first real run is Sunday 05:40.
 `chatgpt_client.py` is the next module for the mutation runner.
 
+**State at 2026-09-29, 09:45.** `manage_plugins.py` manages the account's
+own uploaded plugins over HTTP: list, show, download, upload, update,
+install, uninstall and skill switches, every write read back (commit
+`2f2a75d`). A personal plugin cannot be deleted, so the live tests reuse
+one sandbox plugin, `rp-test-plugin` (`tests/live/sandbox.json`), and the
+live guard refuses any plugin creation. The first T2 run found two defects
+the offline tests could not see (F-2026-09-29-17 and 18); both are fixed,
+and T1 and T2 pass. `Session.call` gained `binary=True` for the archive.
+
 ## Entry point, 2026-09-25
 
 For first use or missing access, read `references/setup.md` and the
