@@ -218,3 +218,64 @@ A cron-style run of the daily wrapper at 23:48 read the inventory as
 then a Cloudflare challenge (403) while another project's trial was
 sending and polling through this skill, so that run's verdict was DO NOT
 START for the conversations read, not for the skills change.
+
+## Mutation testing pilot (2026-09-29)
+
+`TESTING.md` P10. `make mutate MODULE=<file>` runs `tests/mutate.py`: every
+mutation site of one module, found in its AST (comparisons, `and`/`or`, a
+dropped `not`, `+`/`-`, `True`/`False`, an integer plus one, a compared or
+indexed string, a returned value made `None`, a call statement made a
+no-op), one at a time, in a throwaway git worktree of HEAD, at nice 19 and
+one process, never while a send is in flight. A baseline run under per-test
+coverage decides which tests each mutant runs: the tests that executed its
+line. A mutant is killed when a test fails, times out, or cannot run because
+the module no longer imports. mutmut 3.8 was tried first and dropped: it
+imports its instrumented copies by package path, and these tests import each
+command as a top-level module from `scripts/`.
+
+| Module | Mutants | Killed, first run | Killed now | Time now |
+| --- | --- | --- | --- | --- |
+| `round_state.py` | 17 | 15 (88.2 %) | 17 (100 %) | 49 s |
+| `chatgpt_cookies.py` | 24 | 21 (87.5 %) | 22 (91.7 %) | 70 s |
+| `_common.py` | 37 | 30 (81.1 %) | 33 (89.2 %) | 2.5 min |
+| `chatgpt_session.py` | 298 | 239 (80.2 %) | 293 (98.3 %) | 11.6 min |
+
+The target, 80 % or more per core module, holds for all four. "Now" is after
+the tests the survivors asked for: `tests/test_round_state.py` (a skipped
+paper without a reason, malformed entries), `tests/test_cookies.py` (the
+command names itself in its errors), `tests/test_common_edges.py` (`shorten`
+at exactly its limit and at its default, a table row with an extra cell),
+and `tests/test_session_mutants.py` (the login failure reason by status;
+damaged plaintexts are None, never a cut value; a domain hash before an
+empty value; the keyring's copy and the jar a browser gets; the renewal's
+one-minute threshold; retry counts; the diagnostic events' outcome, status,
+elapsed time and attempt numbers). Two existing tests were weaker than their
+names and were corrected: the `CHATGPT_SESSION_STORE=0` test raised inside
+functions that swallow every exception, so it passed with the bus opened;
+and the fake Secret Service ignored the variant level of `OpenSession`'s
+argument, which the real one checks.
+
+The survivors left have no test because no test can see them:
+
+- `chatgpt_cookies.py` line 46 and `chatgpt_session.py` lines 701 and 771,
+  `con.close()` removed: the connection is to a temporary copy of the cookie
+  database, deleted when the block ends.
+- `chatgpt_cookies.py` line 47, the SameSite key 1 changed to 2: equivalent;
+  a missing key falls back to "Lax", the value key 1 held.
+- `_common.py` lines 51-52, the flushes before `os.execv` removed: every
+  command calls `ensure_venv()` before it prints anything.
+- `_common.py` line 63, `sys.path.insert(0, ...)` made `insert(1, ...)`:
+  equivalent while nothing earlier on the path shadows a script's name.
+- `_common.py` line 86, `strict=True` made `False` in the header row's `zip`:
+  equivalent; the widths are computed from the headers.
+- `chatgpt_session.py` line 311, the pad of an empty plaintext made 1:
+  equivalent; an empty plaintext stays empty.
+- `chatgpt_session.py` line 834, `range(2)` made `range(3)`: equivalent; the
+  login loop always leaves at its second pass.
+- `chatgpt_session.py` line 1039, a 200-character cut made 201 on "the
+  answer was not JSON (...)": equivalent; that message is far shorter.
+
+Cost: the first `chatgpt_session.py` run ran every chosen test file for
+every mutant, about a minute each, five hours in all; it was stopped, and
+the per-test coverage selection brought the same 298 mutants to under
+twelve minutes. Run monthly by hand, one core module at a time.

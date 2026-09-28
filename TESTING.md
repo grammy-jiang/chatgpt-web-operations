@@ -518,6 +518,17 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
     `VERIFICATION.md`. Monthly, when no send is in flight.
   - Exit: the pilot's report is in `VERIFICATION.md` with the surviving
     mutants named. Cost: hours of CPU on the Pi.
+  - Done 2026-09-29, with `tests/mutate.py` instead of mutmut (mutmut 3.8
+    imports its instrumented copies by package path, and these tests import
+    each command as a top-level module): `make mutate MODULE=<file>`, a
+    throwaway worktree, nice 19, one process, refused while a send is in
+    flight, each mutant running only the tests that executed its line. The
+    four core modules now kill 100 %, 91.7 %, 89.2 % and 98.3 %
+    (`round_state.py`, `chatgpt_cookies.py`, `_common.py`,
+    `chatgpt_session.py`); every survivor left is named with its reason in
+    `VERIFICATION.md`, "Mutation testing pilot". The survivors of the first
+    runs led to 39 new test cases and to two corrections of tests that could not
+    fail. `chatgpt_client.py`, the fifth core module, is next (the largest).
 
 #### Phase 3: tests that come with the one-client work
 
