@@ -123,6 +123,11 @@ class _FakeService:
         self._registry: dict[str, tuple[dict[str, str], bool]] = {}
 
     def OpenSession(self, algorithm, plain):
+        # The real service refuses anything but the "plain" algorithm with an
+        # empty string wrapped once in a variant (a P10 mutant that changed
+        # the variant level survived a fake that did not look).
+        if algorithm != "plain" or getattr(plain, "variant_level", 0) != 1:
+            raise RuntimeError("org.freedesktop.DBus.Error.InvalidArgs")
         return ("plain", "session-handle")
 
     def SearchItems(self, criteria):
@@ -196,6 +201,15 @@ class _FakeBus:
         return self.items_by_path[path]
 
 
+class _DBusString(str):
+    """dbus.String: a str that remembers its variant level."""
+
+    def __new__(cls, value: str = "", variant_level: int = 0) -> _DBusString:
+        obj = super().__new__(cls, value)
+        obj.variant_level = variant_level
+        return obj
+
+
 def _install_fake_dbus(monkeypatch, bus: _FakeBus) -> None:
     """Replace sys.modules['dbus'] so _keyring_password never reaches the real bus.
 
@@ -215,7 +229,7 @@ def _install_fake_dbus(monkeypatch, bus: _FakeBus) -> None:
     fake = types.ModuleType("dbus")
     fake.SessionBus = lambda: bus
     fake.Interface = lambda obj, iface_name: obj
-    fake.String = lambda s, variant_level=0: s
+    fake.String = _DBusString
     fake.Dictionary = lambda mapping, signature=None, variant_level=0: dict(mapping)
     fake.Struct = lambda value, signature=None: tuple(value)
     fake.ByteArray = lambda data: bytes(data)
@@ -426,7 +440,7 @@ def test_keyring_password_sets_the_bus_address_before_opening_the_session_bus(
 
     fake.SessionBus = session_bus
     fake.Interface = lambda obj, iface_name: obj
-    fake.String = lambda s, variant_level=0: s
+    fake.String = _DBusString
     monkeypatch.setitem(sys.modules, "dbus", fake)
 
     assert chatgpt_session._keyring_password("chrome") == b"unlocked-secret"
@@ -932,16 +946,20 @@ def test_session_store_env_0_never_touches_the_bus_for_load_or_store(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("CHATGPT_SESSION_STORE", "0")
+    opened: list[str] = []
 
-    class _Untouchable:
-        def SessionBus(self):
-            raise AssertionError("the bus must never be opened")
+    def session_bus():
+        # Recorded, not raised: both functions swallow any exception, so a
+        # raise here passed even when the bus was opened (a P10 survivor).
+        opened.append("bus")
+        raise RuntimeError("the bus must never be opened")
 
     fake = types.ModuleType("dbus")
-    fake.SessionBus = _Untouchable().SessionBus
+    fake.SessionBus = session_bus
     monkeypatch.setitem(sys.modules, "dbus", fake)
     assert chatgpt_session.load_stored_session() is None
     assert chatgpt_session.store_session(_TEST_RECORD) is False
+    assert opened == []
 
 
 # ---------------------------------------------------------------------------
