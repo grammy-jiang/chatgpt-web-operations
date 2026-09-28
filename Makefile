@@ -1,9 +1,9 @@
 PY := .venv/bin/python
 
-.PHONY: test lint fmt replay loopback refresh-dom-fixtures contract refresh-shapes read-paths live-read live-write live-browser live-send all
+.PHONY: test lint fmt replay loopback refresh-dom-fixtures contract refresh-shapes read-paths live-read live-write live-browser live-send live-local all
 
 test:
-	$(PY) -m pytest tests -q -m "not live_read and not live_write and not live_browser and not live_send and not replay and not loopback" --cov=scripts --cov-report=json --cov-report=term-missing:skip-covered
+	$(PY) -m pytest tests -q -m "not live_read and not live_write and not live_browser and not live_send and not live_local and not replay and not loopback" --cov=scripts --cov-report=json --cov-report=term-missing:skip-covered
 	$(PY) tests/coverage_gate.py
 
 # Tier R: the client's page functions on recorded DOM fixtures in a real
@@ -50,6 +50,11 @@ lint:
 
 fmt:
 	uvx ruff@0.14 format .
+
+# Tier TL: this machine's real cookie DB (a copy) and keyring, no network
+# (TESTING.md section 6, P7). Daily from the wrapper, before health.py.
+live-local:
+	CHATGPT_LIVE=local $(PY) -m pytest tests/local -q -m live_local
 
 live-read:
 	CHATGPT_LIVE=read $(PY) -m pytest tests/live -q -m live_read

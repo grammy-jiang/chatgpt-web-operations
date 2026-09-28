@@ -1897,6 +1897,40 @@ def test_call_raw_returns_a_page_as_text(monkeypatch) -> None:
     assert _session().call("/x", raw=True) == (200, "<html></html>")
 
 
+def test_the_empty_dd_s_jar_of_2026_09_27_opens(tmp_path, monkeypatch) -> None:
+    """The jar of 2026-09-27, replayed: a session token and an empty,
+    v10-encrypted ``_dd_s``. The decoder before 007c3d5 accepted a value only
+    when ``s and all(32 <= ord(c) < 127 for c in s)`` and exited otherwise, so
+    this jar opened no session at all; the current one keeps the empty
+    analytics cookie and opens it (TESTING.md P7)."""
+    import sqlite3
+
+    db = tmp_path / "Cookies"
+    con = sqlite3.connect(db)
+    con.execute(
+        "CREATE TABLE cookies (host_key TEXT, name TEXT, value TEXT, "
+        "encrypted_value BLOB, expires_utc INTEGER)"
+    )
+    empty = _encrypt(b"v10", _derive(b"peanuts"), b"")
+    con.executemany(
+        "INSERT INTO cookies VALUES (?, ?, ?, ?, ?)",
+        [
+            (".chatgpt.com", "__Secure-next-auth.session-token", "tok", b"", 0),
+            ("chatgpt.com", "_dd_s", "", empty, 0),
+        ],
+    )
+    con.commit()
+    con.close()
+    monkeypatch.setattr(chatgpt_session, "BROWSERS", {"chrome": (db, "chrome")})
+
+    pairs, _record = chatgpt_session._cookie_pairs("chrome")
+
+    assert ("_dd_s", "") in pairs
+    decoded = dict(pairs)["_dd_s"]
+    old_rule_accepts = bool(decoded) and all(32 <= ord(c) < 127 for c in decoded)
+    assert not old_rule_accepts  # the pre-007c3d5 decoder exited here
+
+
 def test_pick_browser_rejects_an_unknown_name_with_a_clear_message(capsys) -> None:
     """An unknown browser used to surface later as a raw KeyError."""
     with pytest.raises(SystemExit):

@@ -31,7 +31,12 @@ LIVE_MARKERS = {
     "live_write": "write",
     "live_browser": "browser",
     "live_send": "send",
+    "live_local": "local",
 }
+# Live tiers that read this machine's secrets but must reach no network:
+# the Python socket guard of T0 stays on for them (D-Bus goes through
+# libdbus, not Python's socket module, so the keyring read still works).
+NETWORK_FREE_LIVE_MARKERS = frozenset({"live_local"})
 
 
 # Markers of tiers that run a real headless Chrome on recorded pages and
@@ -121,7 +126,10 @@ def _isolated_recording_environment(
 def _no_network_in_t0(request: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """A test with none of the four live markers may not open a socket; a
     replay test may open local ones but reach nothing beyond loopback."""
-    if is_live_marked(request.node):
+    network_free = any(
+        request.node.get_closest_marker(m) for m in NETWORK_FREE_LIVE_MARKERS
+    )
+    if is_live_marked(request.node) and not network_free:
         return
     if is_local_marked(request.node):
         monkeypatch.setattr(
