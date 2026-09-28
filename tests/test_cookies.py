@@ -287,3 +287,17 @@ def test_main_defaults_the_browser_choice_to_auto(monkeypatch, capsys) -> None:
     monkeypatch.setattr(chatgpt_cookies, "export", lambda browser: [])
     chatgpt_cookies.main()
     assert seen["choice"] == "auto"
+
+
+def test_main_names_itself_in_its_errors(monkeypatch, capsys, tmp_path) -> None:
+    """A failure says which command failed ("chatgpt-cookies: ..."); the
+    P10 pilot found no test that noticed when the name was not set."""
+    monkeypatch.setattr(sys, "argv", ["chatgpt_cookies.py", "--browser", "chrome"])
+    monkeypatch.setattr(cs, "_prog", cs._prog)
+    monkeypatch.setattr(cs, "pick_browser", lambda choice: "chrome")
+    monkeypatch.setattr(
+        cs, "BROWSERS", {"chrome": (tmp_path / "missing" / "Cookies", "chrome")}
+    )
+    with pytest.raises(SystemExit):
+        chatgpt_cookies.main()
+    assert capsys.readouterr().err.startswith("chatgpt-cookies: chrome cookie DB")
