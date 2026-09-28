@@ -333,3 +333,17 @@ def test_text_flag_still_takes_priority_over_effort_when_both_are_given(
 
     out = capsys.readouterr().out
     assert "turn 1:" not in out
+
+
+def test_turn_facts_stops_at_a_parent_loop() -> None:
+    conv = {
+        "current_node": "b",
+        "mapping": {
+            "a": {
+                "message": {"author": {"role": "assistant"}, "metadata": {}},
+                "parent": "b",
+            },
+            "b": {"message": {"author": {"role": "user"}}, "parent": "a"},
+        },
+    }
+    assert isinstance(read_chat.turn_facts(conv), list)

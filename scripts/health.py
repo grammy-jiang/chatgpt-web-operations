@@ -88,6 +88,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import api_shapes
 import chatgpt_client as cc
 import clean_chats
 import list_projects as lp
@@ -466,6 +467,86 @@ def skills_inventory_check(
     )
 
 
+SHAPES_DETAIL_ITEMS = 6
+
+
+def api_shapes_check(
+    recording_session: Any,
+    recording: api_shapes.Recording,
+    out_dir: str,
+    sandbox: dict[str, str],
+    committed_dir: Path = api_shapes.COMMITTED,
+    read_paths_file: Path = api_shapes.READ_PATHS_FILE,
+) -> dict[str, Any]:
+    """The 'api shapes' check (TESTING.md section 6, P5). Every response
+    this run read has been observed through ``recording_session``; the
+    registered endpoints it did not read are requested now (``fill``), all
+    of them are written to ``out_dir``, and the recording is compared with
+    the committed shapes. A warning only when a field the skill's code reads
+    (``read_paths.json``) disappeared or changed type: that is the change
+    that breaks a command. Anything else -- a new field, a field nobody
+    reads going away, an endpoint that could not be read today -- is
+    reported in the detail of an ok row, never a warning of its own."""
+    base = {
+        "gizmo_id": sandbox.get("id", ""),
+        "user_id": getattr(recording_session, "user_id", "") or "",
+    }
+    try:
+        api_shapes.fill(recording_session, recording, base)
+        api_shapes.write(recording, out_dir)
+    except OSError as exc:
+        return preflight.check(
+            "health", "api shapes", "warn", f"shapes not written: {exc}"[:300]
+        )
+    if not recording.shapes:
+        return preflight.check(
+            "health",
+            "api shapes",
+            "warn",
+            "no API shape recorded: "
+            + ", ".join(f"{k} ({v})" for k, v in sorted(recording.errors.items())),
+        )
+    report = api_shapes.compare(
+        recording.shapes,
+        api_shapes.load(committed_dir),
+        api_shapes.read_paths(read_paths_file),
+    )
+    notes = []
+    if report["other"]:
+        notes.append(f"{len(report['other'])} other difference(s) in fields not read")
+    if report["added"]:
+        notes.append(f"{len(report['added'])} new field(s)")
+    if report["unknown"]:
+        notes.append(f"no committed shape yet for {', '.join(report['unknown'])}")
+    if recording.errors:
+        notes.append(
+            "not recorded: "
+            + ", ".join(f"{k} ({v})" for k, v in sorted(recording.errors.items()))
+        )
+    tail = f"; {'; '.join(notes)}" if notes else ""
+    if report["breaking"]:
+        shown = report["breaking"][:SHAPES_DETAIL_ITEMS]
+        more = len(report["breaking"]) - len(shown)
+        return preflight.check(
+            "health",
+            "api shapes",
+            "warn",
+            f"the API shape differs from the fixture in {len(report['breaking'])} "
+            f"field(s) the skill reads: {'; '.join(shown)}"
+            + (f" (+{more} more)" if more else "")
+            + f"; recorded to {out_dir}{tail}"[:900],
+            f"run `make contract SHAPES={out_dir}` to see which commands break, "
+            f"fix them, then `make refresh-shapes FROM={out_dir}`",
+        )
+    return preflight.check(
+        "health",
+        "api shapes",
+        "ok",
+        f"{len(recording.shapes)} endpoint shape(s) recorded to {out_dir}; no "
+        f"field the skill reads changed{tail}"[:900],
+    )
+
+
 def fetch_skills_inventory(
     session: Any,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -666,6 +747,14 @@ def main(argv: list[str] | None = None) -> int:
         metavar="PATH",
         help="append structured, credential-free transport/stage events as JSONL",
     )
+    ap.add_argument(
+        "--record-shapes",
+        default="",
+        metavar="DIR",
+        help="record the shape of every registered endpoint's response "
+        "(field names, types, formats; no values) to DIR and compare it with "
+        "tests/fixtures/http (api_shapes.py); adds the 'api shapes' check",
+    )
     args = ap.parse_args(argv)
     checked_at = datetime.now(UTC).isoformat(timespec="seconds")
     diagnostic = _diagnostic_sink(args.diagnostics)
@@ -732,6 +821,12 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
         else:
+            recording = None
+            if args.record_shapes:
+                recording = api_shapes.Recording()
+                session.session = api_shapes.RecordingSession(
+                    session.session, recording
+                )
             _diag(diagnostic, "stage_start", stage="account")
             account = preflight.account_checks(session)
             checks += account
@@ -768,6 +863,19 @@ def main(argv: list[str] | None = None) -> int:
 
             facts = facts_of(cc, session, args.browser_name, sandbox)
             facts["endpoints"]["hazelnuts"] = skills_doc["status"]
+            if recording is not None:
+                _diag(diagnostic, "stage_start", stage="shapes")
+                shapes_row = api_shapes_check(
+                    session.session, recording, args.record_shapes, sandbox
+                )
+                checks.append(shapes_row)
+                _diag(
+                    diagnostic,
+                    "stage_end",
+                    stage="shapes",
+                    recorded=len(recording.shapes),
+                    **_state_counts([shapes_row]),
+                )
             if args.browser:
                 _diag(diagnostic, "stage_start", stage="browser")
                 browser_row = preflight.browser_composer_check(cc, args.browser_name)

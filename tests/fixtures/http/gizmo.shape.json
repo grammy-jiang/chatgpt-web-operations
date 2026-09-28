@@ -1,0 +1,699 @@
+{
+ "fields": {
+  "files": {
+   "items": null,
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "gizmo": {
+   "fields": {
+    "appeal_info": {
+     "optional": false,
+     "types": [
+      "null"
+     ]
+    },
+    "archived_at": {
+     "optional": false,
+     "types": [
+      "null"
+     ]
+    },
+    "author": {
+     "fields": {
+      "display_name": {
+       "formats": [
+        "text"
+       ],
+       "optional": false,
+       "types": [
+        "string"
+       ]
+      },
+      "display_socials": {
+       "items": null,
+       "optional": false,
+       "types": [
+        "array"
+       ]
+      },
+      "is_verified": {
+       "booleans": [
+        false
+       ],
+       "optional": false,
+       "types": [
+        "boolean"
+       ]
+      },
+      "link_to": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      },
+      "selected_display": {
+       "formats": [
+        "text"
+       ],
+       "optional": false,
+       "types": [
+        "string"
+       ]
+      },
+      "user_email": {
+       "formats": [
+        "email"
+       ],
+       "optional": false,
+       "types": [
+        "string"
+       ]
+      },
+      "user_id": {
+       "formats": [
+        "account-id:user"
+       ],
+       "optional": false,
+       "types": [
+        "string"
+       ]
+      },
+      "will_receive_support_emails": {
+       "booleans": [
+        false
+       ],
+       "optional": false,
+       "types": [
+        "boolean"
+       ]
+      }
+     },
+     "optional": false,
+     "types": [
+      "object"
+     ]
+    },
+    "context_stuffing_budget": {
+     "optional": false,
+     "types": [
+      "integer"
+     ]
+    },
+    "conversation_copy_in_progress": {
+     "booleans": [
+      false
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "created_at": {
+     "formats": [
+      "datetime"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "current_user_permission": {
+     "fields": {
+      "can_delete": {
+       "booleans": [
+        true
+       ],
+       "optional": false,
+       "types": [
+        "boolean"
+       ]
+      },
+      "can_export": {
+       "booleans": [
+        true
+       ],
+       "optional": false,
+       "types": [
+        "boolean"
+       ]
+      },
+      "can_read": {
+       "booleans": [
+        true
+       ],
+       "optional": false,
+       "types": [
+        "boolean"
+       ]
+      },
+      "can_share": {
+       "booleans": [
+        true
+       ],
+       "optional": false,
+       "types": [
+        "boolean"
+       ]
+      },
+      "can_view_config": {
+       "booleans": [
+        true
+       ],
+       "optional": false,
+       "types": [
+        "boolean"
+       ]
+      },
+      "can_write": {
+       "booleans": [
+        true
+       ],
+       "optional": false,
+       "types": [
+        "boolean"
+       ]
+      }
+     },
+     "optional": false,
+     "types": [
+      "object"
+     ]
+    },
+    "default_model": {
+     "optional": false,
+     "types": [
+      "null"
+     ]
+    },
+    "display": {
+     "fields": {
+      "categories": {
+       "items": null,
+       "optional": false,
+       "types": [
+        "array"
+       ]
+      },
+      "description": {
+       "formats": [
+        "empty"
+       ],
+       "optional": false,
+       "types": [
+        "string"
+       ]
+      },
+      "emoji": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      },
+      "name": {
+       "formats": [
+        "text"
+       ],
+       "optional": false,
+       "types": [
+        "string"
+       ]
+      },
+      "profile_pic_id": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      },
+      "profile_picture_url": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      },
+      "prompt_starters": {
+       "items": null,
+       "optional": false,
+       "types": [
+        "array"
+       ]
+      },
+      "theme": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      }
+     },
+     "optional": false,
+     "types": [
+      "object"
+     ]
+    },
+    "gizmo_snorlax_type": {
+     "optional": false,
+     "types": [
+      "null"
+     ]
+    },
+    "gizmo_type": {
+     "enum": [
+      "snorlax"
+     ],
+     "formats": [
+      "enum"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "goal": {
+     "optional": false,
+     "types": [
+      "null"
+     ]
+    },
+    "id": {
+     "formats": [
+      "g-p-id"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "instructions": {
+     "formats": [
+      "text"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "is_archived": {
+     "booleans": [
+      false
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "is_unassigned": {
+     "booleans": [
+      false
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "last_interacted_at": {
+     "formats": [
+      "datetime"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "live_version": {
+     "optional": false,
+     "types": [
+      "integer"
+     ]
+    },
+    "memory_enabled": {
+     "booleans": [
+      false
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "memory_scope": {
+     "enum": [
+      "project_v2"
+     ],
+     "formats": [
+      "enum"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "model": {
+     "optional": false,
+     "types": [
+      "null"
+     ]
+    },
+    "num_interactions": {
+     "optional": false,
+     "types": [
+      "integer"
+     ]
+    },
+    "organization_id": {
+     "formats": [
+      "account-id:org"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "share_recipient": {
+     "formats": [
+      "text"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "sharing": {
+     "fields": {
+      "recipient": {
+       "formats": [
+        "text"
+       ],
+       "optional": false,
+       "types": [
+        "string"
+       ]
+      },
+      "subjects": {
+       "items": null,
+       "optional": false,
+       "types": [
+        "array"
+       ]
+      }
+     },
+     "optional": false,
+     "types": [
+      "object"
+     ]
+    },
+    "sharing_targets": {
+     "items": {
+      "fields": {
+       "allowed": {
+        "booleans": [
+         true
+        ],
+        "optional": false,
+        "types": [
+         "boolean"
+        ]
+       },
+       "moderated_fields": {
+        "optional": false,
+        "types": [
+         "null"
+        ]
+       },
+       "recipient": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       }
+      },
+      "types": [
+       "object"
+      ]
+     },
+     "optional": false,
+     "types": [
+      "array"
+     ]
+    },
+    "short_url": {
+     "formats": [
+      "g-p-id-slug"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "tags": {
+     "items": {
+      "formats": [
+       "text"
+      ],
+      "types": [
+       "string"
+      ]
+     },
+     "optional": false,
+     "types": [
+      "array"
+     ]
+    },
+    "training_disabled": {
+     "booleans": [
+      true
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "updated_at": {
+     "formats": [
+      "datetime"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "use_injest_path": {
+     "booleans": [
+      true
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "vanity_metrics": {
+     "fields": {
+      "created_ago_str": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      },
+      "num_conversations": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      },
+      "num_conversations_str": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      },
+      "review_stats": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      }
+     },
+     "optional": false,
+     "types": [
+      "object"
+     ]
+    },
+    "version": {
+     "optional": false,
+     "types": [
+      "integer"
+     ]
+    },
+    "version_author": {
+     "optional": false,
+     "types": [
+      "null"
+     ]
+    },
+    "version_created_at": {
+     "formats": [
+      "datetime"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "version_updated_at": {
+     "formats": [
+      "datetime"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "voice": {
+     "fields": {
+      "id": {
+       "formats": [
+        "text"
+       ],
+       "optional": false,
+       "types": [
+        "string"
+       ]
+      }
+     },
+     "optional": false,
+     "types": [
+      "object"
+     ]
+    },
+    "workspace_approval_date": {
+     "optional": false,
+     "types": [
+      "null"
+     ]
+    },
+    "workspace_approved": {
+     "optional": false,
+     "types": [
+      "null"
+     ]
+    },
+    "workspace_id": {
+     "optional": false,
+     "types": [
+      "null"
+     ]
+    }
+   },
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  },
+  "has_tpp_conversation": {
+   "booleans": [
+    false
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "product_features": {
+   "fields": {
+    "attachments": {
+     "fields": {
+      "accepted_mime_types": {
+       "items": {
+        "formats": [
+         "text",
+         "token"
+        ],
+        "types": [
+         "string"
+        ]
+       },
+       "optional": false,
+       "types": [
+        "array"
+       ]
+      },
+      "can_accept_all_mime_types": {
+       "booleans": [
+        true
+       ],
+       "optional": false,
+       "types": [
+        "boolean"
+       ]
+      },
+      "image_mime_types": {
+       "items": {
+        "formats": [
+         "text"
+        ],
+        "types": [
+         "string"
+        ]
+       },
+       "optional": false,
+       "types": [
+        "array"
+       ]
+      },
+      "type": {
+       "enum": [
+        "retrieval"
+       ],
+       "formats": [
+        "enum"
+       ],
+       "optional": false,
+       "types": [
+        "string"
+       ]
+      }
+     },
+     "optional": false,
+     "types": [
+      "object"
+     ]
+    },
+    "contextual_answers": {
+     "optional": false,
+     "types": [
+      "null"
+     ]
+    }
+   },
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  },
+  "project_connector_scope_limits": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "project_file_limits": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "tools": {
+   "items": null,
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

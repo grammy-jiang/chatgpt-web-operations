@@ -80,6 +80,7 @@ Enforcement, not promises:
 | round trip | T2 | each write command: act, read back, revert; the cleanup is verified by a read. A round trip that needs a conversation to act on mints one (`tests/live/minting.py`) and is therefore T4, not T2: a test that waits for a chat an earlier run left never runs, because the sweep deletes them | set instructions on the sandbox, read `gizmos/<id>`, restore |
 | browser dry run | T3 | the send path opens: window, cookies, composer found, upload works; never sends | `tests/live/test_browser_upload.py`: `BrowserSender.attach_files` uploads one file, the composer shows its `Remove file …` chip and the send button stays enabled, never clicked |
 | measured send | T4 | the send path end to end, one message per feature, timings recorded in `failure-atlas.md` | search on and off, one attachment, one deep research; `tests/live/test_send_effort.py`, which pins a level the account is **not** already using and asserts the reply recorded it -- the check that would have caught the two-month effort regression; `tests/live/test_send_chat_flags.py`, which mints a chat and round-trips pin, unpin, archive and unarchive on it; and `tests/live/test_send_cli_roundtrip.py`, the scripted end-to-end send through `send_prompt.main` itself (posted, replied with the nonce, deleted and 404), which also records the `conversation` and `composer-filled` pages for tier R and runs weekly from cron (`~/.local/bin/chatgpt-ops-send-check.sh`, Sunday 05:40) |
+| API contract | T0 | every read command's real `main()` and the preflight and health reads run over payloads synthesized from the recorded response shapes in `tests/fixtures/http`; a call to an endpoint with no recorded shape fails; the fields they read are the ones the daily "api shapes" check guards | `tests/test_api_contracts.py`, 23 command lines; `make contract SHAPES=<run>/http` runs them against a fresh recording |
 | recorded page | R | the client's page functions (`find_composer`, `composer_state`, `chat_load_failure`, `page_snapshot`, `text_taken` on a fill) run by a real Chrome against the DOM ChatGPT actually served, as recorded by the daily browser check and promoted into `tests/fixtures/dom`; a UI change fails here offline once the new recording is promoted | `tests/replay/test_dom_replay.py`: the composer selector matches exactly one element on every recorded and synthetic composer; a fill is read back; the "could not load" notice is detected; a snapshot of a snapshot keeps every fact the selectors depend on |
 
 ## 3. Coverage gate
@@ -99,7 +100,10 @@ gate, `make lint` runs ruff, and `make live-read`, `make live-write`,
 `make fmt` formats with ruff and `make all` runs lint then test. `make
 replay` runs tier R (excluded from `make test`, because it needs Chrome),
 and `make refresh-dom-fixtures` promotes the newest recorded page into
-`tests/fixtures/dom` (`FROM=<dir>` for another recording).
+`tests/fixtures/dom` (`FROM=<dir>` for another recording). `make contract`
+runs the API contracts (part of `make test`; `SHAPES=<dir>` overlays a fresh
+recording), `make refresh-shapes` merges a recording into `tests/fixtures/http`
+and `make read-paths` regenerates the fields the daily check guards.
 
 ## 4. Current verification procedure
 
@@ -358,6 +362,32 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
     committed fixture, values dropped, and reports WARN "shape drift" with
     the added and removed keys.
   - Exit: zero endpoints without a fixture; the drift check runs daily.
+  - Done 2026-09-29, differently from the plan above and for a reason: the
+    mirror is public, so a sanitized payload is one sanitizer bug away from
+    publishing account content. What is recorded is a *shape*
+    (`scripts/api_shapes.py`): field names, JSON types, a format label per
+    string (uuid, datetime, url, an id with its type prefix, text...), the
+    values of an allowlist of enumeration fields, and which fields were
+    present in every observation; a dict keyed by ids or paths keeps only its
+    value shape, and declared *opaque* subtrees (a connected MCP server's own
+    tool schemas, the names of installed apps) keep only their type. Nothing
+    of the account survives by construction. The pieces:
+    `health.py --record-shapes DIR` observes every response the daily run
+    reads anyway and fills in the rest (20 endpoints, 8 extra requests);
+    the "api shapes" check warns only when a field the commands read
+    (`tests/fixtures/http/read_paths.json`) disappeared or changed type;
+    `tests/test_api_contracts.py` runs 23 command lines and 6 preflight and
+    health reads over payloads synthesized from the shapes, through a real
+    `ChatGPTSession`, and computes the read paths with dicts that note every
+    key read; `make contract SHAPES=<run>/http` is the offline gate after a
+    change; `make refresh-shapes` merges a recording in and `make
+    read-paths` regenerates the guarded fields, both reviewed steps.
+    `tests/test_api_shapes.py` holds the algebra, the synthesis round trip
+    (a synthesized payload re-infers to its own shape), and the rule that
+    every endpoint constant in `scripts/` is registered or excused by name
+    with a reason. Found on the way: `chatgpt_client.chain` and
+    `read_chat.turn_facts` walked a conversation's parent chain without a
+    guard against a loop; both stop at a repeated node now.
 
 #### Phase 2: new kinds of tests
 
@@ -448,6 +478,7 @@ yet, and the row says why.
 | Rule | Enforced by | Kind |
 | --- | --- | --- |
 | A finding is closed by three things, never fewer: the fix; a test that fails with the fix removed; an entry in `references/failure-atlas.md`. | `tests/findings.json` is the ledger; `tests/test_findings_ledger.py` checks every listed test exists, the atlas carries each entry's id and phrase, and every "Fixed bugs" bullet dated 2026-09-27 or later carries a ledger id. "Fails with the fix removed" is a date recorded by hand (`removed_and_failed`) until P10 makes it a mutation run. | script, partial |
+| Every endpoint the commands call is recorded or excused by name, and every recorded endpoint is read by a contract. | `tests/test_api_shapes.py` (every endpoint constant in `scripts/` is in `api_shapes.ENDPOINTS` or in its excuse table with a reason) and `tests/test_api_contracts.py` (every registered endpoint has a committed shape and is called by a contract scenario; `read_paths.json` is what the contracts read). | script |
 | Every page selector is a named constant, and every named constant is proven against a recorded page or excused by name. | `tests/test_dom_coverage.py`: no bare string handed to a Playwright locator in the client; every `*_SELECTOR`, `*_JS`, page-facing `*_RE`, `SEND_BUTTONS` and `RATE_LIMIT_MODAL` appears in `tests/replay` or in its `EXCUSED` table with a reason. | script |
 | Every tier runs on a schedule; a tier that runs only by hand has already broken. | The crontab (daily 05:25: T0, tier R, the composer recording; Sunday 05:40: T3, the scripted send with an attachment, the three conversation-side recordings). `chatgpt-ops-check.sh` warns when the weekly job is missing from the crontab or last ran more than 8 days ago. T1 and T2 run with every change to a command and on the acceptance procedure, by hand: no script checks that. | script for the scheduled tiers, prose for T1 and T2 |
 | The suite pins its inputs. | `tests/conftest.py` clears the shell's recording settings for every non-live test; `tests/test_harness_replay.py` runs an inner pytest with the settings leaked and checks a plain test sees none. | script |

@@ -1,0 +1,111 @@
+{
+ "fields": {
+  "about_model_message": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "about_user_message": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "disabled_tools": {
+   "items": null,
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "enabled": {
+   "booleans": [
+    true
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "name_user_message": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "object": {
+   "formats": [
+    "token"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "other_user_message": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "personality_traits": {
+   "fields": {},
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  },
+  "personality_type_selection": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "role_user_message": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "traits_enabled": {
+   "booleans": [
+    true
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "traits_model_message": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

@@ -1,0 +1,197 @@
+{
+ "automations": [
+  "cursor",
+  "items",
+  "items[].conversation_id",
+  "items[].display_emoji",
+  "items[].display_schedule",
+  "items[].is_enabled",
+  "items[].last_run_time",
+  "items[].next_run_times",
+  "items[].prompt",
+  "items[].schedule",
+  "items[].schedule_components",
+  "items[].timing_mode",
+  "items[].title"
+ ],
+ "connector_batch": [
+  "connectors",
+  "connectors[].actions",
+  "connectors[].base_url",
+  "connectors[].connector_type",
+  "connectors[].created_at",
+  "connectors[].id",
+  "connectors[].name",
+  "connectors[].tunnel_id"
+ ],
+ "connector_links": [
+  "links",
+  "links[].actions",
+  "links[].auth_type",
+  "links[].connector_id",
+  "links[].created_at",
+  "links[].id",
+  "links[].name"
+ ],
+ "connector_tunnels": [
+  "tunnels"
+ ],
+ "conversation": [
+  "current_node",
+  "is_starred",
+  "mapping",
+  "mapping{}",
+  "mapping{}.message",
+  "mapping{}.message.author",
+  "mapping{}.message.author.role",
+  "mapping{}.message.content",
+  "mapping{}.message.content.content_type",
+  "mapping{}.message.content.parts",
+  "mapping{}.message.id",
+  "mapping{}.message.metadata",
+  "mapping{}.message.metadata.citations",
+  "mapping{}.message.metadata.resolved_model_slug",
+  "mapping{}.message.metadata.search_result_groups",
+  "mapping{}.message.metadata.thinking_effort",
+  "mapping{}.message.recipient",
+  "mapping{}.message.status",
+  "mapping{}.parent",
+  "title"
+ ],
+ "conversation_widgets": [
+  "messages",
+  "messages[].author",
+  "messages[].author.role",
+  "messages[].metadata",
+  "messages[].metadata.chatgpt_sdk",
+  "messages[].metadata.chatgpt_sdk.widget_state"
+ ],
+ "conversations": [
+  "items",
+  "items[].gizmo_id",
+  "items[].id",
+  "items[].is_archived",
+  "items[].is_starred",
+  "items[].is_temporary_chat",
+  "items[].title",
+  "items[].update_time"
+ ],
+ "gizmo": [
+  "files",
+  "gizmo",
+  "gizmo.context_stuffing_budget",
+  "gizmo.default_model",
+  "gizmo.display",
+  "gizmo.display.name",
+  "gizmo.id",
+  "gizmo.instructions",
+  "gizmo.memory_enabled",
+  "gizmo.memory_scope",
+  "gizmo.model",
+  "gizmo.short_url"
+ ],
+ "gizmo_conversations": [
+  "items"
+ ],
+ "global_search": [
+  "cursor",
+  "items",
+  "items[].match_kind",
+  "items[].payload",
+  "items[].payload.conversation_id",
+  "items[].payload.is_archived",
+  "items[].payload.is_starred",
+  "items[].snippet",
+  "items[].title",
+  "items[].update_time",
+  "partial_results",
+  "source_statuses",
+  "source_statuses[].has_more",
+  "source_statuses[].status"
+ ],
+ "hazelnuts": [
+  "hazelnuts",
+  "hazelnuts[].check_sum_hash",
+  "hazelnuts[].default_version_no",
+  "hazelnuts[].enabled",
+  "hazelnuts[].files",
+  "hazelnuts[].id",
+  "hazelnuts[].latest_version_no",
+  "hazelnuts[].name",
+  "hazelnuts[].permissions",
+  "hazelnuts[].permissions.can_delete",
+  "hazelnuts[].permissions.can_read",
+  "hazelnuts[].safety_check_status",
+  "hazelnuts[].safety_scan",
+  "hazelnuts[].safety_scan.labels",
+  "hazelnuts[].safety_scan.risk_score",
+  "hazelnuts[].updated_at"
+ ],
+ "memories": [
+  "memories",
+  "memories[].gizmo_id",
+  "memory_max_tokens",
+  "memory_num_tokens"
+ ],
+ "models": [
+  "models",
+  "models[].configurable_thinking_effort",
+  "models[].slug",
+  "models[].thinking_efforts",
+  "models[].thinking_efforts[].thinking_effort",
+  "versions",
+  "versions[].id"
+ ],
+ "plugins_installed": [
+  "pagination",
+  "pagination.next_page_token",
+  "plugins",
+  "plugins[].connector_id",
+  "plugins[].creator_name",
+  "plugins[].discoverability",
+  "plugins[].installed_at",
+  "plugins[].release",
+  "plugins[].release.display_name",
+  "plugins[].release.id",
+  "plugins[].release.version",
+  "plugins[].scope",
+  "plugins[].status"
+ ],
+ "settings_user": [
+  "settings",
+  "settings{}"
+ ],
+ "sidebar": [
+  "cursor",
+  "items",
+  "items[].files",
+  "items[].gizmo",
+  "items[].gizmo.display",
+  "items[].gizmo.display.name",
+  "items[].gizmo.id",
+  "items[].gizmo.instructions",
+  "items[].gizmo.short_url",
+  "items[].gizmo.updated_at"
+ ],
+ "user_system_messages": [
+  "disabled_tools",
+  "enabled",
+  "name_user_message",
+  "other_user_message",
+  "personality_type_selection",
+  "role_user_message",
+  "traits_enabled",
+  "traits_model_message"
+ ],
+ "wham_usage": [
+  "credits",
+  "credits.balance",
+  "plan_type",
+  "rate_limit",
+  "rate_limit.primary_window",
+  "rate_limit.primary_window.reset_at",
+  "rate_limit.primary_window.used_percent",
+  "rate_limit_reset_credits",
+  "rate_limit_reset_credits.available_count"
+ ]
+}

@@ -1,0 +1,323 @@
+{
+ "fields": {
+  "items": {
+   "items": {
+    "fields": {
+     "async_status": {
+      "optional": false,
+      "types": [
+       "integer",
+       "null"
+      ]
+     },
+     "blocked_urls": {
+      "items": null,
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     },
+     "context_scopes": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "context_scopes_v2": {
+      "fields": {
+       "context_scopes": {
+        "items": {
+         "fields": {
+          "is_siloed": {
+           "booleans": [
+            false
+           ],
+           "optional": false,
+           "types": [
+            "boolean"
+           ]
+          },
+          "key": {
+           "optional": false,
+           "types": [
+            "null"
+           ]
+          },
+          "key_scoped_access_claim": {
+           "optional": false,
+           "types": [
+            "null"
+           ]
+          },
+          "key_timestamp": {
+           "optional": false,
+           "types": [
+            "null"
+           ]
+          },
+          "scope_namespace": {
+           "formats": [
+            "text"
+           ],
+           "optional": false,
+           "types": [
+            "string"
+           ]
+          },
+          "sub_scope": {
+           "optional": false,
+           "types": [
+            "null"
+           ]
+          }
+         },
+         "types": [
+          "object"
+         ]
+        },
+        "optional": false,
+        "types": [
+         "array"
+        ]
+       }
+      },
+      "optional": false,
+      "types": [
+       "object"
+      ]
+     },
+     "conversation_origin": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "conversation_template_id": {
+      "formats": [
+       "g-p-id"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "create_time": {
+      "formats": [
+       "datetime"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "current_node": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "gizmo_id": {
+      "formats": [
+       "g-p-id"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "id": {
+      "formats": [
+       "uuid"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "is_archived": {
+      "booleans": [
+       false,
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "is_automation_conversation": {
+      "booleans": [
+       false,
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "is_do_not_remember": {
+      "booleans": [
+       false
+      ],
+      "optional": false,
+      "types": [
+       "boolean",
+       "null"
+      ]
+     },
+     "is_starred": {
+      "booleans": [
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean",
+       "null"
+      ]
+     },
+     "is_temporary_chat": {
+      "booleans": [
+       false
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "latest_assistant_turn_created_at": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "mapping": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "memory_scope": {
+      "enum": [
+       "global_enabled",
+       "project_v2"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "pinned_time": {
+      "formats": [
+       "datetime"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "safe_urls": {
+      "items": null,
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     },
+     "snippet": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "sugar_item_id": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "sugar_item_visible": {
+      "booleans": [
+       false
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "summary_metadata": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "title": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "trial_conversation_type": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "update_time": {
+      "formats": [
+       "datetime"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "workspace_id": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     }
+    },
+    "types": [
+     "object"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "limit": {
+   "optional": false,
+   "types": [
+    "integer"
+   ]
+  },
+  "offset": {
+   "optional": false,
+   "types": [
+    "integer"
+   ]
+  },
+  "total": {
+   "optional": false,
+   "types": [
+    "integer"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

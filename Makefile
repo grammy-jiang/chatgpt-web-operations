@@ -1,6 +1,6 @@
 PY := .venv/bin/python
 
-.PHONY: test lint fmt replay refresh-dom-fixtures live-read live-write live-browser live-send all
+.PHONY: test lint fmt replay refresh-dom-fixtures contract refresh-shapes read-paths live-read live-write live-browser live-send all
 
 test:
 	$(PY) -m pytest tests -q -m "not live_read and not live_write and not live_browser and not live_send and not replay" --cov=scripts --cov-report=json --cov-report=term-missing:skip-covered
@@ -20,6 +20,23 @@ replay:
 # reviewed commit.
 refresh-dom-fixtures:
 	$(PY) tests/refresh_dom_fixtures.py $(FROM) $(if $(NAME),--name $(NAME))
+
+# The API contracts (TESTING.md section 6, P5): every read command over
+# payloads synthesized from the recorded response shapes. Part of make test;
+# SHAPES=<dir> overlays a fresh recording (a run's http/) first, the offline
+# acceptance gate for a fix after the daily check reported a changed shape.
+contract:
+	$(PY) -m pytest tests/test_api_contracts.py -q $(if $(SHAPES),--api-shapes=$(SHAPES))
+
+# Merge the newest recorded shapes (FROM=<dir> for another recording) into
+# tests/fixtures/http; REPLACE=1 replaces instead of merging. Never from cron.
+refresh-shapes:
+	$(PY) tests/refresh_api_shapes.py $(FROM) $(if $(REPLACE),--replace)
+
+# Regenerate tests/fixtures/http/read_paths.json: the fields the contracts
+# read, which are the only ones the daily check warns about.
+read-paths:
+	$(PY) tests/refresh_read_paths.py
 
 lint:
 	uvx ruff@0.14 check . && uvx ruff@0.14 format --check .

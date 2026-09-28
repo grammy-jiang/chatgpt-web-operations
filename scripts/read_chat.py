@@ -74,7 +74,9 @@ def turn_facts(conv: dict[str, Any]) -> list[dict[str, Any]]:
     mapping = conv.get("mapping") or {}
     node = conv.get("current_node")
     chain: list[dict[str, Any]] = []
-    while node and node in mapping:
+    seen: set[str] = set()
+    while node and node in mapping and node not in seen:  # a loop ends the walk
+        seen.add(node)
         chain.append(mapping[node].get("message") or {})
         node = mapping[node].get("parent")
     chain.reverse()

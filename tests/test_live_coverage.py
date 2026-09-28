@@ -27,6 +27,7 @@ SCRIPTS = TESTS_DIR.parent / "scripts"
 # Bundled library modules, never commands (tests/test_consistency.py).
 LIBRARY_MODULES = {
     "_common.py",
+    "api_shapes.py",
     "round_state.py",
     "chatgpt_client.py",
     "chatgpt_session.py",

@@ -1,0 +1,47 @@
+{
+ "fields": {
+  "tunnels": {
+   "items": {
+    "fields": {
+     "description": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "id": {
+      "formats": [
+       "id:tunnel_"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "name": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     }
+    },
+    "types": [
+     "object"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

@@ -1,0 +1,280 @@
+{
+ "fields": {
+  "account_id": {
+   "formats": [
+    "empty"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "additional_rate_limits": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "code_review_rate_limit": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "credits": {
+   "fields": {
+    "approx_cloud_messages": {
+     "items": {
+      "types": [
+       "integer"
+      ]
+     },
+     "optional": false,
+     "types": [
+      "array"
+     ]
+    },
+    "approx_local_messages": {
+     "items": {
+      "types": [
+       "integer"
+      ]
+     },
+     "optional": false,
+     "types": [
+      "array"
+     ]
+    },
+    "balance": {
+     "formats": [
+      "numeric"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "has_credits": {
+     "booleans": [
+      true
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "overage_limit_reached": {
+     "booleans": [
+      false
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "unlimited": {
+     "booleans": [
+      false
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    }
+   },
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  },
+  "email": {
+   "formats": [
+    "email"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "model_usage": {
+   "optional": false,
+   "types": [
+    "map"
+   ],
+   "values": {
+    "fields": {
+     "available": {
+      "booleans": [
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "available_at": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "credits_would_enable": {
+      "booleans": [
+       false
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     }
+    },
+    "types": [
+     "object"
+    ]
+   }
+  },
+  "plan_type": {
+   "enum": [
+    "pro"
+   ],
+   "formats": [
+    "enum"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "promo": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "rate_limit": {
+   "fields": {
+    "allowed": {
+     "booleans": [
+      true
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "limit_reached": {
+     "booleans": [
+      false
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "primary_window": {
+     "fields": {
+      "limit_window_seconds": {
+       "optional": false,
+       "types": [
+        "integer"
+       ]
+      },
+      "reset_after_seconds": {
+       "optional": false,
+       "types": [
+        "integer"
+       ]
+      },
+      "reset_at": {
+       "optional": false,
+       "types": [
+        "integer"
+       ]
+      },
+      "used_percent": {
+       "optional": false,
+       "types": [
+        "integer"
+       ]
+      }
+     },
+     "optional": false,
+     "types": [
+      "object"
+     ]
+    },
+    "secondary_window": {
+     "optional": false,
+     "types": [
+      "null"
+     ]
+    }
+   },
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  },
+  "rate_limit_reached_type": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "rate_limit_reset_credits": {
+   "fields": {
+    "applicable_available_count": {
+     "optional": false,
+     "types": [
+      "integer"
+     ]
+    },
+    "available_count": {
+     "optional": false,
+     "types": [
+      "integer"
+     ]
+    }
+   },
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  },
+  "spend_control": {
+   "fields": {
+    "individual_limit": {
+     "optional": false,
+     "types": [
+      "null"
+     ]
+    },
+    "reached": {
+     "booleans": [
+      false
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    }
+   },
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  },
+  "user_id": {
+   "formats": [
+    "account-id:user"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

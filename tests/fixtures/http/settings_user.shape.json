@@ -1,0 +1,380 @@
+{
+ "fields": {
+  "announcements": {
+   "optional": false,
+   "types": [
+    "map"
+   ],
+   "values": {
+    "formats": [
+     "datetime"
+    ],
+    "types": [
+     "integer",
+     "string"
+    ]
+   }
+  },
+  "available_options": {
+   "fields": {
+    "backend_reasoning_effort": {
+     "items": {
+      "formats": [
+       "text"
+      ],
+      "types": [
+       "string"
+      ]
+     },
+     "optional": false,
+     "types": [
+      "array"
+     ]
+    }
+   },
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  },
+  "beta_settings": {
+   "fields": {},
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  },
+  "eligible_announcement_strings": {
+   "optional": false,
+   "types": [
+    "map"
+   ],
+   "values": {
+    "fields": {
+     "description": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "got_it_button": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "title": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     }
+    },
+    "types": [
+     "object"
+    ]
+   }
+  },
+  "eligible_announcements": {
+   "items": {
+    "formats": [
+     "token"
+    ],
+    "types": [
+     "string"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "flags": {
+   "fields": {
+    "bazaar_consent_required": {
+     "booleans": [
+      false
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "bazaar_personalization_unavailable": {
+     "booleans": [
+      false
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "eclipse": {
+     "booleans": [
+      false
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "file_library_enabled_for_registration_country": {
+     "booleans": [
+      true
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "image_gen_holdout_active": {
+     "booleans": [
+      false
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "persistent_file_library_available": {
+     "booleans": [
+      true
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    }
+   },
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  },
+  "permissions": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "persistent_announcements": {
+   "items": null,
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "settings": {
+   "optional": false,
+   "types": [
+    "map"
+   ],
+   "values": {
+    "booleans": [
+     false,
+     true
+    ],
+    "fields": {
+     "default_model_slug": {
+      "optional": true,
+      "types": [
+       "null"
+      ]
+     },
+     "devices": {
+      "fields": {},
+      "optional": true,
+      "types": [
+       "object"
+      ]
+     },
+     "enabled": {
+      "booleans": [
+       false
+      ],
+      "optional": true,
+      "types": [
+       "boolean"
+      ]
+     },
+     "end_time": {
+      "optional": true,
+      "types": [
+       "null"
+      ]
+     },
+     "juices": {
+      "fields": {
+       "default": {
+        "optional": true,
+        "types": [
+         "map"
+        ],
+        "values": {
+         "formats": [
+          "text"
+         ],
+         "types": [
+          "string"
+         ]
+        }
+       },
+       "ios_app": {
+        "optional": true,
+        "types": [
+         "map"
+        ],
+        "values": {
+         "formats": [
+          "text"
+         ],
+         "types": [
+          "string"
+         ]
+        }
+       },
+       "pro": {
+        "formats": [
+         "text"
+        ],
+        "optional": true,
+        "types": [
+         "string"
+        ]
+       },
+       "web": {
+        "optional": true,
+        "types": [
+         "map"
+        ],
+        "values": {
+         "formats": [
+          "text"
+         ],
+         "types": [
+          "string"
+         ]
+        }
+       },
+       "windows_app": {
+        "optional": true,
+        "types": [
+         "map"
+        ],
+        "values": {
+         "formats": [
+          "text"
+         ],
+         "types": [
+          "string"
+         ]
+        }
+       }
+      },
+      "optional": true,
+      "types": [
+       "object"
+      ]
+     },
+     "mode": {
+      "formats": [
+       "text"
+      ],
+      "optional": true,
+      "types": [
+       "string"
+      ]
+     },
+     "slugs": {
+      "fields": {
+       "default": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "ios_app": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "web": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "windows_app": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       }
+      },
+      "optional": true,
+      "types": [
+       "object"
+      ]
+     },
+     "start_time": {
+      "optional": true,
+      "types": [
+       "null"
+      ]
+     },
+     "was_user_on_latest_version": {
+      "booleans": [
+       true
+      ],
+      "optional": true,
+      "types": [
+       "boolean"
+      ]
+     }
+    },
+    "formats": [
+     "text"
+    ],
+    "types": [
+     "boolean",
+     "map",
+     "object",
+     "string"
+    ],
+    "values": {
+     "booleans": [
+      false
+     ],
+     "types": [
+      "boolean"
+     ]
+    }
+   }
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

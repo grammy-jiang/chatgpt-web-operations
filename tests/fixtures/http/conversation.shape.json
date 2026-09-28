@@ -1,0 +1,3211 @@
+{
+ "fields": {
+  "async_status": {
+   "optional": false,
+   "types": [
+    "integer",
+    "null"
+   ]
+  },
+  "atlas_mode_enabled": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "blocked_urls": {
+   "items": null,
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "context_scopes": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "context_truncation_continuation": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "conversation_id": {
+   "formats": [
+    "uuid"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "conversation_origin": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "conversation_template_id": {
+   "formats": [
+    "g-p-id"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "create_time": {
+   "optional": false,
+   "types": [
+    "number"
+   ]
+  },
+  "current_node": {
+   "formats": [
+    "uuid"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "default_model_slug": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "disabled_tool_ids": {
+   "items": null,
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "gizmo_id": {
+   "formats": [
+    "g-p-id"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "gizmo_type": {
+   "enum": [
+    "snorlax"
+   ],
+   "formats": [
+    "enum"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "is_archived": {
+   "booleans": [
+    false
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "is_do_not_remember": {
+   "booleans": [
+    false
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "is_read_only": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "is_starred": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "is_study_mode": {
+   "booleans": [
+    false
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "is_temporary_chat": {
+   "booleans": [
+    false
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "mapping": {
+   "optional": false,
+   "types": [
+    "map"
+   ],
+   "values": {
+    "fields": {
+     "children": {
+      "items": {
+       "formats": [
+        "uuid"
+       ],
+       "types": [
+        "string"
+       ]
+      },
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     },
+     "id": {
+      "formats": [
+       "text",
+       "uuid"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "message": {
+      "fields": {
+       "author": {
+        "fields": {
+         "metadata": {
+          "fields": {
+           "real_author": {
+            "formats": [
+             "text"
+            ],
+            "optional": true,
+            "types": [
+             "string"
+            ]
+           }
+          },
+          "optional": false,
+          "types": [
+           "object"
+          ]
+         },
+         "name": {
+          "formats": [
+           "text"
+          ],
+          "optional": false,
+          "types": [
+           "null",
+           "string"
+          ]
+         },
+         "role": {
+          "enum": [
+           "assistant",
+           "tool",
+           "user"
+          ],
+          "formats": [
+           "enum"
+          ],
+          "optional": false,
+          "types": [
+           "string"
+          ]
+         }
+        },
+        "optional": false,
+        "types": [
+         "object"
+        ]
+       },
+       "channel": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "null",
+         "string"
+        ]
+       },
+       "content": {
+        "fields": {
+         "assets": {
+          "optional": true,
+          "types": [
+           "null"
+          ]
+         },
+         "content": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "content_type": {
+          "enum": [
+           "code",
+           "execution_output",
+           "multimodal_text",
+           "reasoning_recap",
+           "tether_browsing_display",
+           "text",
+           "thoughts"
+          ],
+          "formats": [
+           "enum"
+          ],
+          "optional": false,
+          "types": [
+           "string"
+          ]
+         },
+         "language": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "parts": {
+          "items": {
+           "formats": [
+            "empty",
+            "text"
+           ],
+           "types": [
+            "string"
+           ]
+          },
+          "optional": true,
+          "types": [
+           "array"
+          ]
+         },
+         "response_format_name": {
+          "optional": true,
+          "types": [
+           "null"
+          ]
+         },
+         "result": {
+          "formats": [
+           "empty"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "source_analysis_msg_id": {
+          "formats": [
+           "uuid"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "summary": {
+          "formats": [
+           "empty"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "tether_id": {
+          "optional": true,
+          "types": [
+           "null"
+          ]
+         },
+         "text": {
+          "formats": [
+           "empty",
+           "numeric",
+           "text",
+           "token"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "thoughts": {
+          "items": {
+           "fields": {
+            "chunks": {
+             "items": null,
+             "optional": false,
+             "types": [
+              "array"
+             ]
+            },
+            "content": {
+             "formats": [
+              "empty",
+              "text"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            },
+            "finished": {
+             "booleans": [
+              true
+             ],
+             "optional": false,
+             "types": [
+              "boolean"
+             ]
+            },
+            "summary": {
+             "formats": [
+              "empty",
+              "text"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            }
+           },
+           "types": [
+            "object"
+           ]
+          },
+          "optional": true,
+          "types": [
+           "array"
+          ]
+         }
+        },
+        "optional": false,
+        "types": [
+         "object"
+        ]
+       },
+       "create_time": {
+        "optional": false,
+        "types": [
+         "number"
+        ]
+       },
+       "end_turn": {
+        "booleans": [
+         false,
+         true
+        ],
+        "optional": false,
+        "types": [
+         "boolean",
+         "null"
+        ]
+       },
+       "id": {
+        "formats": [
+         "uuid"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "metadata": {
+        "fields": {
+         "aggregate_result": {
+          "fields": {
+           "code": {
+            "formats": [
+             "empty",
+             "text"
+            ],
+            "optional": true,
+            "types": [
+             "string"
+            ]
+           },
+           "end_time": {
+            "optional": true,
+            "types": [
+             "null",
+             "number"
+            ]
+           },
+           "final_expression_output": {
+            "formats": [
+             "empty",
+             "numeric",
+             "text",
+             "token"
+            ],
+            "optional": false,
+            "types": [
+             "null",
+             "string"
+            ]
+           },
+           "in_kernel_exception": {
+            "optional": true,
+            "types": [
+             "null"
+            ]
+           },
+           "jupyter_messages": {
+            "items": {
+             "fields": {
+              "content": {
+               "fields": {
+                "data": {
+                 "optional": true,
+                 "types": [
+                  "map"
+                 ],
+                 "values": {
+                  "formats": [
+                   "numeric",
+                   "text"
+                  ],
+                  "types": [
+                   "string"
+                  ]
+                 }
+                },
+                "execution_state": {
+                 "formats": [
+                  "text"
+                 ],
+                 "optional": true,
+                 "types": [
+                  "string"
+                 ]
+                },
+                "name": {
+                 "formats": [
+                  "text"
+                 ],
+                 "optional": true,
+                 "types": [
+                  "string"
+                 ]
+                },
+                "text": {
+                 "formats": [
+                  "text"
+                 ],
+                 "optional": true,
+                 "types": [
+                  "string"
+                 ]
+                }
+               },
+               "optional": true,
+               "types": [
+                "object"
+               ]
+              },
+              "msg_type": {
+               "formats": [
+                "text"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "parent_header": {
+               "fields": {
+                "msg_id": {
+                 "formats": [
+                  "token"
+                 ],
+                 "optional": false,
+                 "types": [
+                  "string"
+                 ]
+                },
+                "version": {
+                 "formats": [
+                  "numeric"
+                 ],
+                 "optional": false,
+                 "types": [
+                  "string"
+                 ]
+                }
+               },
+               "optional": false,
+               "types": [
+                "object"
+               ]
+              }
+             },
+             "types": [
+              "object"
+             ]
+            },
+            "optional": true,
+            "types": [
+             "array"
+            ]
+           },
+           "messages": {
+            "items": {
+             "fields": {
+              "message_type": {
+               "formats": [
+                "text"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "sender": {
+               "formats": [
+                "text"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "stream_name": {
+               "formats": [
+                "text"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "text": {
+               "formats": [
+                "text"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "time": {
+               "optional": false,
+               "types": [
+                "number"
+               ]
+              }
+             },
+             "types": [
+              "object"
+             ]
+            },
+            "optional": false,
+            "types": [
+             "array"
+            ]
+           },
+           "run_id": {
+            "formats": [
+             "empty",
+             "uuid"
+            ],
+            "optional": true,
+            "types": [
+             "string"
+            ]
+           },
+           "start_time": {
+            "optional": true,
+            "types": [
+             "number"
+            ]
+           },
+           "status": {
+            "enum": [
+             "cancelled",
+             "success"
+            ],
+            "formats": [
+             "enum"
+            ],
+            "optional": false,
+            "types": [
+             "string"
+            ]
+           },
+           "system_exception": {
+            "optional": true,
+            "types": [
+             "null"
+            ]
+           },
+           "timeout_triggered": {
+            "optional": true,
+            "types": [
+             "null"
+            ]
+           },
+           "update_time": {
+            "optional": true,
+            "types": [
+             "number"
+            ]
+           }
+          },
+          "optional": true,
+          "types": [
+           "object"
+          ]
+         },
+         "attachments": {
+          "items": {
+           "fields": {
+            "id": {
+             "formats": [
+              "id:file_"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            },
+            "library_file_id": {
+             "formats": [
+              "id:libfile_"
+             ],
+             "optional": true,
+             "types": [
+              "string"
+             ]
+            },
+            "mime_type": {
+             "formats": [
+              "text"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            },
+            "name": {
+             "formats": [
+              "text",
+              "token"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            },
+            "size": {
+             "optional": false,
+             "types": [
+              "integer"
+             ]
+            }
+           },
+           "types": [
+            "object"
+           ]
+          },
+          "optional": true,
+          "types": [
+           "array"
+          ]
+         },
+         "can_save": {
+          "booleans": [
+           false,
+           true
+          ],
+          "optional": false,
+          "types": [
+           "boolean"
+          ]
+         },
+         "chatgpt_sdk": {
+          "fields": {
+           "action_name": {
+            "formats": [
+             "text"
+            ],
+            "optional": false,
+            "types": [
+             "string"
+            ]
+           },
+           "attribution_id": {
+            "formats": [
+             "token"
+            ],
+            "optional": false,
+            "types": [
+             "string"
+            ]
+           },
+           "csp": {
+            "fields": {
+             "base_uri_domains": {
+              "optional": false,
+              "types": [
+               "null"
+              ]
+             },
+             "connect_domains": {
+              "optional": false,
+              "types": [
+               "null"
+              ]
+             },
+             "frame_domains": {
+              "optional": false,
+              "types": [
+               "null"
+              ]
+             },
+             "redirect_domains": {
+              "optional": false,
+              "types": [
+               "null"
+              ]
+             },
+             "resource_domains": {
+              "items": {
+               "formats": [
+                "url"
+               ],
+               "types": [
+                "string"
+               ]
+              },
+              "optional": false,
+              "types": [
+               "array"
+              ]
+             }
+            },
+            "optional": false,
+            "types": [
+             "object"
+            ]
+           },
+           "disable_loading_state": {
+            "booleans": [
+             true
+            ],
+            "optional": false,
+            "types": [
+             "boolean"
+            ]
+           },
+           "distribution_channel": {
+            "enum": [
+             "openai"
+            ],
+            "formats": [
+             "enum"
+            ],
+            "optional": false,
+            "types": [
+             "string"
+            ]
+           },
+           "external_call_time_ms": {
+            "optional": true,
+            "types": [
+             "integer"
+            ]
+           },
+           "fit_width": {
+            "booleans": [
+             false
+            ],
+            "optional": false,
+            "types": [
+             "boolean"
+            ]
+           },
+           "height_hint": {
+            "optional": false,
+            "types": [
+             "integer"
+            ]
+           },
+           "hide_composer": {
+            "booleans": [
+             false
+            ],
+            "optional": false,
+            "types": [
+             "boolean"
+            ]
+           },
+           "hide_full_screen_header": {
+            "booleans": [
+             false
+            ],
+            "optional": false,
+            "types": [
+             "boolean"
+            ]
+           },
+           "hide_widget_actions": {
+            "booleans": [
+             false
+            ],
+            "optional": false,
+            "types": [
+             "boolean"
+            ]
+           },
+           "hide_widget_attribution": {
+            "booleans": [
+             true
+            ],
+            "optional": true,
+            "types": [
+             "boolean"
+            ]
+           },
+           "hide_widget_feedback": {
+            "booleans": [
+             false
+            ],
+            "optional": false,
+            "types": [
+             "boolean"
+            ]
+           },
+           "html_asset_pointer": {
+            "formats": [
+             "token"
+            ],
+            "optional": false,
+            "types": [
+             "string"
+            ]
+           },
+           "inline_frame_padding": {
+            "optional": false,
+            "types": [
+             "null"
+            ]
+           },
+           "invocation_uuid": {
+            "formats": [
+             "uuid"
+            ],
+            "optional": false,
+            "types": [
+             "string"
+            ]
+           },
+           "link_id": {
+            "formats": [
+             "token"
+            ],
+            "optional": false,
+            "types": [
+             "string"
+            ]
+           },
+           "prefers_border": {
+            "booleans": [
+             false
+            ],
+            "optional": false,
+            "types": [
+             "boolean"
+            ]
+           },
+           "resolved_pineapple_uri": {
+            "formats": [
+             "token"
+            ],
+            "optional": false,
+            "types": [
+             "string"
+            ]
+           },
+           "resource_name": {
+            "formats": [
+             "text"
+            ],
+            "optional": false,
+            "types": [
+             "string"
+            ]
+           },
+           "tool_invoked_message": {
+            "optional": true,
+            "types": [
+             "null"
+            ]
+           },
+           "tool_invoking_message": {
+            "optional": true,
+            "types": [
+             "null"
+            ]
+           },
+           "tool_response_metadata": {
+            "fields": {},
+            "optional": true,
+            "types": [
+             "object"
+            ]
+           },
+           "turn_uuid": {
+            "formats": [
+             "uuid"
+            ],
+            "optional": false,
+            "types": [
+             "string"
+            ]
+           },
+           "widget_session_behavior": {
+            "formats": [
+             "text"
+            ],
+            "optional": true,
+            "types": [
+             "string"
+            ]
+           },
+           "widget_state": {
+            "formats": [
+             "text"
+            ],
+            "optional": true,
+            "types": [
+             "string"
+            ]
+           },
+           "widget_state_revision": {
+            "optional": true,
+            "types": [
+             "integer"
+            ]
+           },
+           "width_hint": {
+            "optional": false,
+            "types": [
+             "null"
+            ]
+           }
+          },
+          "optional": true,
+          "types": [
+           "object"
+          ]
+         },
+         "chime_version": {
+          "optional": true,
+          "types": [
+           "integer"
+          ]
+         },
+         "citations": {
+          "items": {
+           "fields": {
+            "citation_format_type": {
+             "formats": [
+              "text"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            },
+            "end_ix": {
+             "optional": false,
+             "types": [
+              "integer"
+             ]
+            },
+            "metadata": {
+             "fields": {
+              "extra": {
+               "fields": {
+                "api_tool_source": {
+                 "formats": [
+                  "text"
+                 ],
+                 "optional": false,
+                 "types": [
+                  "string"
+                 ]
+                },
+                "authors_display": {
+                 "optional": false,
+                 "types": [
+                  "null"
+                 ]
+                },
+                "cited_message_id": {
+                 "formats": [
+                  "uuid"
+                 ],
+                 "optional": false,
+                 "types": [
+                  "string"
+                 ]
+                },
+                "cited_message_idx": {
+                 "optional": false,
+                 "types": [
+                  "integer"
+                 ]
+                },
+                "cloud_doc_url": {
+                 "formats": [
+                  "empty"
+                 ],
+                 "optional": false,
+                 "types": [
+                  "null",
+                  "string"
+                 ]
+                },
+                "connector_id": {
+                 "optional": true,
+                 "types": [
+                  "null"
+                 ]
+                },
+                "doi": {
+                 "optional": false,
+                 "types": [
+                  "null"
+                 ]
+                },
+                "effective_time": {
+                 "optional": false,
+                 "types": [
+                  "null"
+                 ]
+                },
+                "journal_homepage_url": {
+                 "optional": false,
+                 "types": [
+                  "null"
+                 ]
+                },
+                "journal_name": {
+                 "optional": false,
+                 "types": [
+                  "null"
+                 ]
+                },
+                "library_file_id": {
+                 "formats": [
+                  "id:libfile_"
+                 ],
+                 "optional": true,
+                 "types": [
+                  "string"
+                 ]
+                },
+                "line_range": {
+                 "items": {
+                  "types": [
+                   "integer"
+                  ]
+                 },
+                 "optional": false,
+                 "types": [
+                  "array",
+                  "null"
+                 ]
+                },
+                "publication_year": {
+                 "optional": false,
+                 "types": [
+                  "null"
+                 ]
+                },
+                "retrieval_file_index": {
+                 "optional": false,
+                 "types": [
+                  "integer"
+                 ]
+                },
+                "retrieval_turn": {
+                 "optional": false,
+                 "types": [
+                  "integer"
+                 ]
+                },
+                "run_id": {
+                 "optional": false,
+                 "types": [
+                  "null"
+                 ]
+                },
+                "search_result_idx": {
+                 "optional": false,
+                 "types": [
+                  "null"
+                 ]
+                },
+                "set_id": {
+                 "optional": false,
+                 "types": [
+                  "null"
+                 ]
+                },
+                "source_icon_url": {
+                 "optional": false,
+                 "types": [
+                  "null"
+                 ]
+                },
+                "source_label": {
+                 "optional": false,
+                 "types": [
+                  "null"
+                 ]
+                },
+                "source_url": {
+                 "optional": false,
+                 "types": [
+                  "null"
+                 ]
+                },
+                "spl_version": {
+                 "optional": false,
+                 "types": [
+                  "null"
+                 ]
+                },
+                "title": {
+                 "optional": false,
+                 "types": [
+                  "null"
+                 ]
+                }
+               },
+               "optional": false,
+               "types": [
+                "object"
+               ]
+              },
+              "id": {
+               "formats": [
+                "id:file_"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "name": {
+               "formats": [
+                "text",
+                "token"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "source": {
+               "formats": [
+                "text"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "text": {
+               "formats": [
+                "empty",
+                "text"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "type": {
+               "enum": [
+                "file"
+               ],
+               "formats": [
+                "enum"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              }
+             },
+             "optional": false,
+             "types": [
+              "object"
+             ]
+            },
+            "start_ix": {
+             "optional": false,
+             "types": [
+              "integer"
+             ]
+            }
+           },
+           "types": [
+            "object"
+           ]
+          },
+          "optional": true,
+          "types": [
+           "array"
+          ]
+         },
+         "classifier_response": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "code_blocks": {
+          "optional": true,
+          "types": [
+           "map"
+          ],
+          "values": {
+           "fields": {
+            "edited": {
+             "booleans": [
+              false
+             ],
+             "optional": false,
+             "types": [
+              "boolean"
+             ]
+            },
+            "id": {
+             "formats": [
+              "text"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            },
+            "preview_language": {
+             "optional": false,
+             "types": [
+              "null"
+             ]
+            },
+            "previewable": {
+             "booleans": [
+              false
+             ],
+             "optional": false,
+             "types": [
+              "boolean"
+             ]
+            }
+           },
+           "types": [
+            "object"
+           ]
+          }
+         },
+         "command": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "connector_tool_payload": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "content_references": {
+          "items": {
+           "fields": {
+            "alt": {
+             "formats": [
+              "empty",
+              "text"
+             ],
+             "optional": false,
+             "types": [
+              "null",
+              "string"
+             ]
+            },
+            "api_tool_source": {
+             "formats": [
+              "text"
+             ],
+             "optional": true,
+             "types": [
+              "string"
+             ]
+            },
+            "cloud_doc_url": {
+             "formats": [
+              "empty"
+             ],
+             "optional": true,
+             "types": [
+              "null",
+              "string"
+             ]
+            },
+            "connector_id": {
+             "optional": true,
+             "types": [
+              "null"
+             ]
+            },
+            "drug_file_reference": {
+             "optional": true,
+             "types": [
+              "null"
+             ]
+            },
+            "end_idx": {
+             "optional": false,
+             "types": [
+              "integer"
+             ]
+            },
+            "error": {
+             "optional": true,
+             "types": [
+              "null"
+             ]
+            },
+            "fallback_items": {
+             "optional": true,
+             "types": [
+              "null"
+             ]
+            },
+            "fff_metadata": {
+             "optional": true,
+             "types": [
+              "null"
+             ]
+            },
+            "has_images": {
+             "booleans": [
+              false
+             ],
+             "optional": true,
+             "types": [
+              "boolean"
+             ]
+            },
+            "id": {
+             "formats": [
+              "id:file_"
+             ],
+             "optional": true,
+             "types": [
+              "string"
+             ]
+            },
+            "input_pointer": {
+             "fields": {
+              "file_index": {
+               "optional": false,
+               "types": [
+                "integer"
+               ]
+              },
+              "line_range_end": {
+               "optional": false,
+               "types": [
+                "integer",
+                "null"
+               ]
+              },
+              "line_range_start": {
+               "optional": false,
+               "types": [
+                "integer",
+                "null"
+               ]
+              },
+              "message_id": {
+               "formats": [
+                "uuid"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "message_index": {
+               "optional": false,
+               "types": [
+                "integer"
+               ]
+              }
+             },
+             "optional": true,
+             "types": [
+              "object"
+             ]
+            },
+            "invalid": {
+             "booleans": [
+              false
+             ],
+             "optional": true,
+             "types": [
+              "boolean"
+             ]
+            },
+            "items": {
+             "items": {
+              "fields": {
+               "attribution": {
+                "formats": [
+                 "text"
+                ],
+                "optional": false,
+                "types": [
+                 "string"
+                ]
+               },
+               "attribution_segments": {
+                "optional": false,
+                "types": [
+                 "null"
+                ]
+               },
+               "attributions": {
+                "optional": false,
+                "types": [
+                 "null"
+                ]
+               },
+               "hue": {
+                "optional": false,
+                "types": [
+                 "null"
+                ]
+               },
+               "pub_date": {
+                "optional": false,
+                "types": [
+                 "null"
+                ]
+               },
+               "refs": {
+                "items": {
+                 "fields": {
+                  "ref_index": {
+                   "optional": false,
+                   "types": [
+                    "integer"
+                   ]
+                  },
+                  "ref_type": {
+                   "formats": [
+                    "text"
+                   ],
+                   "optional": false,
+                   "types": [
+                    "string"
+                   ]
+                  },
+                  "turn_index": {
+                   "optional": false,
+                   "types": [
+                    "integer"
+                   ]
+                  }
+                 },
+                 "types": [
+                  "object"
+                 ]
+                },
+                "optional": false,
+                "types": [
+                 "array"
+                ]
+               },
+               "snippet": {
+                "formats": [
+                 "empty"
+                ],
+                "optional": false,
+                "types": [
+                 "null",
+                 "string"
+                ]
+               },
+               "supporting_websites": {
+                "items": {
+                 "fields": {
+                  "attribution": {
+                   "formats": [
+                    "text"
+                   ],
+                   "optional": false,
+                   "types": [
+                    "string"
+                   ]
+                  },
+                  "pub_date": {
+                   "optional": false,
+                   "types": [
+                    "null"
+                   ]
+                  },
+                  "snippet": {
+                   "formats": [
+                    "empty"
+                   ],
+                   "optional": false,
+                   "types": [
+                    "null",
+                    "string"
+                   ]
+                  },
+                  "title": {
+                   "formats": [
+                    "text"
+                   ],
+                   "optional": false,
+                   "types": [
+                    "string"
+                   ]
+                  },
+                  "url": {
+                   "formats": [
+                    "url"
+                   ],
+                   "optional": false,
+                   "types": [
+                    "string"
+                   ]
+                  }
+                 },
+                 "types": [
+                  "object"
+                 ]
+                },
+                "optional": false,
+                "types": [
+                 "array"
+                ]
+               },
+               "title": {
+                "formats": [
+                 "text"
+                ],
+                "optional": false,
+                "types": [
+                 "string"
+                ]
+               },
+               "url": {
+                "formats": [
+                 "url"
+                ],
+                "optional": false,
+                "types": [
+                 "string"
+                ]
+               }
+              },
+              "types": [
+               "object"
+              ]
+             },
+             "optional": true,
+             "types": [
+              "array"
+             ]
+            },
+            "library_artifact_type": {
+             "optional": true,
+             "types": [
+              "null"
+             ]
+            },
+            "library_file_id": {
+             "formats": [
+              "id:libfile_"
+             ],
+             "optional": true,
+             "types": [
+              "null",
+              "string"
+             ]
+            },
+            "matched_text": {
+             "formats": [
+              "text"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            },
+            "medical_file_reference": {
+             "fields": {
+              "authors_display": {
+               "optional": false,
+               "types": [
+                "null"
+               ]
+              },
+              "doi": {
+               "optional": false,
+               "types": [
+                "null"
+               ]
+              },
+              "journal_homepage_url": {
+               "optional": false,
+               "types": [
+                "null"
+               ]
+              },
+              "journal_name": {
+               "optional": false,
+               "types": [
+                "null"
+               ]
+              },
+              "publication_year": {
+               "optional": false,
+               "types": [
+                "null"
+               ]
+              },
+              "source_icon_url": {
+               "optional": false,
+               "types": [
+                "null"
+               ]
+              },
+              "source_label": {
+               "optional": false,
+               "types": [
+                "null"
+               ]
+              },
+              "source_url": {
+               "optional": false,
+               "types": [
+                "null"
+               ]
+              }
+             },
+             "optional": true,
+             "types": [
+              "object"
+             ]
+            },
+            "name": {
+             "formats": [
+              "text",
+              "token"
+             ],
+             "optional": true,
+             "types": [
+              "string"
+             ]
+            },
+            "page_range_end": {
+             "optional": true,
+             "types": [
+              "null"
+             ]
+            },
+            "page_range_start": {
+             "optional": true,
+             "types": [
+              "null"
+             ]
+            },
+            "prefix": {
+             "optional": true,
+             "types": [
+              "null"
+             ]
+            },
+            "prompt_text": {
+             "optional": true,
+             "types": [
+              "null"
+             ]
+            },
+            "refs": {
+             "items": null,
+             "optional": true,
+             "types": [
+              "array"
+             ]
+            },
+            "safe_urls": {
+             "items": {
+              "formats": [
+               "url"
+              ],
+              "types": [
+               "string"
+              ]
+             },
+             "optional": true,
+             "types": [
+              "array"
+             ]
+            },
+            "snippet": {
+             "formats": [
+              "empty",
+              "text"
+             ],
+             "optional": true,
+             "types": [
+              "string"
+             ]
+            },
+            "source": {
+             "formats": [
+              "text"
+             ],
+             "optional": true,
+             "types": [
+              "string"
+             ]
+            },
+            "sources": {
+             "items": {
+              "fields": {
+               "attribution": {
+                "formats": [
+                 "text"
+                ],
+                "optional": false,
+                "types": [
+                 "string"
+                ]
+               },
+               "title": {
+                "formats": [
+                 "text"
+                ],
+                "optional": false,
+                "types": [
+                 "string"
+                ]
+               },
+               "url": {
+                "formats": [
+                 "url"
+                ],
+                "optional": false,
+                "types": [
+                 "string"
+                ]
+               }
+              },
+              "types": [
+               "object"
+              ]
+             },
+             "optional": true,
+             "types": [
+              "array"
+             ]
+            },
+            "start_idx": {
+             "optional": false,
+             "types": [
+              "integer"
+             ]
+            },
+            "status": {
+             "enum": [
+              "done"
+             ],
+             "formats": [
+              "enum"
+             ],
+             "optional": true,
+             "types": [
+              "string"
+             ]
+            },
+            "style": {
+             "optional": true,
+             "types": [
+              "null"
+             ]
+            },
+            "type": {
+             "enum": [
+              "file",
+              "grouped_webpages",
+              "hidden",
+              "sources_footnote"
+             ],
+             "formats": [
+              "enum"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            }
+           },
+           "types": [
+            "object"
+           ]
+          },
+          "optional": true,
+          "types": [
+           "array"
+          ]
+         },
+         "conversation_context_citation_metadata": {
+          "items": {
+           "fields": {
+            "citation": {
+             "fields": {
+              "alt": {
+               "formats": [
+                "empty"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "attribution": {
+               "formats": [
+                "text"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "category": {
+               "formats": [
+                "text"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "end_idx": {
+               "optional": false,
+               "types": [
+                "integer"
+               ]
+              },
+              "matched_text": {
+               "formats": [
+                "empty"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "prompt_text": {
+               "optional": false,
+               "types": [
+                "null"
+               ]
+              },
+              "pub_date": {
+               "optional": false,
+               "types": [
+                "number"
+               ]
+              },
+              "refs": {
+               "items": null,
+               "optional": false,
+               "types": [
+                "array"
+               ]
+              },
+              "retrieval_origin": {
+               "formats": [
+                "text"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "snippet": {
+               "formats": [
+                "text"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "start_idx": {
+               "optional": false,
+               "types": [
+                "integer"
+               ]
+              },
+              "title": {
+               "formats": [
+                "text"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "type": {
+               "enum": [
+                "grouped_webpages"
+               ],
+               "formats": [
+                "enum"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "url": {
+               "formats": [
+                "url"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              }
+             },
+             "optional": false,
+             "types": [
+              "object"
+             ]
+            },
+            "citation_uuid": {
+             "formats": [
+              "uuid"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            },
+            "deleted": {
+             "booleans": [
+              false
+             ],
+             "optional": false,
+             "types": [
+              "boolean"
+             ]
+            },
+            "feedback": {
+             "optional": false,
+             "types": [
+              "null"
+             ]
+            },
+            "retrieval_origin": {
+             "formats": [
+              "text"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            }
+           },
+           "types": [
+            "object"
+           ]
+          },
+          "optional": true,
+          "types": [
+           "array"
+          ]
+         },
+         "conversation_context_citation_metadata_status": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "conversation_followup_suggestions_eligible": {
+          "booleans": [
+           false,
+           true
+          ],
+          "optional": true,
+          "types": [
+           "boolean"
+          ]
+         },
+         "cot_version": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "debug_sonic_thread_id": {
+          "formats": [
+           "id:thread_"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "default_model_slug": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "dictation": {
+          "booleans": [
+           false,
+           true
+          ],
+          "optional": true,
+          "types": [
+           "boolean"
+          ]
+         },
+         "dictation_asset_format": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "dictation_asset_pointer": {
+          "formats": [
+           "token"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "dictation_auto_submitted": {
+          "booleans": [
+           false
+          ],
+          "optional": true,
+          "types": [
+           "boolean"
+          ]
+         },
+         "dictation_edited": {
+          "booleans": [
+           false
+          ],
+          "optional": true,
+          "types": [
+           "boolean"
+          ]
+         },
+         "dictation_original_text": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "disable_turn_actions": {
+          "booleans": [
+           true
+          ],
+          "optional": true,
+          "types": [
+           "boolean"
+          ]
+         },
+         "finish_details": {
+          "fields": {
+           "reason": {
+            "formats": [
+             "text"
+            ],
+            "optional": true,
+            "types": [
+             "string"
+            ]
+           },
+           "stop_tokens": {
+            "items": {
+             "types": [
+              "integer"
+             ]
+            },
+            "optional": true,
+            "types": [
+             "array"
+            ]
+           },
+           "type": {
+            "enum": [
+             "interrupted",
+             "stop"
+            ],
+            "formats": [
+             "enum"
+            ],
+            "optional": false,
+            "types": [
+             "string"
+            ]
+           }
+          },
+          "optional": true,
+          "types": [
+           "object"
+          ]
+         },
+         "finished_duration_sec": {
+          "optional": true,
+          "types": [
+           "integer"
+          ]
+         },
+         "gizmo_id": {
+          "formats": [
+           "g-p-id"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "hide_inline_actions": {
+          "booleans": [
+           true
+          ],
+          "optional": true,
+          "types": [
+           "boolean"
+          ]
+         },
+         "inline_cot_expandable_content": {
+          "fields": {
+           "search_result_groups": {
+            "items": {
+             "fields": {
+              "domain": {
+               "formats": [
+                "text"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "entries": {
+               "items": {
+                "fields": {
+                 "attribution": {
+                  "formats": [
+                   "text"
+                  ],
+                  "optional": false,
+                  "types": [
+                   "string"
+                  ]
+                 },
+                 "pub_date": {
+                  "optional": false,
+                  "types": [
+                   "null",
+                   "number"
+                  ]
+                 },
+                 "ref_id": {
+                  "fields": {
+                   "ref_index": {
+                    "optional": false,
+                    "types": [
+                     "integer"
+                    ]
+                   },
+                   "ref_type": {
+                    "formats": [
+                     "text"
+                    ],
+                    "optional": false,
+                    "types": [
+                     "string"
+                    ]
+                   },
+                   "turn_index": {
+                    "optional": false,
+                    "types": [
+                     "integer"
+                    ]
+                   }
+                  },
+                  "optional": false,
+                  "types": [
+                   "object"
+                  ]
+                 },
+                 "snippet": {
+                  "formats": [
+                   "empty",
+                   "text"
+                  ],
+                  "optional": false,
+                  "types": [
+                   "string"
+                  ]
+                 },
+                 "title": {
+                  "formats": [
+                   "text"
+                  ],
+                  "optional": false,
+                  "types": [
+                   "string"
+                  ]
+                 },
+                 "type": {
+                  "enum": [
+                   "search_result"
+                  ],
+                  "formats": [
+                   "enum"
+                  ],
+                  "optional": false,
+                  "types": [
+                   "string"
+                  ]
+                 },
+                 "url": {
+                  "formats": [
+                   "url"
+                  ],
+                  "optional": false,
+                  "types": [
+                   "string"
+                  ]
+                 }
+                },
+                "types": [
+                 "object"
+                ]
+               },
+               "optional": false,
+               "types": [
+                "array"
+               ]
+              },
+              "type": {
+               "enum": [
+                "search_result_group"
+               ],
+               "formats": [
+                "enum"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              }
+             },
+             "types": [
+              "object"
+             ]
+            },
+            "optional": true,
+            "types": [
+             "array"
+            ]
+           },
+           "source_message_ids": {
+            "items": {
+             "formats": [
+              "uuid"
+             ],
+             "types": [
+              "string"
+             ]
+            },
+            "optional": true,
+            "types": [
+             "array"
+            ]
+           }
+          },
+          "optional": true,
+          "types": [
+           "object"
+          ]
+         },
+         "invoked_plugin": {
+          "fields": {},
+          "optional": true,
+          "types": [
+           "object"
+          ]
+         },
+         "invoked_resource": {
+          "fields": {
+           "app_name": {
+            "formats": [
+             "text"
+            ],
+            "optional": true,
+            "types": [
+             "string"
+            ]
+           },
+           "publish_status": {
+            "formats": [
+             "text"
+            ],
+            "optional": true,
+            "types": [
+             "string"
+            ]
+           },
+           "resource_uri": {
+            "formats": [
+             "text",
+             "token"
+            ],
+            "optional": false,
+            "types": [
+             "string"
+            ]
+           }
+          },
+          "optional": true,
+          "types": [
+           "object"
+          ]
+         },
+         "is_complete": {
+          "booleans": [
+           true
+          ],
+          "optional": true,
+          "types": [
+           "boolean"
+          ]
+         },
+         "is_thinking_preamble_message": {
+          "booleans": [
+           true
+          ],
+          "optional": true,
+          "types": [
+           "boolean"
+          ]
+         },
+         "is_visually_hidden_from_conversation": {
+          "booleans": [
+           false
+          ],
+          "optional": true,
+          "types": [
+           "boolean"
+          ]
+         },
+         "message_source": {
+          "optional": true,
+          "types": [
+           "null"
+          ]
+         },
+         "message_type": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "model_slug": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "model_switcher_deny": {
+          "items": null,
+          "optional": true,
+          "types": [
+           "array"
+          ]
+         },
+         "parent_id": {
+          "formats": [
+           "uuid"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "permissions": {
+          "items": {
+           "fields": {
+            "notification_channel_id": {
+             "formats": [
+              "text"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            },
+            "notification_channel_name": {
+             "formats": [
+              "text"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            },
+            "notification_priority": {
+             "optional": false,
+             "types": [
+              "integer"
+             ]
+            },
+            "status": {
+             "enum": [
+              "requested"
+             ],
+             "formats": [
+              "enum"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            },
+            "type": {
+             "enum": [
+              "notification"
+             ],
+             "formats": [
+              "enum"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            }
+           },
+           "types": [
+            "object"
+           ]
+          },
+          "optional": true,
+          "types": [
+           "array"
+          ]
+         },
+         "personal_sources": {
+          "items": {
+           "formats": [
+            "text"
+           ],
+           "types": [
+            "string"
+           ]
+          },
+          "optional": true,
+          "types": [
+           "array"
+          ]
+         },
+         "reasoning_end_time": {
+          "optional": true,
+          "types": [
+           "number"
+          ]
+         },
+         "reasoning_recap_type": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "reasoning_start_time": {
+          "optional": true,
+          "types": [
+           "number"
+          ]
+         },
+         "reasoning_status": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "reasoning_title": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "null",
+           "string"
+          ]
+         },
+         "reasoning_title_content_transition": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "reasoning_titles": {
+          "items": {
+           "formats": [
+            "text"
+           ],
+           "types": [
+            "string"
+           ]
+          },
+          "optional": true,
+          "types": [
+           "array",
+           "null"
+          ]
+         },
+         "request_id": {
+          "formats": [
+           "uuid"
+          ],
+          "optional": false,
+          "types": [
+           "string"
+          ]
+         },
+         "resolved_model_slug": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "safe_urls": {
+          "items": {
+           "formats": [
+            "url"
+           ],
+           "types": [
+            "string"
+           ]
+          },
+          "optional": true,
+          "types": [
+           "array"
+          ]
+         },
+         "search_result_groups": {
+          "items": {
+           "fields": {
+            "domain": {
+             "formats": [
+              "text"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            },
+            "entries": {
+             "items": {
+              "fields": {
+               "attribution": {
+                "formats": [
+                 "text"
+                ],
+                "optional": false,
+                "types": [
+                 "string"
+                ]
+               },
+               "pub_date": {
+                "optional": false,
+                "types": [
+                 "null",
+                 "number"
+                ]
+               },
+               "ref_id": {
+                "fields": {
+                 "ref_index": {
+                  "optional": false,
+                  "types": [
+                   "integer"
+                  ]
+                 },
+                 "ref_type": {
+                  "formats": [
+                   "text"
+                  ],
+                  "optional": false,
+                  "types": [
+                   "string"
+                  ]
+                 },
+                 "turn_index": {
+                  "optional": false,
+                  "types": [
+                   "integer"
+                  ]
+                 }
+                },
+                "optional": false,
+                "types": [
+                 "object"
+                ]
+               },
+               "snippet": {
+                "formats": [
+                 "empty",
+                 "text"
+                ],
+                "optional": false,
+                "types": [
+                 "string"
+                ]
+               },
+               "thumbnail_url": {
+                "formats": [
+                 "url"
+                ],
+                "optional": true,
+                "types": [
+                 "string"
+                ]
+               },
+               "title": {
+                "formats": [
+                 "text"
+                ],
+                "optional": false,
+                "types": [
+                 "string"
+                ]
+               },
+               "type": {
+                "enum": [
+                 "search_result"
+                ],
+                "formats": [
+                 "enum"
+                ],
+                "optional": false,
+                "types": [
+                 "string"
+                ]
+               },
+               "url": {
+                "formats": [
+                 "url"
+                ],
+                "optional": false,
+                "types": [
+                 "string"
+                ]
+               }
+              },
+              "types": [
+               "object"
+              ]
+             },
+             "optional": false,
+             "types": [
+              "array"
+             ]
+            },
+            "type": {
+             "enum": [
+              "search_result_group"
+             ],
+             "formats": [
+              "enum"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            }
+           },
+           "types": [
+            "object"
+           ]
+          },
+          "optional": true,
+          "types": [
+           "array"
+          ]
+         },
+         "serialization_metadata": {
+          "fields": {
+           "custom_symbol_offsets": {
+            "items": {
+             "fields": {
+              "end_index": {
+               "optional": false,
+               "types": [
+                "integer"
+               ]
+              },
+              "id": {
+               "formats": [
+                "token"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              },
+              "start_index": {
+               "optional": false,
+               "types": [
+                "integer"
+               ]
+              },
+              "symbol": {
+               "formats": [
+                "text"
+               ],
+               "optional": false,
+               "types": [
+                "string"
+               ]
+              }
+             },
+             "types": [
+              "object"
+             ]
+            },
+            "optional": true,
+            "types": [
+             "array"
+            ]
+           },
+           "render_format": {
+            "formats": [
+             "text"
+            ],
+            "optional": true,
+            "types": [
+             "string"
+            ]
+           }
+          },
+          "optional": true,
+          "types": [
+           "object"
+          ]
+         },
+         "skill_id": {
+          "formats": [
+           "id:pluginrsk_"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "skill_name": {
+          "formats": [
+           "text",
+           "token"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "skill_plugin_id": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "skip_reasoning_title": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "status": {
+          "enum": [
+           "running"
+          ],
+          "formats": [
+           "enum"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "summary_type": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "system_hints": {
+          "items": {
+           "formats": [
+            "token"
+           ],
+           "types": [
+            "string"
+           ]
+          },
+          "optional": true,
+          "types": [
+           "array"
+          ]
+         },
+         "thinking_effort": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "tool_hide_expanded_content": {
+          "booleans": [
+           true
+          ],
+          "optional": true,
+          "types": [
+           "boolean"
+          ]
+         },
+         "tool_icons": {
+          "items": {
+           "formats": [
+            "text",
+            "url"
+           ],
+           "types": [
+            "string"
+           ]
+          },
+          "optional": true,
+          "types": [
+           "array"
+          ]
+         },
+         "tool_invoked_message": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "tool_invoking_message": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "tool_summary_type": {
+          "formats": [
+           "text"
+          ],
+          "optional": true,
+          "types": [
+           "string"
+          ]
+         },
+         "triggered_by_system_hint_suggestion": {
+          "booleans": [
+           false
+          ],
+          "optional": true,
+          "types": [
+           "boolean"
+          ]
+         },
+         "turn_exchange_id": {
+          "formats": [
+           "uuid"
+          ],
+          "optional": false,
+          "types": [
+           "string"
+          ]
+         },
+         "working_turn_id": {
+          "formats": [
+           "uuid"
+          ],
+          "optional": false,
+          "types": [
+           "string"
+          ]
+         }
+        },
+        "optional": false,
+        "types": [
+         "object"
+        ]
+       },
+       "recipient": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "status": {
+        "enum": [
+         "finished_successfully",
+         "in_progress"
+        ],
+        "formats": [
+         "enum"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "update_time": {
+        "optional": false,
+        "types": [
+         "null",
+         "number"
+        ]
+       },
+       "weight": {
+        "optional": false,
+        "types": [
+         "number"
+        ]
+       }
+      },
+      "optional": false,
+      "types": [
+       "null",
+       "object"
+      ]
+     },
+     "parent": {
+      "formats": [
+       "text",
+       "uuid"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     }
+    },
+    "types": [
+     "object"
+    ]
+   }
+  },
+  "memory_scope": {
+   "enum": [
+    "global_enabled",
+    "project_v2"
+   ],
+   "formats": [
+    "enum"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "moderation_results": {
+   "items": null,
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "owner": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "pinned_time": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "plugin_ids": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "safe_urls": {
+   "items": {
+    "formats": [
+     "text",
+     "url"
+    ],
+    "types": [
+     "string"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "sugar_item_id": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "sugar_item_visible": {
+   "booleans": [
+    false
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "title": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "update_time": {
+   "optional": false,
+   "types": [
+    "number"
+   ]
+  },
+  "voice": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

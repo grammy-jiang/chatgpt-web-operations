@@ -1,0 +1,348 @@
+{
+ "fields": {
+  "hazelnuts": {
+   "items": {
+    "fields": {
+     "base_sediment_id": {
+      "formats": [
+       "id:file_"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "brand_color": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "check_sum_hash": {
+      "formats": [
+       "hexid"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "creator_id": {
+      "formats": [
+       "account-id:user"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "creator_name": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "default_version_no": {
+      "formats": [
+       "numeric"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "description": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "display_name": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "enabled": {
+      "booleans": [
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "files": {
+      "optional": false,
+      "types": [
+       "map"
+      ],
+      "values": {
+       "fields": {
+        "length": {
+         "optional": false,
+         "types": [
+          "integer"
+         ]
+        },
+        "start": {
+         "optional": false,
+         "types": [
+          "integer"
+         ]
+        }
+       },
+       "types": [
+        "object"
+       ]
+      }
+     },
+     "icon_small": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "iconography": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "id": {
+      "formats": [
+       "hexid"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "in_my_list": {
+      "booleans": [
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "last_updated_at": {
+      "formats": [
+       "datetime"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "latest_version_no": {
+      "formats": [
+       "numeric"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "name": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "permissions": {
+      "fields": {
+       "can_delete": {
+        "booleans": [
+         true
+        ],
+        "optional": false,
+        "types": [
+         "boolean"
+        ]
+       },
+       "can_enable_share": {
+        "booleans": [
+         true
+        ],
+        "optional": false,
+        "types": [
+         "boolean"
+        ]
+       },
+       "can_export": {
+        "booleans": [
+         true
+        ],
+        "optional": false,
+        "types": [
+         "boolean"
+        ]
+       },
+       "can_read": {
+        "booleans": [
+         true
+        ],
+        "optional": false,
+        "types": [
+         "boolean"
+        ]
+       },
+       "can_share": {
+        "booleans": [
+         true
+        ],
+        "optional": false,
+        "types": [
+         "boolean"
+        ]
+       },
+       "can_share_workspace": {
+        "booleans": [
+         true
+        ],
+        "optional": false,
+        "types": [
+         "boolean"
+        ]
+       },
+       "can_write": {
+        "booleans": [
+         true
+        ],
+        "optional": false,
+        "types": [
+         "boolean"
+        ]
+       }
+      },
+      "optional": false,
+      "types": [
+       "object"
+      ]
+     },
+     "safety_check_status": {
+      "enum": [
+       "unchecked"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "safety_scan": {
+      "fields": {
+       "justification": {
+        "formats": [
+         "empty"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "labels": {
+        "items": null,
+        "optional": false,
+        "types": [
+         "array"
+        ]
+       },
+       "risk_score": {
+        "optional": false,
+        "types": [
+         "integer"
+        ]
+       }
+      },
+      "optional": false,
+      "types": [
+       "object"
+      ]
+     },
+     "sample_prompts": {
+      "items": {
+       "formats": [
+        "text"
+       ],
+       "types": [
+        "string"
+       ]
+      },
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     },
+     "sediment_id": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "short_description": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "surfaces": {
+      "items": {
+       "formats": [
+        "text"
+       ],
+       "types": [
+        "string"
+       ]
+      },
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     },
+     "updated_at": {
+      "formats": [
+       "datetime"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     }
+    },
+    "types": [
+     "object"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

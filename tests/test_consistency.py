@@ -39,6 +39,7 @@ if str(SCRIPTS) not in sys.path:
 # row of "## The commands": these are not commands.
 LIBRARY_MODULES = {
     "_common.py",
+    "api_shapes.py",
     "round_state.py",
     "chatgpt_client.py",
     "chatgpt_session.py",

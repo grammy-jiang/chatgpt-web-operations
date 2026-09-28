@@ -37,11 +37,12 @@ def leaks_in(text: str) -> list[str]:
 def test_every_fixture_is_scrubbed_of_the_account_s_identity() -> None:
     """A fixture recorded from the real account must never carry it to disk.
 
-    Passes trivially when tests/fixtures/ has no JSON files yet.
+    Covers the recorded payloads in tests/fixtures/ and the recorded API
+    shapes in tests/fixtures/http/ (TESTING.md section 6, P5).
     """
     offenders = {
-        path.name: problems
-        for path in sorted(FIXTURES.glob("*.json"))
+        str(path.relative_to(FIXTURES)): problems
+        for path in sorted([*FIXTURES.glob("*.json"), *FIXTURES.glob("http/*.json")])
         if (problems := leaks_in(path.read_text(encoding="utf-8")))
     }
     assert not offenders, offenders

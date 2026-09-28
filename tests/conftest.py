@@ -143,6 +143,13 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         help="skip the live sandbox sweep after write/send, print what stayed",
     )
+    parser.addoption(
+        "--api-shapes",
+        default="",
+        metavar="DIR",
+        help="overlay these recorded API shapes (a run's http/) on "
+        "tests/fixtures/http for the contract tests (make contract SHAPES=DIR)",
+    )
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:

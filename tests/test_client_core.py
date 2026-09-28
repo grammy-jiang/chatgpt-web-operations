@@ -833,3 +833,17 @@ def test_record_stream_follows_rp_record_stream(monkeypatch) -> None:
     sender = cc.BrowserSender("chrome", record_send_body="/tmp/x.json")
     assert sender.record_stream is False
     assert sender.record_send_body == "/tmp/x.json"
+
+
+def test_chain_stops_at_a_parent_loop_instead_of_walking_forever() -> None:
+    """A payload is data, not a promise: a parent chain that loops (found
+    missing while building the API shape synthesizer, 2026-09-29) ends the
+    walk at the first repeated node."""
+    conv = {
+        "current_node": "b",
+        "mapping": {
+            "a": {"message": {"id": "a"}, "parent": "b"},
+            "b": {"message": {"id": "b"}, "parent": "a"},
+        },
+    }
+    assert [m["id"] for m in cc.chain(conv)] == ["a", "b"]

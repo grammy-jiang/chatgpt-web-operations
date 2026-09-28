@@ -158,3 +158,31 @@ def test_the_whole_command_exits_as_documented(
     assert facts["endpoints"]["pins"] == 200
     # Never the user's data: only shape, counts and statuses appear above;
     # nothing here ever asserts a cookie value or a conversation's content.
+
+
+def test_record_shapes_writes_every_registered_endpoint_and_finds_no_drift(
+    live_session: Any, monkeypatch: Any, tmp_path: Path
+) -> None:
+    """``--record-shapes`` over the guarded session (TESTING.md 6.3, P5): every
+    registered endpoint is recorded (the read POSTs are in the guard's
+    READ_POSTS) and the fields the commands read match the committed shapes.
+    A warning here is the daily check's warning, found by hand."""
+    import api_shapes
+
+    monkeypatch.setattr(
+        preflight,
+        "open_chatgpt_session",
+        lambda cc, browser, **kwargs: (_as_session(live_session), None),
+    )
+    shapes_dir = tmp_path / "http"
+    health.main(
+        ["--json", str(tmp_path / "h.json"), "--record-shapes", str(shapes_dir)]
+    )
+    doc = json.loads((tmp_path / "h.json").read_text(encoding="utf-8"))
+    row = doc["checks"][-1]
+    assert row["name"] == "api shapes"
+    assert row["state"] == "ok", row["detail"]
+    recorded = set(api_shapes.load(shapes_dir))
+    assert recorded == set(api_shapes.BY_NAME), sorted(
+        set(api_shapes.BY_NAME) - recorded
+    )

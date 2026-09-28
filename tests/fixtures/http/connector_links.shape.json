@@ -1,0 +1,418 @@
+{
+ "fields": {
+  "links": {
+   "items": {
+    "fields": {
+     "actions": {
+      "items": {
+       "formats": [
+        "text",
+        "token"
+       ],
+       "types": [
+        "string"
+       ]
+      },
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     },
+     "apps_privacy_control": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "auth_status": {
+      "enum": [
+       "ACTIVE",
+       "REAUTH_REQUIRED"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "auth_status_reason": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "auth_status_updated_at": {
+      "formats": [
+       "datetime"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "auth_type": {
+      "enum": [
+       "NONE",
+       "OAUTH"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "configured_controls": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "connector_description": {
+      "formats": [
+       "empty",
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "connector_distribution_channel": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "connector_id": {
+      "formats": [
+       "id:asdk_app_",
+       "id:connector_",
+       "text",
+       "token"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "connector_name": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "connector_status": {
+      "enum": [
+       "ENABLED",
+       "ONLY_ME"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "connector_type": {
+      "enum": [
+       "FIRST_PARTY_ECOSYSTEM",
+       "MCP",
+       "SERVICE"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "created_at": {
+      "formats": [
+       "datetime"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "disable_auto_invocation": {
+      "booleans": [
+       false,
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "enable_multi_links": {
+      "booleans": [
+       true
+      ],
+      "optional": true,
+      "types": [
+       "boolean"
+      ]
+     },
+     "id": {
+      "formats": [
+       "id:link_",
+       "token"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "is_read_only": {
+      "booleans": [
+       false
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "labels": {
+      "fields": {
+       "implicit_link": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       }
+      },
+      "optional": false,
+      "types": [
+       "null",
+       "object"
+      ]
+     },
+     "link_params": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "name": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "oauth_client_id": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "owner_profile": {
+      "fields": {
+       "email": {
+        "formats": [
+         "email"
+        ],
+        "optional": false,
+        "types": [
+         "null",
+         "string"
+        ]
+       },
+       "id": {
+        "formats": [
+         "numeric"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "name": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "nickname": {
+        "optional": false,
+        "types": [
+         "null"
+        ]
+       },
+       "picture": {
+        "formats": [
+         "url"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "workspace_id": {
+        "optional": false,
+        "types": [
+         "null"
+        ]
+       },
+       "workspace_name": {
+        "optional": false,
+        "types": [
+         "null"
+        ]
+       },
+       "workspace_picture": {
+        "optional": false,
+        "types": [
+         "null"
+        ]
+       }
+      },
+      "optional": false,
+      "types": [
+       "null",
+       "object"
+      ]
+     },
+     "owners": {
+      "items": {
+       "fields": {
+        "id": {
+         "formats": [
+          "account-id:user"
+         ],
+         "optional": false,
+         "types": [
+          "string"
+         ]
+        },
+        "type": {
+         "enum": [
+          "USER"
+         ],
+         "formats": [
+          "enum"
+         ],
+         "optional": false,
+         "types": [
+          "string"
+         ]
+        }
+       },
+       "types": [
+        "object"
+       ]
+      },
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     },
+     "requested_scopes": {
+      "items": {
+       "formats": [
+        "text",
+        "url"
+       ],
+       "types": [
+        "string"
+       ]
+      },
+      "optional": false,
+      "types": [
+       "array",
+       "null"
+      ]
+     },
+     "scopes": {
+      "items": {
+       "formats": [
+        "text",
+        "url"
+       ],
+       "types": [
+        "string"
+       ]
+      },
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     },
+     "supports_oauth_owner_profile_id": {
+      "booleans": [
+       false,
+       true
+      ],
+      "optional": true,
+      "types": [
+       "boolean"
+      ]
+     },
+     "template_id": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "visibility": {
+      "enum": [
+       "HIDDEN",
+       "VISIBLE"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     }
+    },
+    "types": [
+     "object"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

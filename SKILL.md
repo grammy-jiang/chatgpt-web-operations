@@ -89,7 +89,7 @@ skill does not import it.
 
 ## The commands
 
-There are 30 command scripts and five support modules. `clean_chats.py`,
+There are 30 command scripts and six support modules. `clean_chats.py`,
 `project_settings.py`, `pin_chat.py` and `delete_project.py` need `--apply`.
 `create_project.py`, `create_connector.py` and `connect_connector.py` act
 unless `--dry-run` is supplied. `delete_connector.py` and `delete_skill.py`
@@ -107,7 +107,7 @@ use POST; HTTP method alone does not determine whether an operation writes.
 | Command | Purpose | Exit code means |
 |---------|---------|-----------------|
 | `preflight.py` | One go/no-go check before a run starts: host, link, account and run over one session; `--browser` adds a composer check, `--project` and `--workdir` add their own. With `RP_SNAPSHOT_DIR=DIR` the browser check also records the composer page's DOM (attributes only) in `DIR` and warns, naming the facts, when it differs from `tests/fixtures/dom/composer.json`. | 0 GO, 1 DO NOT START (n blocking), 2 GO WITH WARNINGS (n) |
-| `health.py` | The daily health check's HTTP half, for a cron wrapper: preflight's host, link, account and run groups, plus health checks and the skills-inventory read over the same session (session-token expiry from the cookie jar, the live-test sandbox's identity and cleanliness, two reads preflight never makes; a skill's status -- blocked, disabled or missing -- never fails the check, only a failed skills read does). `--browser` adds preflight's composer check; `--json PATH` writes the verdict plus a `facts` block; `--skills-json` saves the redacted inventory and `--diagnostics` saves credential-free transport events. | 0 GO, 1 DO NOT START (n blocking), 2 GO WITH WARNINGS (n) |
+| `health.py` | The daily health check's HTTP half, for a cron wrapper: preflight's host, link, account and run groups, plus health checks and the skills-inventory read over the same session (session-token expiry from the cookie jar, the live-test sandbox's identity and cleanliness, two reads preflight never makes; a skill's status -- blocked, disabled or missing -- never fails the check, only a failed skills read does). `--browser` adds preflight's composer check; `--json PATH` writes the verdict plus a `facts` block; `--skills-json` saves the redacted inventory and `--diagnostics` saves credential-free transport events; `--record-shapes DIR` records every read endpoint's response shape to DIR and adds an 'api shapes' check that warns when a field the commands read disappears or changes type. | 0 GO, 1 DO NOT START (n blocking), 2 GO WITH WARNINGS (n) |
 | `probe_account.py` | Does the account answer at all? Auth, `/me`, one listing, plan window and credits. | 0 reads work |
 | `probe_cookies.py` | Which cookies decrypt, and when the session token expires (this probe does not renew cookies; session creation can renew the keyring copy). Never prints a value. `--json PATH` for a caller that wants the number. | 0 session cookie readable |
 | `probe_send_gates.py` | What a send requires right now: proof-of-work, Turnstile, `so`. | 0 no browser needed |
@@ -138,6 +138,10 @@ use POST; HTTP method alone does not determine whether an operation writes.
 | `discover_endpoints.py` | Record what endpoints the page calls, and with `--bodies` what they sent. | 0 always |
 
 `_common.py` holds only session bootstrap and table formatting.
+`api_shapes.py` records, compares and synthesizes the response shapes of the
+endpoints the commands read (field names, types and string formats, never
+values); `health.py --record-shapes DIR` uses it daily, and the contract tests
+run every read command over payloads it synthesizes (`TESTING.md` 6.3, P5).
 
 Search indexing can lag behind a completed reply. During the 2026-09-25
 checks, unique markers initially returned no hits and later matched the

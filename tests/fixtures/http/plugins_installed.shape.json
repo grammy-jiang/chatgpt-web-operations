@@ -1,0 +1,680 @@
+{
+ "fields": {
+  "pagination": {
+   "fields": {
+    "limit": {
+     "optional": false,
+     "types": [
+      "integer"
+     ]
+    },
+    "next_page_token": {
+     "optional": false,
+     "types": [
+      "null"
+     ]
+    }
+   },
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  },
+  "plugins": {
+   "items": {
+    "fields": {
+     "authentication_policy": {
+      "enum": [
+       "ON_INSTALL",
+       "ON_USE"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "canonical_app_id": {
+      "formats": [
+       "id:asdk_app_",
+       "id:connector_",
+       "text",
+       "token"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "connector_id": {
+      "formats": [
+       "id:asdk_app_",
+       "id:connector_",
+       "text",
+       "token"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "created_at": {
+      "formats": [
+       "datetime"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "creator_account_user_id": {
+      "formats": [
+       "account-id:user"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "creator_name": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "disabled_reason": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "disabled_skill_names": {
+      "items": null,
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     },
+     "discoverability": {
+      "enum": [
+       "LISTED",
+       "PRIVATE"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "eligible_plan_types": {
+      "items": {
+       "formats": [
+        "text",
+        "token"
+       ],
+       "types": [
+        "string"
+       ]
+      },
+      "optional": false,
+      "types": [
+       "array",
+       "null"
+      ]
+     },
+     "enabled": {
+      "booleans": [
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "id": {
+      "formats": [
+       "id:Plugin_",
+       "id:plugin_asdk_app_",
+       "id:plugin_connector_1p_",
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "installation_policy": {
+      "enum": [
+       "AVAILABLE",
+       "INSTALLED_BY_DEFAULT"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "installation_policy_source": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "installed_at": {
+      "formats": [
+       "datetime"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "is_template": {
+      "booleans": [
+       false
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "must_show_installation_interstitial": {
+      "booleans": [
+       false,
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "name": {
+      "formats": [
+       "text",
+       "token"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "release": {
+      "fields": {
+       "app_ids": {
+        "items": {
+         "formats": [
+          "id:asdk_app_",
+          "id:connector_",
+          "text",
+          "token"
+         ],
+         "types": [
+          "string"
+         ]
+        },
+        "optional": false,
+        "types": [
+         "array"
+        ]
+       },
+       "app_manifest": {
+        "opaque": true,
+        "optional": false,
+        "types": [
+         "null",
+         "object"
+        ]
+       },
+       "app_templates": {
+        "items": null,
+        "optional": false,
+        "types": [
+         "array"
+        ]
+       },
+       "bundle_download_url": {
+        "optional": false,
+        "types": [
+         "null"
+        ]
+       },
+       "description": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "display_name": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "id": {
+        "formats": [
+         "id:PluginRelease_",
+         "id:pluginrel_"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "interface": {
+        "fields": {
+         "brand_color": {
+          "formats": [
+           "text"
+          ],
+          "optional": false,
+          "types": [
+           "null",
+           "string"
+          ]
+         },
+         "capabilities": {
+          "items": {
+           "formats": [
+            "text"
+           ],
+           "types": [
+            "string"
+           ]
+          },
+          "optional": false,
+          "types": [
+           "array"
+          ]
+         },
+         "category": {
+          "formats": [
+           "text"
+          ],
+          "optional": false,
+          "types": [
+           "string"
+          ]
+         },
+         "composer_icon_dark_url": {
+          "formats": [
+           "url"
+          ],
+          "optional": false,
+          "types": [
+           "null",
+           "string"
+          ]
+         },
+         "composer_icon_url": {
+          "formats": [
+           "url"
+          ],
+          "optional": false,
+          "types": [
+           "null",
+           "string"
+          ]
+         },
+         "default_prompt": {
+          "formats": [
+           "text"
+          ],
+          "optional": false,
+          "types": [
+           "null",
+           "string"
+          ]
+         },
+         "default_prompts": {
+          "items": {
+           "formats": [
+            "text"
+           ],
+           "types": [
+            "string"
+           ]
+          },
+          "optional": false,
+          "types": [
+           "array",
+           "null"
+          ]
+         },
+         "developer_name": {
+          "formats": [
+           "text"
+          ],
+          "optional": false,
+          "types": [
+           "string"
+          ]
+         },
+         "logo_url": {
+          "formats": [
+           "url"
+          ],
+          "optional": false,
+          "types": [
+           "null",
+           "string"
+          ]
+         },
+         "logo_url_dark": {
+          "formats": [
+           "url"
+          ],
+          "optional": false,
+          "types": [
+           "null",
+           "string"
+          ]
+         },
+         "long_description": {
+          "formats": [
+           "text"
+          ],
+          "optional": false,
+          "types": [
+           "string"
+          ]
+         },
+         "plugin_category_id": {
+          "formats": [
+           "text"
+          ],
+          "optional": false,
+          "types": [
+           "string"
+          ]
+         },
+         "privacy_policy_url": {
+          "formats": [
+           "url"
+          ],
+          "optional": false,
+          "types": [
+           "null",
+           "string"
+          ]
+         },
+         "screenshot_urls": {
+          "items": {
+           "formats": [
+            "url"
+           ],
+           "types": [
+            "string"
+           ]
+          },
+          "optional": false,
+          "types": [
+           "array"
+          ]
+         },
+         "short_description": {
+          "formats": [
+           "text"
+          ],
+          "optional": false,
+          "types": [
+           "string"
+          ]
+         },
+         "terms_of_service_url": {
+          "formats": [
+           "url"
+          ],
+          "optional": false,
+          "types": [
+           "null",
+           "string"
+          ]
+         },
+         "website_url": {
+          "formats": [
+           "url"
+          ],
+          "optional": false,
+          "types": [
+           "null",
+           "string"
+          ]
+         }
+        },
+        "optional": false,
+        "types": [
+         "object"
+        ]
+       },
+       "keywords": {
+        "items": {
+         "formats": [
+          "text",
+          "token"
+         ],
+         "types": [
+          "string"
+         ]
+        },
+        "optional": false,
+        "types": [
+         "array"
+        ]
+       },
+       "onboarding_skill_name": {
+        "optional": false,
+        "types": [
+         "null"
+        ]
+       },
+       "requires_local_executor": {
+        "booleans": [
+         false
+        ],
+        "optional": false,
+        "types": [
+         "boolean"
+        ]
+       },
+       "skills": {
+        "items": {
+         "fields": {
+          "description": {
+           "formats": [
+            "text"
+           ],
+           "optional": false,
+           "types": [
+            "string"
+           ]
+          },
+          "interface": {
+           "fields": {
+            "brand_color": {
+             "formats": [
+              "text"
+             ],
+             "optional": false,
+             "types": [
+              "null",
+              "string"
+             ]
+            },
+            "default_prompt": {
+             "formats": [
+              "text"
+             ],
+             "optional": false,
+             "types": [
+              "null",
+              "string"
+             ]
+            },
+            "display_name": {
+             "formats": [
+              "text",
+              "token"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            },
+            "icon_large_url": {
+             "formats": [
+              "url"
+             ],
+             "optional": false,
+             "types": [
+              "null",
+              "string"
+             ]
+            },
+            "icon_small_url": {
+             "formats": [
+              "url"
+             ],
+             "optional": false,
+             "types": [
+              "null",
+              "string"
+             ]
+            },
+            "iconography": {
+             "formats": [
+              "text"
+             ],
+             "optional": false,
+             "types": [
+              "null",
+              "string"
+             ]
+            },
+            "short_description": {
+             "formats": [
+              "text"
+             ],
+             "optional": false,
+             "types": [
+              "string"
+             ]
+            }
+           },
+           "optional": false,
+           "types": [
+            "object"
+           ]
+          },
+          "name": {
+           "formats": [
+            "text",
+            "token"
+           ],
+           "optional": false,
+           "types": [
+            "string"
+           ]
+          },
+          "plugin_release_skill_id": {
+           "formats": [
+            "id:pluginrsk_"
+           ],
+           "optional": false,
+           "types": [
+            "string"
+           ]
+          }
+         },
+         "types": [
+          "object"
+         ]
+        },
+        "optional": false,
+        "types": [
+         "array"
+        ]
+       },
+       "version": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       }
+      },
+      "optional": false,
+      "types": [
+       "object"
+      ]
+     },
+     "scope": {
+      "enum": [
+       "GLOBAL",
+       "USER"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "status": {
+      "enum": [
+       "ENABLED"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "workspace_id": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     }
+    },
+    "types": [
+     "object"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

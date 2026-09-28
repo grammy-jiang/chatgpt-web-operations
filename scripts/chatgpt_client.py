@@ -376,7 +376,11 @@ def chain(conv: dict) -> list[dict]:
     mapping = conv.get("mapping", {})
     node = conv.get("current_node")
     out: list[dict] = []
-    while node and node in mapping:
+    seen: set[str] = set()
+    # A parent chain that loops back on itself would walk forever; the
+    # server never sends one, but a payload is data, not a promise.
+    while node and node in mapping and node not in seen:
+        seen.add(node)
         out.append(mapping[node].get("message") or {})
         node = mapping[node].get("parent")
     out.reverse()

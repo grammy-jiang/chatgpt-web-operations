@@ -1,0 +1,20 @@
+{
+ "fields": {
+  "cursor": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "items": {
+   "items": null,
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

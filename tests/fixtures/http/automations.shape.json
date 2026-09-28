@@ -1,0 +1,407 @@
+{
+ "fields": {
+  "cursor": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "items": {
+   "items": {
+    "fields": {
+     "aeon_id": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "can_delete": {
+      "booleans": [
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "complexity": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "content_type": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "conversation_id": {
+      "formats": [
+       "uuid"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "created_by_display_name": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "current_user_role": {
+      "enum": [
+       "owner"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "default_timezone": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "display_emoji": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "display_schedule": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "display_title": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "email_enabled": {
+      "booleans": [
+       false,
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "executor": {
+      "enum": [
+       "cloud"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "external_channel": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "id": {
+      "formats": [
+       "hexid"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "is_enabled": {
+      "booleans": [
+       false,
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "last_edited_at": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "last_edited_by_display_name": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "last_run_time": {
+      "formats": [
+       "datetime"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "model": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "next_run_times": {
+      "items": {
+       "formats": [
+        "datetime"
+       ],
+       "types": [
+        "string"
+       ]
+      },
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     },
+     "notifications_enabled": {
+      "booleans": [
+       false,
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "page_id": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "prompt": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "reasoning_effort": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "schedule": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "schedule_components": {
+      "fields": {
+       "by_day": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "null",
+         "string"
+        ]
+       },
+       "by_hour": {
+        "optional": false,
+        "types": [
+         "integer",
+         "null"
+        ]
+       },
+       "by_minute": {
+        "optional": false,
+        "types": [
+         "integer",
+         "null"
+        ]
+       },
+       "by_month": {
+        "optional": false,
+        "types": [
+         "integer",
+         "null"
+        ]
+       },
+       "by_month_day": {
+        "optional": false,
+        "types": [
+         "integer",
+         "null"
+        ]
+       },
+       "by_second": {
+        "optional": false,
+        "types": [
+         "null"
+        ]
+       },
+       "by_year_day": {
+        "optional": false,
+        "types": [
+         "null"
+        ]
+       },
+       "frequency": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "start_time": {
+        "formats": [
+         "datetime"
+        ],
+        "optional": false,
+        "types": [
+         "null",
+         "string"
+        ]
+       }
+      },
+      "optional": false,
+      "types": [
+       "object"
+      ]
+     },
+     "schedule_time_of_day": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "source_conversation_is_work_mode": {
+      "booleans": [
+       false,
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "target_time_utc": {
+      "formats": [
+       "datetime"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "team_id": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "thread_mode": {
+      "enum": [
+       "existing_chat"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "timing_mode": {
+      "enum": [
+       "condition_watch",
+       "exact_schedule",
+       "flexible_schedule"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "title": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "updated_at": {
+      "formats": [
+       "datetime"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "webhook_triggers": {
+      "items": null,
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     }
+    },
+    "types": [
+     "object"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

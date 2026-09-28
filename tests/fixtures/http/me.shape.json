@@ -1,0 +1,416 @@
+{
+ "fields": {
+  "ads_segment_id": {
+   "optional": false,
+   "types": [
+    "integer"
+   ]
+  },
+  "amr": {
+   "items": {
+    "formats": [
+     "text"
+    ],
+    "types": [
+     "string"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "chatgpt_eval_data": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "claimed_domain_org_id": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "client_id": {
+   "formats": [
+    "token"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "country": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "created": {
+   "optional": false,
+   "types": [
+    "integer"
+   ]
+  },
+  "email": {
+   "formats": [
+    "email"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "email_domain_type": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "first_name": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "groups": {
+   "items": null,
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "has_payg_project_spend_limit": {
+   "booleans": [
+    true
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "id": {
+   "formats": [
+    "account-id:user"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "is_test_user": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "mfa_flag_enabled": {
+   "booleans": [
+    true
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "name": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "object": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "orgs": {
+   "fields": {
+    "data": {
+     "items": {
+      "fields": {
+       "banned": {
+        "optional": false,
+        "types": [
+         "null"
+        ]
+       },
+       "created": {
+        "optional": false,
+        "types": [
+         "integer"
+        ]
+       },
+       "description": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "geography": {
+        "optional": false,
+        "types": [
+         "null"
+        ]
+       },
+       "groups": {
+        "items": null,
+        "optional": false,
+        "types": [
+         "array"
+        ]
+       },
+       "id": {
+        "formats": [
+         "account-id:org"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "is_default": {
+        "booleans": [
+         true
+        ],
+        "optional": false,
+        "types": [
+         "boolean"
+        ]
+       },
+       "is_scale_tier_authorized_purchaser": {
+        "optional": false,
+        "types": [
+         "null"
+        ]
+       },
+       "is_scim_managed": {
+        "booleans": [
+         false
+        ],
+        "optional": false,
+        "types": [
+         "boolean"
+        ]
+       },
+       "name": {
+        "formats": [
+         "account-id:user"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "object": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "parent_org_id": {
+        "optional": false,
+        "types": [
+         "null"
+        ]
+       },
+       "personal": {
+        "booleans": [
+         true
+        ],
+        "optional": false,
+        "types": [
+         "boolean"
+        ]
+       },
+       "projects": {
+        "fields": {
+         "data": {
+          "items": null,
+          "optional": false,
+          "types": [
+           "array"
+          ]
+         },
+         "object": {
+          "formats": [
+           "text"
+          ],
+          "optional": false,
+          "types": [
+           "string"
+          ]
+         }
+        },
+        "optional": false,
+        "types": [
+         "object"
+        ]
+       },
+       "role": {
+        "enum": [
+         "owner"
+        ],
+        "formats": [
+         "enum"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "settings": {
+        "fields": {
+         "completed_platform_onboarding": {
+          "booleans": [
+           false
+          ],
+          "optional": false,
+          "types": [
+           "boolean"
+          ]
+         },
+         "disable_user_api_keys": {
+          "booleans": [
+           false
+          ],
+          "optional": false,
+          "types": [
+           "boolean"
+          ]
+         },
+         "threads_ui_visibility": {
+          "formats": [
+           "text"
+          ],
+          "optional": false,
+          "types": [
+           "string"
+          ]
+         },
+         "usage_dashboard_visibility": {
+          "formats": [
+           "text"
+          ],
+          "optional": false,
+          "types": [
+           "string"
+          ]
+         }
+        },
+        "optional": false,
+        "types": [
+         "object"
+        ]
+       },
+       "title": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       }
+      },
+      "types": [
+       "object"
+      ]
+     },
+     "optional": false,
+     "types": [
+      "array"
+     ]
+    },
+    "object": {
+     "formats": [
+      "text"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    }
+   },
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  },
+  "phone_number": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "picture": {
+   "formats": [
+    "url"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "region": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "region_code": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "signup_attribution": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "tenants": {
+   "items": null,
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

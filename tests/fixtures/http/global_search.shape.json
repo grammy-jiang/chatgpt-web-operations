@@ -1,0 +1,230 @@
+{
+ "fields": {
+  "cursor": {
+   "formats": [
+    "token"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "items": {
+   "items": {
+    "fields": {
+     "id": {
+      "formats": [
+       "token"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "match_kind": {
+      "enum": [
+       "content"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "payload": {
+      "fields": {
+       "conversation_id": {
+        "formats": [
+         "uuid"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "is_archived": {
+        "booleans": [
+         false
+        ],
+        "optional": false,
+        "types": [
+         "boolean"
+        ]
+       },
+       "is_starred": {
+        "optional": false,
+        "types": [
+         "null"
+        ]
+       },
+       "kind": {
+        "enum": [
+         "conversation"
+        ],
+        "formats": [
+         "enum"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "message_id": {
+        "formats": [
+         "uuid"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       }
+      },
+      "optional": false,
+      "types": [
+       "object"
+      ]
+     },
+     "snippet": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "source_key": {
+      "enum": [
+       "conversation"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "source_type": {
+      "enum": [
+       "conversation"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "title": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "update_time": {
+      "optional": false,
+      "types": [
+       "number"
+      ]
+     }
+    },
+    "types": [
+     "object"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "partial_results": {
+   "booleans": [
+    false
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "source_statuses": {
+   "items": {
+    "fields": {
+     "duration_ms": {
+      "optional": false,
+      "types": [
+       "number"
+      ]
+     },
+     "error_code": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "has_more": {
+      "booleans": [
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "source_key": {
+      "enum": [
+       "conversation"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "source_type": {
+      "enum": [
+       "conversation"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "status": {
+      "enum": [
+       "ok"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     }
+    },
+    "types": [
+     "object"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

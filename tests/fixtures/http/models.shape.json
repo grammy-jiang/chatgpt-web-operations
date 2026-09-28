@@ -1,0 +1,720 @@
+{
+ "fields": {
+  "categories": {
+   "items": {
+    "fields": {
+     "action_pill_short_name": {
+      "formats": [
+       "text"
+      ],
+      "optional": true,
+      "types": [
+       "string"
+      ]
+     },
+     "category": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "color": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "date_updated": {
+      "formats": [
+       "datetime"
+      ],
+      "optional": true,
+      "types": [
+       "string"
+      ]
+     },
+     "default_model": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "hard_deprecation_date": {
+      "formats": [
+       "date"
+      ],
+      "optional": true,
+      "types": [
+       "string"
+      ]
+     },
+     "human_category_name": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "human_category_name_append_version": {
+      "booleans": [
+       true
+      ],
+      "optional": true,
+      "types": [
+       "boolean"
+      ]
+     },
+     "human_category_short_name": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "icon": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "is_soft_deprecated": {
+      "booleans": [
+       true
+      ],
+      "optional": true,
+      "types": [
+       "boolean"
+      ]
+     },
+     "model_lane": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "model_version": {
+      "formats": [
+       "numeric"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "render_header_type": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "short_explainer": {
+      "formats": [
+       "empty",
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "slash_command_enabled": {
+      "booleans": [
+       false,
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "subcategory": {
+      "formats": [
+       "text"
+      ],
+      "optional": true,
+      "types": [
+       "string"
+      ]
+     },
+     "subscription_level": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "supported_features": {
+      "items": {
+       "formats": [
+        "text"
+       ],
+       "types": [
+        "string"
+       ]
+      },
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     },
+     "supported_models": {
+      "items": {
+       "formats": [
+        "text"
+       ],
+       "types": [
+        "string"
+       ]
+      },
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     },
+     "tagline": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     }
+    },
+    "types": [
+     "object"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "default_model_slug": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "icons": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "internal_groups": {
+   "items": null,
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "model_picker_version": {
+   "optional": false,
+   "types": [
+    "integer"
+   ]
+  },
+  "models": {
+   "items": {
+    "fields": {
+     "capabilities": {
+      "fields": {},
+      "optional": false,
+      "types": [
+       "object"
+      ]
+     },
+     "configurable_thinking_effort": {
+      "booleans": [
+       false,
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "description": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "enable_infer": {
+      "booleans": [
+       false
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "enable_infer_opt_out": {
+      "booleans": [
+       false
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "enabled_tools": {
+      "items": {
+       "formats": [
+        "text"
+       ],
+       "types": [
+        "string"
+       ]
+      },
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     },
+     "is_work_mode_model": {
+      "booleans": [
+       false,
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "max_tokens": {
+      "optional": false,
+      "types": [
+       "integer"
+      ]
+     },
+     "product_features": {
+      "fields": {
+       "attachments": {
+        "fields": {
+         "accepted_mime_types": {
+          "items": {
+           "formats": [
+            "text",
+            "token"
+           ],
+           "types": [
+            "string"
+           ]
+          },
+          "optional": false,
+          "types": [
+           "array"
+          ]
+         },
+         "can_accept_all_mime_types": {
+          "booleans": [
+           true
+          ],
+          "optional": false,
+          "types": [
+           "boolean"
+          ]
+         },
+         "image_mime_types": {
+          "items": {
+           "formats": [
+            "text"
+           ],
+           "types": [
+            "string"
+           ]
+          },
+          "optional": false,
+          "types": [
+           "array"
+          ]
+         },
+         "type": {
+          "enum": [
+           "retrieval"
+          ],
+          "formats": [
+           "enum"
+          ],
+          "optional": false,
+          "types": [
+           "string"
+          ]
+         }
+        },
+        "optional": false,
+        "types": [
+         "object"
+        ]
+       },
+       "contextual_answers": {
+        "fields": {
+         "is_eligible_for_contextual_answers": {
+          "booleans": [
+           true
+          ],
+          "optional": false,
+          "types": [
+           "boolean"
+          ]
+         }
+        },
+        "optional": true,
+        "types": [
+         "object"
+        ]
+       }
+      },
+      "optional": false,
+      "types": [
+       "object"
+      ]
+     },
+     "reasoning_type": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "slug": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "tags": {
+      "items": {
+       "formats": [
+        "text"
+       ],
+       "types": [
+        "string"
+       ]
+      },
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     },
+     "thinking_efforts": {
+      "items": {
+       "fields": {
+        "description": {
+         "formats": [
+          "text"
+         ],
+         "optional": false,
+         "types": [
+          "string"
+         ]
+        },
+        "full_label": {
+         "formats": [
+          "text"
+         ],
+         "optional": false,
+         "types": [
+          "string"
+         ]
+        },
+        "mobile_full_label": {
+         "formats": [
+          "text"
+         ],
+         "optional": false,
+         "types": [
+          "string"
+         ]
+        },
+        "short_label": {
+         "formats": [
+          "text"
+         ],
+         "optional": false,
+         "types": [
+          "string"
+         ]
+        },
+        "thinking_effort": {
+         "formats": [
+          "text"
+         ],
+         "optional": false,
+         "types": [
+          "string"
+         ]
+        }
+       },
+       "types": [
+        "object"
+       ]
+      },
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     },
+     "title": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     }
+    },
+    "types": [
+     "object"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "secondary_title": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "title": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "versions": {
+   "items": {
+    "fields": {
+     "display_text": {
+      "formats": [
+       "numeric",
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "display_text_for_intelligence": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "display_text_full": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "enabled": {
+      "booleans": [
+       true
+      ],
+      "optional": false,
+      "types": [
+       "boolean"
+      ]
+     },
+     "id": {
+      "formats": [
+       "numeric",
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "intelligence_presets": {
+      "items": {
+       "fields": {
+        "id": {
+         "optional": false,
+         "types": [
+          "integer"
+         ]
+        },
+        "lane": {
+         "formats": [
+          "text"
+         ],
+         "optional": false,
+         "types": [
+          "string"
+         ]
+        },
+        "model_slug": {
+         "formats": [
+          "text"
+         ],
+         "optional": false,
+         "types": [
+          "string"
+         ]
+        },
+        "preset_type": {
+         "formats": [
+          "text"
+         ],
+         "optional": false,
+         "types": [
+          "string"
+         ]
+        },
+        "selected_display_title": {
+         "formats": [
+          "text"
+         ],
+         "optional": false,
+         "types": [
+          "string"
+         ]
+        },
+        "selected_display_version": {
+         "formats": [
+          "numeric"
+         ],
+         "optional": false,
+         "types": [
+          "string"
+         ]
+        },
+        "show_version_in_latest": {
+         "booleans": [
+          true
+         ],
+         "optional": true,
+         "types": [
+          "boolean"
+         ]
+        },
+        "subtitle": {
+         "formats": [
+          "numeric"
+         ],
+         "optional": true,
+         "types": [
+          "string"
+         ]
+        },
+        "thinking_effort": {
+         "formats": [
+          "text"
+         ],
+         "optional": true,
+         "types": [
+          "string"
+         ]
+        },
+        "title": {
+         "formats": [
+          "text"
+         ],
+         "optional": false,
+         "types": [
+          "string"
+         ]
+        }
+       },
+       "types": [
+        "object"
+       ]
+      },
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     },
+     "short_display_text_for_intelligence": {
+      "formats": [
+       "numeric",
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "slugs": {
+      "items": {
+       "formats": [
+        "text"
+       ],
+       "types": [
+        "string"
+       ]
+      },
+      "optional": false,
+      "types": [
+       "array"
+      ]
+     }
+    },
+    "types": [
+     "object"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

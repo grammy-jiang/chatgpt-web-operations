@@ -1419,3 +1419,64 @@ def test_main_records_a_blocked_browser_check(
     assert code == 1
     assert doc["checks"][-1]["group"] == "browser"
     assert doc["checks"][-1]["state"] == "block"
+
+
+# ---------------------------------------------------------------------------
+# --record-shapes (TESTING.md section 6, P5)
+# ---------------------------------------------------------------------------
+
+
+class _FullBackend(_Backend):
+    """``_Backend`` with the real ``Session.call`` signature, which the
+    recording wrapper passes through (method, payload, retries...)."""
+
+    def call(self, path: str, method: str = "GET", payload: Any = None, **kw: Any):
+        return super().call(path)
+
+
+def test_main_records_shapes_and_adds_the_api_shapes_check(
+    clean_host: None,
+    linked_wireless: Path,
+    fake_psg: SimpleNamespace,
+    sandbox_file: dict,
+    cookie_db: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    backend = _FullBackend(_happy_backend(SANDBOX).responses)
+    session = _FakeSession(backend)
+    session.session.user_id = "user-XXXXXXXX"
+    monkeypatch.setattr(
+        health, "cc", _fake_cc(session, browsers={"chrome": (str(cookie_db), "chrome")})
+    )
+    out_path = tmp_path / "health.json"
+    shapes_dir = tmp_path / "http"
+    code = health.main(["--json", str(out_path), "--record-shapes", str(shapes_dir)])
+    doc = json.loads(out_path.read_text())
+    row = doc["checks"][-1]
+    assert row["name"] == "api shapes" and row["group"] == "health"
+    assert row["state"] in {"ok", "warn"}
+    assert (shapes_dir / "index.json").is_file()
+    assert (shapes_dir / "me.shape.json").is_file()
+    assert code in (0, 2)
+    # the run's own reads were observed, and fill asked for the rest
+    assert any(path.startswith("/backend-api/automations") for path in backend.calls)
+
+
+def test_main_without_record_shapes_makes_no_shapes_check(
+    clean_host: None,
+    linked_wireless: Path,
+    fake_psg: SimpleNamespace,
+    sandbox_file: dict,
+    cookie_db: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _FakeSession(_happy_backend(SANDBOX))
+    monkeypatch.setattr(
+        health, "cc", _fake_cc(session, browsers={"chrome": (str(cookie_db), "chrome")})
+    )
+    out_path = tmp_path / "health.json"
+    health.main(["--json", str(out_path)])
+    names = [c["name"] for c in json.loads(out_path.read_text())["checks"]]
+    assert "api shapes" not in names

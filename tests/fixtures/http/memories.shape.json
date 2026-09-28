@@ -1,0 +1,108 @@
+{
+ "fields": {
+  "memories": {
+   "items": {
+    "fields": {
+     "content": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "conversation_id": {
+      "formats": [
+       "uuid"
+      ],
+      "optional": false,
+      "types": [
+       "null",
+       "string"
+      ]
+     },
+     "created_timestamp": {
+      "optional": false,
+      "types": [
+       "null",
+       "number"
+      ]
+     },
+     "gizmo_id": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "id": {
+      "formats": [
+       "uuid"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "labels": {
+      "items": null,
+      "optional": false,
+      "types": [
+       "array",
+       "null"
+      ]
+     },
+     "last_updated": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "status": {
+      "enum": [
+       "warm"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "updated_at": {
+      "formats": [
+       "date"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     }
+    },
+    "types": [
+     "object"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "memory_max_tokens": {
+   "optional": false,
+   "types": [
+    "integer"
+   ]
+  },
+  "memory_num_tokens": {
+   "optional": false,
+   "types": [
+    "integer"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}
