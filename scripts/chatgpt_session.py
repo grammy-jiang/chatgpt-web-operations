@@ -34,6 +34,7 @@ with the browser logged in to chatgpt.com.
 """
 
 import hashlib
+import http.client
 import json
 import os
 import shutil
@@ -986,6 +987,19 @@ class Session:
                     return last
             except urllib.error.URLError as e:
                 last = (0, {"error": str(e)[:200]})
+            except (OSError, http.client.HTTPException) as e:
+                # Raised while the answer is read: a read that timed out, a
+                # connection reset or closed mid-answer. urllib wraps only
+                # what fails while the request is sent (URLError above), so
+                # these arrived bare, and on 2026-09-28 05:25 one timed-out
+                # read ended the daily health check with no JSON at all.
+                # They come back as data now. The request did reach the
+                # server, so only a read is sent again: a POST or PATCH may
+                # already have acted, and sending it twice could, for
+                # example, create two projects.
+                last = (0, {"error": f"{type(e).__name__}: {e}"[:200]})
+                if method.upper() not in ("GET", "HEAD"):
+                    return last
             if attempt < attempts - 1:
                 backoff = 2 * (attempt + 1)
                 _emit_diagnostic(

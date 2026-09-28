@@ -484,3 +484,19 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   resolves from the listing (`posted-no-id`). The events predate the
   display change of F-2026-09-28-9. The lesson: judge a send by the request
   that carries it, not by what the page happens to render.
+- **(F-2026-09-29-11) One timed-out read ended the daily check with no
+  verdict.** On 2026-09-28 at 05:25 the daily check reported FAIL: "health.py
+  wrote no JSON". A read of the project sidebar had timed out while its
+  answer was being read. urllib wraps only what fails while a request is
+  sent (`URLError`); a `TimeoutError` raised while the answer is read
+  arrives bare, `Session.call` caught neither it nor a dropped connection,
+  and it ended `health.py` before the document was written. So the check
+  that runs every morning reported nothing about the account that day, and
+  a FAIL does not start the repair loop. Found a day later, while looking
+  for why a send had failed. `Session.call` now returns such an error as
+  status 0, after retrying it for a read and never for a write (the server
+  may already have acted on a POST or PATCH, and sending it twice could,
+  for example, create two projects); `health.py` turns an exception in any
+  of its session stages into a "check crashed" block row and still writes
+  its JSON. The lesson: every way out of a scheduled check must end in its
+  report.

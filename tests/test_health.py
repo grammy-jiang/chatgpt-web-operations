@@ -1155,6 +1155,44 @@ def test_main_writes_the_documented_json_shape(
     }
 
 
+def test_a_stage_that_raises_still_writes_the_json_with_a_block_row(
+    clean_host: None,
+    linked_wireless: Path,
+    fake_psg: SimpleNamespace,
+    sandbox_file: dict,
+    cookie_db: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: Any,
+) -> None:
+    """2026-09-28 05:25: one exception in a read ended health.py before it
+    wrote its JSON, and the wrapper could only say "wrote no JSON". The
+    checks that ran are kept, the failure is one block row, and the
+    document is written."""
+    session = _FakeSession(_happy_backend(SANDBOX))
+    monkeypatch.setattr(
+        health, "cc", _fake_cc(session, browsers={"chrome": (str(cookie_db), "chrome")})
+    )
+
+    def boom(_session: Any) -> dict[str, Any]:
+        raise TimeoutError("The read operation timed out")
+
+    monkeypatch.setattr(health, "fetch_read_endpoints", boom)
+    out_path = tmp_path / "health.json"
+    code = health.main(["--json", str(out_path)])
+
+    doc = json.loads(out_path.read_text())
+    assert doc["exit_code"] == code != 0
+    names = [c["name"] for c in doc["checks"]]
+    assert "auth and read" in names  # the stages before the failure are kept
+    assert "skills inventory" not in names  # the stages after it did not run
+    crashed = [c for c in doc["checks"] if c["name"] == "check crashed"]
+    assert len(crashed) == 1
+    assert crashed[0]["state"] == "block"
+    assert crashed[0]["detail"] == "TimeoutError: The read operation timed out"
+    assert "Traceback" in capsys.readouterr().err
+
+
 def test_main_go_with_warnings_when_the_session_token_is_near_expiry(
     clean_host: None,
     linked_wireless: Path,

@@ -14,6 +14,7 @@ Every test names the failure it is defending against.
 
 from __future__ import annotations
 
+import http.client
 import io
 import json
 import os
@@ -1389,6 +1390,69 @@ def test_call_urlerror_returns_zero_status_without_raising(monkeypatch) -> None:
     status, data = _session().call("/x", retries=1)
     assert status == 0
     assert "connection refused" in data["error"]
+
+
+def test_call_retries_a_read_that_timed_out_and_returns_it_as_data(
+    monkeypatch,
+) -> None:
+    """2026-09-28 05:25: a TimeoutError raised while the answer was read
+    reached health.py bare and ended the daily check with no JSON. A read
+    is retried like any transient failure and then comes back as data."""
+    sleeps: list[float] = []
+    monkeypatch.setattr(chatgpt_session.time, "sleep", sleeps.append)
+    calls: list[str] = []
+
+    def fake_urlopen(req, timeout=60):
+        calls.append(req.get_method())
+        raise TimeoutError("The read operation timed out")
+
+    monkeypatch.setattr(chatgpt_session.urllib.request, "urlopen", fake_urlopen)
+    status, data = _session().call("/x")
+    assert status == 0
+    assert data == {"error": "TimeoutError: The read operation timed out"}
+    assert calls == ["GET", "GET", "GET"]
+    assert sleeps == [2, 4]
+
+
+def test_call_recovers_when_a_retried_read_succeeds(monkeypatch) -> None:
+    monkeypatch.setattr(chatgpt_session.time, "sleep", lambda s: None)
+    answers = iter(
+        [
+            http.client.RemoteDisconnected("closed"),
+            ConnectionResetError("reset"),
+            _FakeResponse(200, json.dumps({"ok": True})),
+        ]
+    )
+
+    def fake_urlopen(req, timeout=60):
+        item = next(answers)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    monkeypatch.setattr(chatgpt_session.urllib.request, "urlopen", fake_urlopen)
+    assert _session().call("/x") == (200, {"ok": True})
+
+
+@pytest.mark.parametrize("method", ["POST", "PATCH", "DELETE"])
+def test_call_never_sends_a_write_twice_after_its_answer_was_lost(
+    monkeypatch, method
+) -> None:
+    """The request reached the server; the server may have acted on it."""
+    sleeps: list[float] = []
+    monkeypatch.setattr(chatgpt_session.time, "sleep", sleeps.append)
+    calls: list[int] = []
+
+    def fake_urlopen(req, timeout=60):
+        calls.append(1)
+        raise http.client.IncompleteRead(b"partial")
+
+    monkeypatch.setattr(chatgpt_session.urllib.request, "urlopen", fake_urlopen)
+    status, data = _session().call("/x", method=method, payload={"k": "v"})
+    assert status == 0
+    assert data["error"].startswith("IncompleteRead")
+    assert calls == [1]
+    assert sleeps == []
 
 
 # ---------------------------------------------------------------------------

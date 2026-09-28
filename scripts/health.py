@@ -84,6 +84,7 @@ import argparse
 import json
 import sys
 import time
+import traceback
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -821,70 +822,96 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
         else:
-            recording = None
-            if args.record_shapes:
-                recording = api_shapes.Recording()
-                session.session = api_shapes.RecordingSession(
-                    session.session, recording
+            # One stage that raises must not cost the whole document: the
+            # wrapper reads the JSON, and without it a single timed-out read
+            # became "health.py wrote no JSON" (2026-09-28 05:25). What ran
+            # before the failure is kept, and the failure is a block row.
+            try:
+                recording = None
+                if args.record_shapes:
+                    recording = api_shapes.Recording()
+                    session.session = api_shapes.RecordingSession(
+                        session.session, recording
+                    )
+                _diag(diagnostic, "stage_start", stage="account")
+                account = preflight.account_checks(session)
+                checks += account
+                _diag(
+                    diagnostic, "stage_end", stage="account", **_state_counts(account)
                 )
-            _diag(diagnostic, "stage_start", stage="account")
-            account = preflight.account_checks(session)
-            checks += account
-            _diag(diagnostic, "stage_end", stage="account", **_state_counts(account))
 
-            _diag(diagnostic, "stage_start", stage="run")
-            run = preflight.run_checks(session, "", None)
-            checks += run
-            _diag(diagnostic, "stage_end", stage="run", **_state_counts(run))
+                _diag(diagnostic, "stage_start", stage="run")
+                run = preflight.run_checks(session, "", None)
+                checks += run
+                _diag(diagnostic, "stage_end", stage="run", **_state_counts(run))
 
-            _diag(diagnostic, "stage_start", stage="health")
-            health_rows = health_checks(cc, session, args.browser_name, sandbox)
-            checks += health_rows
-            _diag(
-                diagnostic,
-                "stage_end",
-                stage="health",
-                **_state_counts(health_rows),
-            )
-
-            _diag(diagnostic, "stage_start", stage="skills")
-            skill_check, skills_doc = fetch_skills_inventory(session)
-            checks.append(skill_check)
-            _write_skills_json(args.skills_json, checked_at, skills_doc)
-            _diag(
-                diagnostic,
-                "stage_end",
-                stage="skills",
-                status=skills_doc["status"],
-                available=skills_doc["available"],
-                count=len(skills_doc["skills"]),
-                **_state_counts([skill_check]),
-            )
-
-            facts = facts_of(cc, session, args.browser_name, sandbox)
-            facts["endpoints"]["hazelnuts"] = skills_doc["status"]
-            if recording is not None:
-                _diag(diagnostic, "stage_start", stage="shapes")
-                shapes_row = api_shapes_check(
-                    session.session, recording, args.record_shapes, sandbox
-                )
-                checks.append(shapes_row)
+                _diag(diagnostic, "stage_start", stage="health")
+                health_rows = health_checks(cc, session, args.browser_name, sandbox)
+                checks += health_rows
                 _diag(
                     diagnostic,
                     "stage_end",
-                    stage="shapes",
-                    recorded=len(recording.shapes),
-                    **_state_counts([shapes_row]),
+                    stage="health",
+                    **_state_counts(health_rows),
                 )
-            if args.browser:
-                _diag(diagnostic, "stage_start", stage="browser")
-                browser_row = preflight.browser_composer_check(cc, args.browser_name)
-                checks.append(browser_row)
+
+                _diag(diagnostic, "stage_start", stage="skills")
+                skill_check, skills_doc = fetch_skills_inventory(session)
+                checks.append(skill_check)
+                _write_skills_json(args.skills_json, checked_at, skills_doc)
                 _diag(
                     diagnostic,
                     "stage_end",
-                    stage="browser",
-                    **_state_counts([browser_row]),
+                    stage="skills",
+                    status=skills_doc["status"],
+                    available=skills_doc["available"],
+                    count=len(skills_doc["skills"]),
+                    **_state_counts([skill_check]),
+                )
+
+                facts = facts_of(cc, session, args.browser_name, sandbox)
+                facts["endpoints"]["hazelnuts"] = skills_doc["status"]
+                if recording is not None:
+                    _diag(diagnostic, "stage_start", stage="shapes")
+                    shapes_row = api_shapes_check(
+                        session.session, recording, args.record_shapes, sandbox
+                    )
+                    checks.append(shapes_row)
+                    _diag(
+                        diagnostic,
+                        "stage_end",
+                        stage="shapes",
+                        recorded=len(recording.shapes),
+                        **_state_counts([shapes_row]),
+                    )
+                if args.browser:
+                    _diag(diagnostic, "stage_start", stage="browser")
+                    browser_row = preflight.browser_composer_check(
+                        cc, args.browser_name
+                    )
+                    checks.append(browser_row)
+                    _diag(
+                        diagnostic,
+                        "stage_end",
+                        stage="browser",
+                        **_state_counts([browser_row]),
+                    )
+            except Exception as exc:
+                traceback.print_exc()
+                checks.append(
+                    preflight.check(
+                        "health",
+                        "check crashed",
+                        "block",
+                        f"{type(exc).__name__}: {exc}"[:300],
+                        "the traceback is in this run's health.log; the "
+                        "checks before it are above",
+                    )
+                )
+                _diag(
+                    diagnostic,
+                    "stage_crash",
+                    error=f"{type(exc).__name__}: {exc}"[:300],
                 )
 
     if args.skills_json and not Path(args.skills_json).expanduser().exists():

@@ -111,5 +111,17 @@
       "test_client_post_evidence.py::test_a_follow_up_whose_request_was_answered_is_posted_though_the_count_fell"
     ],
     "removed_and_failed": "2026-09-29"
+  },
+  {
+    "id": "F-2026-09-29-11",
+    "title": "one timed-out read ended the daily health check before it wrote its JSON",
+    "atlas": "One timed-out read ended the daily check",
+    "fix": "pending",
+    "tests": [
+      "test_session.py::test_call_retries_a_read_that_timed_out_and_returns_it_as_data",
+      "test_session.py::test_call_never_sends_a_write_twice_after_its_answer_was_lost",
+      "test_health.py::test_a_stage_that_raises_still_writes_the_json_with_a_block_row"
+    ],
+    "removed_and_failed": "2026-09-29"
   }
 ]
