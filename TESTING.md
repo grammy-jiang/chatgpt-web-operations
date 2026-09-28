@@ -541,12 +541,15 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
   - Done 2026-09-29 offline (`896e052`, `b8f3ef8`, `be0d0b8`):
     `tests/test_clean_chats_ids.py` and `tests/test_project_settings_names.py`;
     T1 runs `project_settings.py --name rp-test-sandbox --show` and
-    `clean_chats.py --id` on a chat that does not exist. Not done: the T4
-    round trip. It needs a real send, and on 2026-09-29 the scripted browser
-    met a Cloudflare challenge while another project's run was waiting to
-    send, so it was not written blind; the weekly send's own cleanup
-    (`delete_sandbox_chat`, then a 404) covers delete-and-404 but not the
-    backup.
+    `clean_chats.py --id` on a chat that does not exist. The T4 round trip
+    costs no extra send (`cd9cf86`): the weekly send's own chat is deleted
+    with `clean_chats.py --id ID --delete --backup DIR --apply` over a real
+    `ChatGPTSession` on the guarded transport (`tests/live/minting.py`,
+    `delete_with_backup`), and the test checks that the backup holds the
+    conversation with the nonce and that the chat then reads 404.
+    `tests/test_live_cleanup_wiring.py` runs the same helper offline, so a
+    broken adapter fails `make test`, not the Sunday run. Its first real
+    run is Sunday's.
 - **P13.** Once binnacle's `chatgpt-*` names point at this skill (`PLAN`
   A3), the weekly run calls them by their installed names, because entry
   points are what break (`PLAN` B3).
