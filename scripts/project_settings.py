@@ -180,6 +180,7 @@ def main(argv: list[str] | None = None) -> int:
         help="project-only or default memory",
     )
     ap.add_argument("--apply", action="store_true", help="without it, dry run")
+    ap.add_argument("--browser", default="chrome", help="whose session to use")
     args = ap.parse_args(argv)
 
     if (args.project_id is None) == (args.name is None):
@@ -227,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    session = open_session()
+    session = open_session(args.browser)
     project_id = args.project_id
     if args.name is not None:
         entries = [sidebar_entry(item) for item in sidebar_items(session)]

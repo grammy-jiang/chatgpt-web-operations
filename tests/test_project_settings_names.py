@@ -100,3 +100,15 @@ def test_set_by_name_patches_the_resolved_project_and_reads_it_back(session) -> 
 def test_bad_combinations_are_refused_before_a_session(monkeypatch, argv) -> None:
     monkeypatch.setattr(ps, "open_session", lambda *a, **k: pytest.fail("no session"))
     assert ps.main(argv) == 2
+
+
+def test_the_browser_option_reaches_the_session(monkeypatch) -> None:
+    seen: list[str] = []
+
+    def opener(browser: str = "chrome") -> _Session:
+        seen.append(browser)
+        return _Session()
+
+    monkeypatch.setattr(ps, "open_session", opener)
+    assert ps.main(["--browser", "chromium", GP_A, "--show"]) == 0
+    assert seen == ["chromium"]

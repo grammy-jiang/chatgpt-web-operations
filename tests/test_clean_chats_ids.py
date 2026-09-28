@@ -205,3 +205,15 @@ def test_title_of_tolerates_what_is_not_a_conversation() -> None:
     assert ccm.title_of("not json") == ""
     assert ccm.title_of("[1, 2]") == ""
     assert ccm.title_of('{"title": null}') == ""
+
+
+def test_the_browser_option_reaches_the_session(ledger, monkeypatch) -> None:
+    seen: list[str] = []
+
+    def opener(browser: str = "chrome") -> _Session:
+        seen.append(browser)
+        return _Session({A: _conv("x")})
+
+    monkeypatch.setattr(ccm, "open_session", opener)
+    assert ccm.main(["--browser", "chromium", "--id", A, "--archive"]) == 0
+    assert seen == ["chromium"]

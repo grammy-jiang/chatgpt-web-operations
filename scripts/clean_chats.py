@@ -233,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--archive", action="store_true")
     ap.add_argument("--unarchive", action="store_true")
     ap.add_argument("--apply", action="store_true", help="without it, dry run")
+    ap.add_argument("--browser", default="chrome", help="whose session to use")
     args = ap.parse_args(argv)
 
     if args.track or args.untrack:
@@ -251,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
         print("--match is required unless --project selects every one of its chats")
         return 2
 
-    session = open_session()
+    session = open_session(args.browser)
     action = "delete" if args.delete else "archive" if args.archive else "unarchive"
 
     if args.project:
@@ -351,7 +352,7 @@ def by_id(args: argparse.Namespace) -> int:
             if chat not in wanted:
                 wanted.append(chat)
 
-    session = open_session()
+    session = open_session(args.browser)
     rows, texts, gone, unreadable = [], {}, [], 0
     for chat in wanted:
         status, text = read_chat_raw(session, chat)
