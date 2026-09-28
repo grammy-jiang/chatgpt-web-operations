@@ -194,7 +194,7 @@ def test_a_match_delete_with_backup_reads_each_chat_first(
     ]
     _wire(monkeypatch, session)
     backups = tmp_path / "b"
-    code = ccm.main(["--match", "rp", "--delete", "--backup", str(backups), "--apply"])
+    code = ccm.main(["--match", "rp ", "--delete", "--backup", str(backups), "--apply"])
     assert code == 1
     assert len(list(backups.glob("*.json"))) == 1
     assert ("DELETE-PATCH", A, None) in session.calls
@@ -217,3 +217,22 @@ def test_the_browser_option_reaches_the_session(ledger, monkeypatch) -> None:
     monkeypatch.setattr(ccm, "open_session", opener)
     assert ccm.main(["--browser", "chromium", "--id", A, "--archive"]) == 0
     assert seen == ["chromium"]
+
+
+def test_account_wide_match_needs_three_characters(ledger, monkeypatch) -> None:
+    monkeypatch.setattr(ccm, "open_session", lambda *a, **k: pytest.fail("no session"))
+    assert ccm.main(["--match", "rp", "--delete"]) == 2
+    assert ccm.main(["--match", "a", "--archive"]) == 2
+
+
+def test_max_caps_what_an_apply_may_touch(ledger, monkeypatch) -> None:
+    session = _Session({A: _conv("rp one"), B: _conv("rp two")})
+    session.list_conversations = lambda limit=50: [  # type: ignore[attr-defined]
+        {"id": A, "title": "rp one"},
+        {"id": B, "title": "rp two"},
+    ]
+    _wire(monkeypatch, session)
+    assert ccm.main(["--match", "rp ", "--delete", "--max", "1", "--apply"]) == 2
+    assert ccm.main(["--id", A, "--id", B, "--delete", "--max", "1", "--apply"]) == 2
+    assert not any(c[0] == "DELETE-PATCH" for c in session.calls)
+    assert ccm.main(["--match", "rp ", "--delete", "--max", "2", "--apply"]) == 0

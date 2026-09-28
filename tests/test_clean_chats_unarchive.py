@@ -232,4 +232,4 @@ def test_unarchive_alone_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
     """The three-way refusal must not reject a lone --unarchive."""
     backend = _Backend([])
     _wire(monkeypatch, backend)
-    assert clean_chats.main(["--match", "x", "--unarchive"]) == 0
+    assert clean_chats.main(["--match", "xyz", "--unarchive"]) == 0

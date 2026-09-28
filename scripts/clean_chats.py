@@ -69,6 +69,10 @@ PROJECT_PAGE_LIMIT = 50
 # infinite loop -- the same hard stop list_projects.py's sidebar_items and
 # tests/live/conftest.py's sandbox sweep use.
 MAX_PROJECT_PAGES = 50
+# Account-wide --match is the blunt selector: a pattern this short would
+# match too much of the owner's own list (binnacle's chatgpt-chats refused it
+# too). A project's own listing is already isolated, so it is not held to it.
+MIN_MATCH = 3
 LEDGER_ENV = "CHATGPT_CHAT_LEDGER"
 DEFAULT_LEDGER = Path.home() / ".local" / "share" / "chatgpt-chats" / "test-chats.json"
 CHAT_ID_RE = re.compile(
@@ -229,6 +233,13 @@ def main(argv: list[str] | None = None) -> int:
         help="save each chat's conversation JSON here before acting",
     )
     ap.add_argument("--limit", type=int, default=50, help="how many to consider")
+    ap.add_argument(
+        "--max",
+        type=int,
+        default=0,
+        metavar="N",
+        help="refuse to --apply to more than N chats (0: no cap)",
+    )
     ap.add_argument("--delete", action="store_true")
     ap.add_argument("--archive", action="store_true")
     ap.add_argument("--unarchive", action="store_true")
@@ -250,6 +261,12 @@ def main(argv: list[str] | None = None) -> int:
         return by_id(args)
     if not args.project and not args.match.strip():
         print("--match is required unless --project selects every one of its chats")
+        return 2
+    if not args.project and len(args.match) < MIN_MATCH:  # raw: "rp " is 3
+        print(
+            f"--match needs at least {MIN_MATCH} characters: a shorter pattern "
+            "matches too much of the account's own list"
+        )
         return 2
 
     session = open_session(args.browser)
@@ -282,6 +299,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\ndry run: {len(chosen)} conversation(s) would be {action}d")
         print("re-run with --apply to do it")
         return 0
+    if args.max and len(chosen) > args.max:
+        print(f"\nrefusing: {len(chosen)} selected, more than --max {args.max}")
+        return 2
 
     done, failed, _ids = act_on(
         session, [str(c["id"]) for c in chosen], action, args, {}
@@ -370,6 +390,9 @@ def by_id(args: argparse.Namespace) -> int:
         print(f"\ndry run: {len(texts)} conversation(s) would be {action}d")
         print("re-run with --apply to do it")
         return 1 if unreadable else 0
+    if args.max and len(texts) > args.max:
+        print(f"\nrefusing: {len(texts)} selected, more than --max {args.max}")
+        return 2
 
     done, failed, done_ids = act_on(session, list(texts), action, args, texts)
     tracked_ids = {c["id"] for c in ledger}
