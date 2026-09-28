@@ -483,7 +483,14 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   chat address never showed returns a provisional id that the caller
   resolves from the listing (`posted-no-id`). The events predate the
   display change of F-2026-09-28-9. The lesson: judge a send by the request
-  that carries it, not by what the page happens to render.
+  that carries it, not by what the page happens to render. Confirmed on the
+  real page the same night: once the Cloudflare challenge had cleared, two
+  follow-ups of the atlas run (2026-09-28 15:49 and 15:52 UTC) posted with
+  the POST answered 200 while the count read 5 before and 5 after, and the
+  screenshot shows the new turn on the page, which fits a long thread that
+  keeps only some of its turns mounted. The send returned their ids and
+  recorded `post-unseen`; the code before the fix would have reported both
+  as not posted.
 - **(F-2026-09-29-11) One timed-out read ended the daily check with no
   verdict.** On 2026-09-28 at 05:25 the daily check reported FAIL: "health.py
   wrote no JSON". A read of the project sidebar had timed out while its

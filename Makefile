@@ -1,6 +1,6 @@
 PY := .venv/bin/python
 
-.PHONY: test test-repeat lint fmt replay loopback refresh-dom-fixtures contract refresh-shapes read-paths live-read live-write live-browser live-send live-local all
+.PHONY: test test-repeat mutate lint fmt replay loopback refresh-dom-fixtures contract refresh-shapes read-paths live-read live-write live-browser live-send live-local all
 
 # T0: everything that needs no opt-in and no browser. Each run shuffles the
 # order (pytest-randomly; the last line names the seed) and stops a test
@@ -33,6 +33,12 @@ replay:
 # network beyond loopback, no keyring.
 loopback:
 	$(PY) -m pytest tests/loopback -q -m loopback
+
+# Mutation testing of one module, by hand only (TESTING.md section 6, P10):
+# make mutate MODULE=round_state.py [LIMIT=N]. A throwaway worktree, nice 19,
+# one test process; refuses while a send is in flight.
+mutate:
+	$(PY) tests/mutate.py $(MODULE) $(if $(LIMIT),--limit $(LIMIT))
 
 # Promote a recorded DOM snapshot into tests/fixtures/dom/ after re-sanitizing
 # it: FROM=<dir> selects the snapshot directory (default: the newest daily
