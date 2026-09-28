@@ -80,11 +80,12 @@ random order, per-test timeouts, the quarantine marker and
 `tests/FLAKY.md`; and the mutation runner `make mutate MODULE=<file>`, by
 hand, whose pilot left `round_state.py`, `chatgpt_cookies.py`,
 `_common.py` and `chatgpt_session.py` at 100, 91.7, 89.2 and 98.3 %
-(`VERIFICATION.md`). These tiers found eight more defects, all fixed with
+(`VERIFICATION.md`). These tiers found seven more defects, all fixed with
 a test that fails without the fix (atlas F-2026-09-29-12 to 15, and the
 pilot's survivors): a stalled login and a page instead of JSON escaped the
 retry ladders, a damaged cookie raised out of the decoder, the stream and
-JSON Lines readers split lines at U+2028, and two tests could not fail.
+JSON Lines readers split lines at U+2028, the fixture sanitizer left strays
+the hygiene test refuses, and two tests could not fail.
 The send-evidence fix of F-2026-09-29-10 held on the real page: the atlas
 run sent twelve messages after it, each judged posted by its request while
 the turn count stayed at 5, and none was reported not posted. Open: the
