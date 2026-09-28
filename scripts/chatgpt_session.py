@@ -908,10 +908,13 @@ class Session:
         method: str = "GET",
         payload=None,
         timeout: float | None = None,
-    ) -> tuple[int, str, Any]:
+        binary: bool = False,
+    ) -> tuple[int, Any, Any]:
         """One HTTP attempt against chatgpt.com, no retry: builds this
         session's Cookie/bearer/User-Agent headers and returns ``(status,
-        response body text, response headers)`` on success. Raises
+        response body text, response headers)`` on success; with ``binary``
+        the body is the undecoded ``bytes`` and ``Accept`` is ``*/*`` (a
+        plugin archive, ``manage_plugins.py download``). Raises
         ``urllib.error.HTTPError`` or ``URLError`` exactly as ``urlopen()``
         does on anything else -- this wraps a single ``urlopen()`` call and
         nothing more.
@@ -927,7 +930,7 @@ class Session:
         headers = {
             "Cookie": self.cookie,
             "User-Agent": UA,
-            "Accept": "application/json",
+            "Accept": "*/*" if binary else "application/json",
         }
         token = getattr(self, "token", None)
         if token:
@@ -945,7 +948,8 @@ class Session:
         started = time.monotonic()
         try:
             with urllib.request.urlopen(req, timeout=actual_timeout) as r:
-                text = r.read().decode()
+                data = r.read()
+                text = data if binary else data.decode()
                 _emit_diagnostic(
                     getattr(self, "_diagnostic", None),
                     "http_attempt",
@@ -955,7 +959,7 @@ class Session:
                     outcome="success",
                     elapsed_ms=round((time.monotonic() - started) * 1000, 1),
                     timeout_s=actual_timeout,
-                    response_bytes=len(text.encode()),
+                    response_bytes=len(data),
                     **_safe_response_headers(r.headers),
                 )
                 return r.status, text, r.headers
@@ -1016,8 +1020,11 @@ class Session:
         payload=None,
         raw: bool = False,
         retries: int | None = None,
+        binary: bool = False,
     ):
-        """Call a chatgpt.com endpoint. Returns (status, parsed-json-or-text).
+        """Call a chatgpt.com endpoint. Returns (status, parsed-json-or-text);
+        with ``binary`` the body of a success is the undecoded ``bytes``
+        (a failure's body is still the ``{"error": ...}`` dict).
 
         Cloudflare rate-limits bursts of requests with a 403 HTML page, so
         403/429/5xx are retried with a short backoff before giving up.
@@ -1026,8 +1033,10 @@ class Session:
         last = (0, {"error": "no attempt made"})
         for attempt in range(attempts):
             try:
-                status, text, _headers = self._request(path, method, payload)
-                if raw:
+                status, text, _headers = self._request(
+                    path, method, payload, binary=binary
+                )
+                if raw or binary:
                     return status, text
                 try:
                     return status, json.loads(text)

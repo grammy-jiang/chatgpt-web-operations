@@ -879,3 +879,96 @@ def test_lists_and_dicts_are_recursed() -> None:
     doc = {"files": [{"id": "user-AbCdEfGh", "size": 12}]}
     out = record_fixture.sanitize(doc)
     assert out == {"files": [{"id": "user-XXXXXXXX", "size": 12}]}
+
+
+# ---------------------------------------------------------------------------
+# the sandbox plugin (manage_plugins.py, 2026-09-29)
+# ---------------------------------------------------------------------------
+
+SANDBOX_PLUGIN = "Plugin_" + "5" * 32
+REAL_PLUGIN = "Plugin_" + "7" * 32
+
+
+def _plugin_guard(tier: str = "write", plugin: str = SANDBOX_PLUGIN):
+    inner = _FakeInner()
+    guarded = live_guard.GuardedSession(
+        inner, tier, sandbox_id="g-p-sand", sandbox_plugin_id=plugin
+    )
+    return guarded, inner
+
+
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        (
+            f"/backend-api/ps/plugins/{SANDBOX_PLUGIN}/install?includeAppsNeedingAuth=true",
+            {},
+        ),
+        (f"/backend-api/ps/plugins/{SANDBOX_PLUGIN}/uninstall", None),
+        (f"/backend-api/ps/plugins/{SANDBOX_PLUGIN}/skills/s/disable", None),
+        (f"/backend-api/public/plugins/workspace/{SANDBOX_PLUGIN}", {"file_id": "f"}),
+        (
+            "/backend-api/public/plugins/workspace/upload-url",
+            {"plugin_id": SANDBOX_PLUGIN},
+        ),
+    ],
+)
+def test_guard_allows_the_sandbox_plugins_writes(path: str, payload) -> None:
+    guarded, inner = _plugin_guard()
+    guarded.call(path, method="POST", payload=payload)
+    assert inner.calls, "the allowed write must reach the inner session"
+
+
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        # a new plugin can never be deleted, so it can never be created here
+        ("/backend-api/public/plugins/workspace", {"file_id": "f"}),
+        ("/backend-api/public/plugins/workspace/upload-url", {"filename": "p.zip"}),
+        (
+            "/backend-api/public/plugins/workspace/upload-url",
+            {"plugin_id": REAL_PLUGIN},
+        ),
+        (f"/backend-api/public/plugins/workspace/{REAL_PLUGIN}", {"file_id": "f"}),
+        (f"/backend-api/ps/plugins/{REAL_PLUGIN}/uninstall", None),
+        # a sibling id sharing the sandbox id as a prefix is another plugin
+        (f"/backend-api/ps/plugins/{SANDBOX_PLUGIN}x/uninstall", None),
+        # the plugin itself, not a sub-path: not an action the command takes
+        (f"/backend-api/ps/plugins/{SANDBOX_PLUGIN}", None),
+    ],
+)
+def test_guard_refuses_every_other_plugin_write(path: str, payload) -> None:
+    guarded, inner = _plugin_guard()
+    with pytest.raises(live_guard.GuardViolation):
+        guarded.call(path, method="POST", payload=payload)
+    assert inner.calls == []
+
+
+def test_guard_refuses_plugin_writes_in_read_or_without_a_sandbox_plugin() -> None:
+    path = f"/backend-api/ps/plugins/{SANDBOX_PLUGIN}/uninstall"
+    guarded, inner = _plugin_guard(tier="read")
+    with pytest.raises(live_guard.GuardViolation, match="GET only"):
+        guarded.call(path, method="POST")
+    guarded, inner = _plugin_guard(plugin="")
+    with pytest.raises(live_guard.GuardViolation, match="sandbox plugin"):
+        guarded.call(path, method="POST")
+    assert inner.calls == []
+
+
+def test_guard_passes_binary_only_when_asked() -> None:
+    class Inner:
+        def __init__(self) -> None:
+            self.kwargs: list[dict] = []
+
+        def call(self, path, **kwargs):
+            self.kwargs.append(kwargs)
+            return 200, b"PK"
+
+    inner = Inner()
+    guarded = live_guard.GuardedSession(inner, "read")
+    assert guarded.call("/backend-api/ps/plugins/x/archive", binary=True) == (
+        200,
+        b"PK",
+    )
+    guarded.call("/backend-api/me")
+    assert inner.kwargs[0]["binary"] is True and "binary" not in inner.kwargs[1]

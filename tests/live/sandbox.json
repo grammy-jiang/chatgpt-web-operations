@@ -1,4 +1,8 @@
 {
   "id": "g-p-6aaea9da2bc881918d6f9eb5177cf904",
-  "name": "rp-test-sandbox"
+  "name": "rp-test-sandbox",
+  "plugin": {
+    "id": "Plugin_91c36460f57c8191800ebd4a8f77cdfc",
+    "name": "rp-test-plugin"
+  }
 }

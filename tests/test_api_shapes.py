@@ -313,6 +313,19 @@ EXCUSED = {
         "session; the daily send gates check reads its three fields"
     ),
     "/v1/tunnels": "the Platform API, a different credential",
+    "/backend-api/ps/plugins/<id>/archive": (
+        "a plugin's archive: zip bytes, not JSON, so it has no shape; the "
+        "download is verified as a zip by manage_plugins.py and the T2 round trip"
+    ),
+    "/backend-api/ps/plugins/<id>/install": "a write: installs a plugin",
+    "/backend-api/ps/plugins/<id>/uninstall": "a write: uninstalls a plugin",
+    "/backend-api/ps/plugins/<id>/skills/<id>/enable": "a write: switches a skill on",
+    "/backend-api/ps/plugins/<id>/skills/<id>/disable": "a write: switches a skill off",
+    "/backend-api/public/plugins/workspace/upload-url": (
+        "a write: reserves an upload and returns a signed blob URL"
+    ),
+    "/backend-api/public/plugins/workspace": "a write: creates a plugin",
+    "/backend-api/public/plugins/workspace/<id>": "a write: adds a plugin release",
 }
 
 
@@ -645,3 +658,30 @@ def test_refresh_read_paths_writes_then_reports_unchanged(
     assert "written" in capsys.readouterr().out
     assert refresh_read_paths.main() == 0
     assert "unchanged" in capsys.readouterr().out
+
+
+def test_plugin_reads_route_and_the_first_own_plugin_is_the_context() -> None:
+    """``plugin`` needs an id, taken from the recorded own-plugins list; the
+    list and the installed list keep matching their own entries even though
+    the ``plugin`` template would match their paths too."""
+    by = sh.BY_NAME
+    assert sh.fetch_request(by["plugin"], {}) is None
+    assert sh.fetch_request(by["plugin"], {"plugin_id": "Plugin_x"}) == (
+        "/backend-api/ps/plugins/Plugin_x",
+        None,
+    )
+    assert sh.endpoint_for("GET", "/backend-api/ps/plugins/list?scope=USER").name == (
+        "plugins_list"
+    )
+    assert sh.endpoint_for("GET", "/backend-api/ps/plugins/installed").name == (
+        "plugins_installed"
+    )
+    assert sh.endpoint_for("GET", "/backend-api/ps/plugins/Plugin_x").name == "plugin"
+    recording = sh.Recording()
+    recording.observe(
+        "GET",
+        "/backend-api/ps/plugins/list?scope=USER&limit=100",
+        200,
+        {"plugins": [{"name": "no id"}, 3, {"id": "Plugin_first"}, {"id": "Plugin_2"}]},
+    )
+    assert recording.context({})["plugin_id"] == "Plugin_first"

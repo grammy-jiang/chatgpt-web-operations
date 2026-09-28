@@ -2049,3 +2049,61 @@ def test_cookie_header_with_the_real_decryptor_on_a_realistic_jar(
     assert "oai-did=hashed" in header
     assert "plain_cookie=plain" in header
     assert "zz_broken" not in header
+
+
+# ---------------------------------------------------------------------------
+# binary bodies (manage_plugins.py download, 2026-09-29)
+# ---------------------------------------------------------------------------
+
+
+class _FakeBinaryResponse(_FakeResponse):
+    """A response whose body is bytes that are not UTF-8, like a zip."""
+
+    def __init__(self, status: int, data: bytes) -> None:
+        super().__init__(status, "")
+        self._data = data
+
+    def read(self) -> bytes:
+        return self._data
+
+
+def test_call_binary_returns_the_undecoded_bytes_and_asks_for_any_type(
+    monkeypatch,
+) -> None:
+    """A plugin archive is not UTF-8: decoding it would raise, so a binary
+    call must return the bytes as they came and must not ask for JSON."""
+    captured = {}
+    zip_bytes = b"PK\x03\x04\xff\xfe\x00\x80binary"
+
+    def fake_urlopen(req, timeout=60):
+        captured["req"] = req
+        return _FakeBinaryResponse(200, zip_bytes)
+
+    monkeypatch.setattr(chatgpt_session.urllib.request, "urlopen", fake_urlopen)
+    status, data = _session(token="t").call("/backend-api/x/archive", binary=True)
+    assert (status, data) == (200, zip_bytes)
+    assert captured["req"].get_header("Accept") == "*/*"
+
+
+def test_call_without_binary_still_asks_for_json(monkeypatch) -> None:
+    captured = {}
+
+    def fake_urlopen(req, timeout=60):
+        captured["req"] = req
+        return _FakeResponse(200, "{}")
+
+    monkeypatch.setattr(chatgpt_session.urllib.request, "urlopen", fake_urlopen)
+    _session().call("/x")
+    assert captured["req"].get_header("Accept") == "application/json"
+
+
+def test_call_binary_failure_is_still_the_error_dict(monkeypatch) -> None:
+    """Only a success carries bytes; a 404 is reported like any other call."""
+
+    def fake_urlopen(req, timeout=60):
+        raise _http_error(404, '{"detail":"Not Found"}')
+
+    monkeypatch.setattr(chatgpt_session.urllib.request, "urlopen", fake_urlopen)
+    status, data = _session().call("/x/archive", binary=True, retries=1)
+    assert status == 404
+    assert isinstance(data, dict) and "Not Found" in data["error"]

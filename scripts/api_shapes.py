@@ -659,6 +659,23 @@ ENDPOINTS: tuple[Endpoint, ...] = (
         # an app is installed, and is the plugin's manifest, not the API
         opaque=frozenset({"plugins[].release.app_manifest"}),
     ),
+    # the account's own plugins (the Plugins page, Personal tab) and one of
+    # them; after "plugins_installed" so its path keeps matching that entry
+    Endpoint(
+        "plugins_list",
+        "GET",
+        "/backend-api/ps/plugins/list",
+        "/backend-api/ps/plugins/list?scope=USER&limit=100",
+        opaque=frozenset({"plugins[].release.app_manifest"}),
+    ),
+    Endpoint(
+        "plugin",
+        "GET",
+        "/backend-api/ps/plugins/{plugin_id}",
+        "/backend-api/ps/plugins/{plugin_id}",
+        needs="plugin_id",
+        opaque=frozenset({"release.app_manifest"}),
+    ),
     Endpoint(
         "automations",
         "GET",
@@ -731,6 +748,10 @@ def fetch_request(
         if not context.get("gizmo_id"):
             return None
         return endpoint.fetch.format(gizmo_id=context["gizmo_id"]), None
+    if endpoint.needs == "plugin_id":
+        if not context.get("plugin_id"):
+            return None
+        return endpoint.fetch.format(plugin_id=context["plugin_id"]), None
     if endpoint.needs == "user_id":
         if not context.get("user_id"):
             return None
@@ -780,13 +801,20 @@ class Recording:
         self.bodies[endpoint.name] = body
 
     def context(self, base: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Ids for ``fill``: the newest conversation, the connectors' ids."""
+        """Ids for ``fill``: the newest conversation, the account's first
+        own plugin, the connectors' ids."""
         context = dict(base or {})
         listing = self.bodies.get("conversations")
         if isinstance(listing, dict):
             for item in listing.get("items") or []:
                 if isinstance(item, dict) and item.get("id"):
                     context.setdefault("conversation_id", str(item["id"]))
+                    break
+        plugins = self.bodies.get("plugins_list")
+        if isinstance(plugins, dict):
+            for item in plugins.get("plugins") or []:
+                if isinstance(item, dict) and item.get("id"):
+                    context.setdefault("plugin_id", str(item["id"]))
                     break
         links = self.bodies.get("connector_links")
         if isinstance(links, dict):
@@ -812,7 +840,7 @@ class RecordingSession:
 
     def call(self, path: str, method: str = "GET", payload: Any = None, **kwargs):
         status, body = self._inner.call(path, method=method, payload=payload, **kwargs)
-        if not kwargs.get("raw"):
+        if not kwargs.get("raw") and not kwargs.get("binary"):
             self._recording.observe(method, path, status, body)
         return status, body
 

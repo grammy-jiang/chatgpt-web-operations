@@ -39,6 +39,7 @@ import list_chats  # noqa: E402
 import list_connectors  # noqa: E402
 import list_projects  # noqa: E402
 import list_skills  # noqa: E402
+import manage_plugins  # noqa: E402
 import model_settings  # noqa: E402
 import probe_cookies  # noqa: E402
 import probe_send_gates  # noqa: E402
@@ -216,3 +217,26 @@ def test_clean_chats_by_id_reports_a_missing_chat_as_already_gone(
     missing = "00000000-0000-4000-8000-" + secrets.token_hex(6)
     assert clean_chats.main(["--id", missing, "--delete"]) == 0
     assert "(already gone)" in capsys.readouterr().out
+
+
+def test_manage_plugins_lists_shows_downloads_and_previews(
+    monkeypatch, adapter, sandbox_plugin_id, tmp_path
+) -> None:
+    """Reads and previews only, on the sandbox plugin: list, show and
+    download read; install, uninstall, skill and update without --apply or
+    --confirm write nothing, and upload of an existing name is refused
+    before any write. The read tier's guard refuses every plugin write, so
+    a defect here surfaces as exit 1, never as a changed plugin."""
+    _point(monkeypatch, manage_plugins, adapter)
+    pid = sandbox_plugin_id
+    assert manage_plugins.main(["list"]) == 0
+    assert manage_plugins.main(["show", pid]) == 0
+    archive = tmp_path / "sandbox.zip"
+    assert manage_plugins.main(["download", pid, "--out", str(archive)]) == 0
+    info = manage_plugins.inspect_archive(archive)
+    assert info.name == "rp-test-plugin" and info.skills
+    assert manage_plugins.main(["install", pid]) == 0
+    assert manage_plugins.main(["uninstall", pid]) == 0
+    assert manage_plugins.main(["skill", pid, info.skills[0], "--disable"]) == 0
+    assert manage_plugins.main(["update", pid, str(archive)]) == 0
+    assert manage_plugins.main(["upload", str(archive), "--dry-run"]) == 2

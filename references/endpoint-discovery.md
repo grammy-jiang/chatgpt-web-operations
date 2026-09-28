@@ -677,6 +677,59 @@ interface {...}, skills, ...}`), `installation_policy`,
 followed, the paging parameter being unknown, same as `automations`'
 `cursor`. `list_skills.py --apps` implements this.
 
+## Seen on 2026-09-29: plugins
+
+Captured in the user's Chrome through Claude in Chrome on a throwaway
+plugin, `rp-test-plugin` (display name "rp-test plugin", one skill
+`rp-test-skill`), with a page hook that recorded method, path, request body
+and answer (a signed URL never recorded); the page's own route table was
+read from its loaded scripts. `manage_plugins.py` implements every row
+marked "used". Reads first, then writes in the order the page makes them.
+
+| Endpoint | What it does | Used |
+|----------|--------------|------|
+| `GET /backend-api/ps/plugins/list?scope=USER&limit=<n>` | the account's own plugins, installed or not (Plugins page, Personal tab, "Created by you"): `{"plugins": [...], "pagination": {"limit", "next_page_token"}}`; an item has `id`, `name`, `status`, `created_at`, `creator_account_user_id` and `release` (`version`, `display_name`, `skills[].name`, `bundle_download_url`, `app_ids`, ...), no install state | yes |
+| `GET /backend-api/ps/plugins/installed?limit=1000` | install state, `disabled_skill_names` (see "Seen on 2026-09-21") | yes |
+| `GET /backend-api/ps/plugins/<plugin-id>` | one plugin with its current release | yes |
+| `GET /backend-api/ps/plugins/<plugin-id>/archive` | the current release's zip (the page saves it as `plugin.zip` through a blob link); ChatGPT's copy adds `.codex-plugin/plugin.json` beside the root `plugin.json` | yes |
+| `POST /backend-api/public/plugins/workspace/upload-url` | `{"filename", "mime_type": "application/zip", "size_bytes"[, "plugin_id"]}` -> 201 `{"file_id", "upload_url", "etag"}`; `plugin_id` only for a new release of that plugin; `upload_url` is a short-lived signed Azure blob URL on `*.oaiusercontent.com` | yes |
+| `PUT <upload_url>` | the archive, headers `Content-Type: application/zip`, `x-ms-blob-type: BlockBlob`, `x-ms-version: 2020-04-08`, `x-ms-blob-content-type: application/zip` -> 201; the host is behind Cloudflare, which answers urllib's own User-Agent with "error code: 1010" (403), so the session's browser User-Agent is sent | yes |
+| `POST /backend-api/public/plugins/workspace` | `{"file_id", "etag"}` -> 201 `{"plugin_id", "release_id", "current_release_id", "latest_release_id", "share_url", "share_principals", "can_publish_to_workspace"}`: a new plugin, not installed; a second upload of an existing name is refused with 400 | yes |
+| `POST /backend-api/public/plugins/workspace/<plugin-id>` | `{"file_id", "etag"}` -> 201, same answer: a new release; an installation follows it; the same version again was accepted | yes |
+| `POST /backend-api/ps/plugins/<plugin-id>/install?includeAppsNeedingAuth=true` | `{"install_attempt_id": "<uuid4>"}` -> 200 `{"id", "enabled": true, "app_ids_needing_auth": [...]}` | yes |
+| `POST /backend-api/ps/plugins/<plugin-id>/uninstall` | no body -> 200 `{"id", "enabled": false}`; the page asks "Uninstall <name>?" first | yes |
+| `POST /backend-api/ps/plugins/<plugin-id>/skills/<skill-name>/disable`, `POST /backend-api/ps/plugins/<plugin-id>/skills/<skill-name>/enable` | no body -> 200 `{"plugin_id", "skill_name", "enabled"}` (the Manage page's switch per skill) | yes |
+
+**The manifest decides the name.** A `plugin.json` without the Agent
+Plugins `$schema` (`https://agent-plugins.org/schemas/1.0.0/plugin.schema.json`)
+is read under another name: a new release of `rp-test-plugin` from such an
+archive answered 400 `"Plugin upload name must match the existing
+plugin"`, and the same manifest with the `$schema` line, 201.
+`manage_plugins.py` refuses an archive without it before any request.
+
+**There is no delete for a personal account.** The plugin page's menu has
+Edit plugin, Manage, Uninstall, Download plugin ZIP and Upload new version
+(uninstalled: Edit plugin, Download plugin ZIP, Upload new version); the
+Manage page has the skill switches, View details and Uninstall; the page's
+route table has no DELETE for a plugin. Tried once on the throwaway
+plugin: `DELETE /backend-api/public/plugins/workspace/<plugin-id>` -> 400
+`"Workspace plugin creation requires an active workspace."`;
+`DELETE /backend-api/ps/plugins/<plugin-id>` -> 404. The plugin stayed.
+"Edit plugin" opens ChatGPT's plugin-creator app in a chat; not exercised.
+
+Seen in the page's route table only, never exercised: `POST
+/backend-api/ps/plugins/<plugin-id>/enable` and `.../disable` (plugin-wide),
+`GET` and `PUT /backend-api/ps/plugins/<plugin-id>/shares`, `GET
+/backend-api/sites/mcp/plugins/<plugin-id>/sharing-info`, `GET
+/backend-api/ps/plugins/workspace/created` (empty for this personal
+account), `GET /backend-api/ps/plugins/workspace/template-instances`, `GET
+/backend-api/ps/plugins/admin/<plugin-id>`, `POST
+/backend-api/ps/plugins/batch`, `GET
+/backend-api/ps/plugin-categories/<slug>/plugins`, `GET
+/backend-api/ps/plugins/canonical-app/<app-id>`, `GET
+/backend-api/ps/plugins/<plugin-id>/skills/<skill-name>`, and `GET
+/backend-api/ps/plugins/home` (the public directory's sections).
+
 ## Re-run this when
 
 - a send starts failing in a way `probe_account.py` says is not the account

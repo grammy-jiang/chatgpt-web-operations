@@ -24,6 +24,7 @@ import json
 import os
 import sys
 import tempfile
+import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -113,12 +114,59 @@ def run_file(shapes: dict[str, Any]) -> str:
     return str(path)
 
 
+def _first_plugin(shapes: dict[str, Any]) -> dict[str, Any]:
+    body = api_shapes.synthesize(shapes["plugins_list"])
+    items = body.get("plugins") if isinstance(body, dict) else None
+    return items[0] if items else {}
+
+
+def plugin_id(shapes: dict[str, Any]) -> str:
+    """The id the synthesized own-plugins list starts with. Not the name:
+    the synthesized items share one text value for ``name``, which the
+    command rightly refuses as ambiguous."""
+    return str(_first_plugin(shapes).get("id") or "no-plugin")
+
+
+def plugin_name(shapes: dict[str, Any]) -> str:
+    return str(_first_plugin(shapes).get("name") or "no-plugin")
+
+
+def plugin_skill(shapes: dict[str, Any]) -> str:
+    """The first skill of the synthesized plugin."""
+    body = api_shapes.synthesize(shapes["plugin"])
+    skills = (
+        ((body.get("release") or {}).get("skills") or [])
+        if isinstance(body, dict)
+        else []
+    )
+    first = skills[0] if skills else None
+    name = first.get("name") if isinstance(first, dict) else first
+    return str(name or "no-skill")
+
+
+def plugin_archive(shapes: dict[str, Any]) -> str:
+    """A zip whose plugin.json names the synthesized plugin: update's
+    preview accepts it, upload's refuses it as a name that exists already."""
+    path = Path(tempfile.gettempdir()) / f"rp-contract-plugin-{os.getpid()}.zip"
+    with zipfile.ZipFile(path, "w") as zf:
+        manifest = {
+            "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+            "name": plugin_name(shapes),
+            "version": "0.0.0-contract",
+        }
+        zf.writestr("plugin.json", json.dumps(manifest))
+    return str(path)
+
+
 PLACEHOLDERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "<gizmo>": lambda shapes: GIZMO,
     "<chat>": lambda shapes: CHAT,
     "<app>": lambda shapes: APP,
     "<skill>": skill_name,
     "<run>": run_file,
+    "<plugin>": plugin_id,
+    "<plugin-skill>": plugin_skill,
+    "<plugin-archive>": plugin_archive,
 }
 
 
@@ -169,6 +217,21 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario("search_chats", ("query",), frozenset({0, 1})),
     Scenario("list_automations", ("--filter", "all", "--prompts"), frozenset({0})),
     Scenario("list_skills", ("--apps",), frozenset({0, 1})),
+    Scenario("manage_plugins", ("list",), frozenset({0})),
+    Scenario("manage_plugins", ("show", "<plugin>"), frozenset({0})),
+    Scenario("manage_plugins", ("install", "<plugin>"), frozenset({0})),
+    Scenario("manage_plugins", ("uninstall", "<plugin>"), frozenset({0})),
+    Scenario(
+        "manage_plugins",
+        ("skill", "<plugin>", "<plugin-skill>", "--disable"),
+        frozenset({0}),
+    ),
+    Scenario(
+        "manage_plugins", ("update", "<plugin>", "<plugin-archive>"), frozenset({0})
+    ),
+    Scenario(
+        "manage_plugins", ("upload", "<plugin-archive>", "--dry-run"), frozenset({2})
+    ),
     Scenario("read_chat", ("<chat>",), frozenset({0, 1})),
     Scenario("read_chat", ("<chat>", "--text"), frozenset({0}), ASSISTANT_TEXT),
     Scenario("read_chat", ("<chat>", "--effort"), frozenset({0}), ASSISTANT_TEXT),

@@ -60,6 +60,15 @@ def sandbox_id() -> str:
 
 
 @pytest.fixture(scope="session")
+def sandbox_plugin_id() -> str:
+    """The sandbox plugin's id (sandbox.json ``plugin``), or skip."""
+    pid = (_sandbox_data().get("plugin") or {}).get("id", "")
+    if not pid:
+        pytest.skip("tests/live/sandbox.json has no plugin id")
+    return pid
+
+
+@pytest.fixture(scope="session")
 def live_transport(tier: str) -> Any:
     """Authenticate once per tier, avoiding one session renewal per test."""
     import chatgpt_client
@@ -87,6 +96,32 @@ def live_session(tier: str, sandbox_id: str, live_transport: Any) -> Any:
             pytest.fail(
                 f"gizmos/{sandbox_id} display name is {name!r}, not {expected!r}; "
                 "refusing to run a write tier against the wrong project"
+            )
+    return guarded
+
+
+@pytest.fixture
+def plugin_session(
+    tier: str, sandbox_id: str, sandbox_plugin_id: str, live_transport: Any
+) -> Any:
+    """Like ``live_session``, with the sandbox plugin's writes allowed.
+
+    For every tier but read, the plugin's own name is verified first, so a
+    stale id can never point a write at one of the user's real plugins."""
+    guarded = guard.GuardedSession(
+        inner=live_transport,
+        tier=tier,
+        sandbox_id=sandbox_id,
+        sandbox_plugin_id=sandbox_plugin_id,
+    )
+    if tier != "read":
+        expected = _sandbox_data()["plugin"]["name"]
+        status, body = guarded.call(f"/backend-api/ps/plugins/{sandbox_plugin_id}")
+        name = (body or {}).get("name") if isinstance(body, dict) else None
+        if status != 200 or name != expected:
+            pytest.fail(
+                f"ps/plugins/{sandbox_plugin_id} is named {name!r}, not "
+                f"{expected!r}; refusing to write to the wrong plugin"
             )
     return guarded
 

@@ -93,6 +93,9 @@ LIVE_COVERAGE: dict[str, str] = {
     "list_skills.py": (
         "live/test_read_skills.py::test_list_skills_main_exits_0_through_the_guarded_session"
     ),
+    "manage_plugins.py": (
+        "live/test_write_plugin_lifecycle.py::test_plugin_round_trip_on_the_sandbox_plugin"
+    ),
     "manage_tunnels.py": "platform-credentials",
     "measure_window.py": "browser-diagnostic",
     "model_settings.py": (

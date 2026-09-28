@@ -1,0 +1,566 @@
+{
+ "fields": {
+  "authentication_policy": {
+   "enum": [
+    "ON_INSTALL"
+   ],
+   "formats": [
+    "enum"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "can_publish_to_workspace": {
+   "booleans": [
+    false
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "can_share_to_workspace": {
+   "booleans": [
+    false
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "canonical_app_id": {
+   "formats": [
+    "id:asdk_app_"
+   ],
+   "optional": false,
+   "types": [
+    "null",
+    "string"
+   ]
+  },
+  "connector_id": {
+   "formats": [
+    "id:asdk_app_"
+   ],
+   "optional": false,
+   "types": [
+    "null",
+    "string"
+   ]
+  },
+  "created_at": {
+   "formats": [
+    "datetime"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "creator_account_user_id": {
+   "formats": [
+    "account-id:user"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "creator_name": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "disabled_reason": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "discoverability": {
+   "enum": [
+    "PRIVATE"
+   ],
+   "formats": [
+    "enum"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "eligible_plan_types": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "id": {
+   "formats": [
+    "id:Plugin_",
+    "id:plugin_asdk_app_"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "installation_policy": {
+   "enum": [
+    "AVAILABLE"
+   ],
+   "formats": [
+    "enum"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "installation_policy_source": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "is_deletable_workspace_plugin": {
+   "booleans": [
+    false
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "is_template": {
+   "booleans": [
+    false
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "must_show_installation_interstitial": {
+   "booleans": [
+    false
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "name": {
+   "formats": [
+    "text",
+    "token"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "release": {
+   "fields": {
+    "app_ids": {
+     "items": {
+      "formats": [
+       "id:asdk_app_"
+      ],
+      "types": [
+       "string"
+      ]
+     },
+     "optional": false,
+     "types": [
+      "array"
+     ]
+    },
+    "app_manifest": {
+     "opaque": true,
+     "optional": false,
+     "types": [
+      "null",
+      "object"
+     ]
+    },
+    "app_templates": {
+     "items": null,
+     "optional": false,
+     "types": [
+      "array"
+     ]
+    },
+    "bundle_download_url": {
+     "optional": false,
+     "types": [
+      "null"
+     ]
+    },
+    "description": {
+     "formats": [
+      "text"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "display_name": {
+     "formats": [
+      "text"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "id": {
+     "formats": [
+      "id:PluginRelease_",
+      "id:pluginrel_"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "interface": {
+     "fields": {
+      "brand_color": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      },
+      "capabilities": {
+       "items": {
+        "formats": [
+         "text"
+        ],
+        "types": [
+         "string"
+        ]
+       },
+       "optional": false,
+       "types": [
+        "array"
+       ]
+      },
+      "category": {
+       "formats": [
+        "text"
+       ],
+       "optional": false,
+       "types": [
+        "string"
+       ]
+      },
+      "composer_icon_dark_url": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      },
+      "composer_icon_url": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      },
+      "default_prompt": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      },
+      "default_prompts": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      },
+      "developer_name": {
+       "formats": [
+        "text"
+       ],
+       "optional": false,
+       "types": [
+        "string"
+       ]
+      },
+      "logo_url": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      },
+      "logo_url_dark": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      },
+      "long_description": {
+       "formats": [
+        "text"
+       ],
+       "optional": false,
+       "types": [
+        "string"
+       ]
+      },
+      "plugin_category_id": {
+       "formats": [
+        "text"
+       ],
+       "optional": false,
+       "types": [
+        "string"
+       ]
+      },
+      "privacy_policy_url": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      },
+      "screenshot_urls": {
+       "items": null,
+       "optional": false,
+       "types": [
+        "array"
+       ]
+      },
+      "short_description": {
+       "formats": [
+        "text"
+       ],
+       "optional": false,
+       "types": [
+        "string"
+       ]
+      },
+      "terms_of_service_url": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      },
+      "website_url": {
+       "optional": false,
+       "types": [
+        "null"
+       ]
+      }
+     },
+     "optional": false,
+     "types": [
+      "object"
+     ]
+    },
+    "keywords": {
+     "items": {
+      "formats": [
+       "text"
+      ],
+      "types": [
+       "string"
+      ]
+     },
+     "optional": false,
+     "types": [
+      "array"
+     ]
+    },
+    "mcp_servers": {
+     "items": null,
+     "optional": false,
+     "types": [
+      "array"
+     ]
+    },
+    "onboarding_skill_name": {
+     "optional": false,
+     "types": [
+      "null"
+     ]
+    },
+    "requires_local_executor": {
+     "booleans": [
+      false
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "skills": {
+     "items": {
+      "fields": {
+       "description": {
+        "formats": [
+         "text"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "interface": {
+        "fields": {
+         "brand_color": {
+          "optional": false,
+          "types": [
+           "null"
+          ]
+         },
+         "default_prompt": {
+          "optional": false,
+          "types": [
+           "null"
+          ]
+         },
+         "display_name": {
+          "formats": [
+           "text",
+           "token"
+          ],
+          "optional": false,
+          "types": [
+           "string"
+          ]
+         },
+         "icon_large_url": {
+          "optional": false,
+          "types": [
+           "null"
+          ]
+         },
+         "icon_small_url": {
+          "optional": false,
+          "types": [
+           "null"
+          ]
+         },
+         "iconography": {
+          "optional": false,
+          "types": [
+           "null"
+          ]
+         },
+         "short_description": {
+          "formats": [
+           "text"
+          ],
+          "optional": false,
+          "types": [
+           "string"
+          ]
+         }
+        },
+        "optional": false,
+        "types": [
+         "object"
+        ]
+       },
+       "name": {
+        "formats": [
+         "text",
+         "token"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "plugin_release_skill_id": {
+        "formats": [
+         "id:pluginrsk_"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       }
+      },
+      "types": [
+       "object"
+      ]
+     },
+     "optional": false,
+     "types": [
+      "array"
+     ]
+    },
+    "version": {
+     "formats": [
+      "text"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    }
+   },
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  },
+  "scope": {
+   "enum": [
+    "USER"
+   ],
+   "formats": [
+    "enum"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "share_principals": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  },
+  "share_url": {
+   "formats": [
+    "url"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "status": {
+   "enum": [
+    "ENABLED"
+   ],
+   "formats": [
+    "enum"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "workspace_id": {
+   "optional": false,
+   "types": [
+    "null"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

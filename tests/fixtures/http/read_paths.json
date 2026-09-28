@@ -143,13 +143,24 @@
   "versions",
   "versions[].id"
  ],
+ "plugin": [
+  "name",
+  "release",
+  "release.display_name",
+  "release.skills",
+  "release.skills[].name",
+  "release.version",
+  "status"
+ ],
  "plugins_installed": [
   "pagination",
   "pagination.next_page_token",
   "plugins",
   "plugins[].connector_id",
   "plugins[].creator_name",
+  "plugins[].disabled_skill_names",
   "plugins[].discoverability",
+  "plugins[].id",
   "plugins[].installed_at",
   "plugins[].release",
   "plugins[].release.display_name",
@@ -157,6 +168,16 @@
   "plugins[].release.version",
   "plugins[].scope",
   "plugins[].status"
+ ],
+ "plugins_list": [
+  "plugins",
+  "plugins[].id",
+  "plugins[].name",
+  "plugins[].release",
+  "plugins[].release.display_name",
+  "plugins[].release.skills",
+  "plugins[].release.skills[].name",
+  "plugins[].release.version"
  ],
  "settings_user": [
   "settings",

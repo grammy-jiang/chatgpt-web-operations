@@ -27,6 +27,17 @@ same way under T1 as they do under T2 to T4. Only the method is exempted,
 not the path: a PATCH or any other non-GET method to that same path is
 still refused exactly as before.
 
+Plugins (added 2026-09-29, manage_plugins.py): an uploaded plugin cannot
+be deleted, so no live test may ever create one -- ``POST
+/backend-api/public/plugins/workspace`` is refused in every tier. The one
+sandbox plugin, ``rp-test-plugin`` (its id in ``sandbox.json`` under
+``plugin``), may receive a POST to a sub-path of
+``/backend-api/ps/plugins/<id>`` (install, uninstall, a skill switch), to
+``/backend-api/public/plugins/workspace/<id>`` (a new release), and to
+``.../workspace/upload-url`` only when the body's ``plugin_id`` is that id
+(the upload URL of a new release; without ``plugin_id`` it would start a new
+plugin). Every other plugin path stays refused.
+
 Pure Python, no network: the rule is enforced before ``inner`` is ever
 called, which is what lets it be tested with a fake in tests/test_harness.py.
 """
@@ -38,6 +49,9 @@ from typing import Any
 CONVERSATION_PREFIX = "/backend-api/conversation/"
 GIZMO_PREFIX = "/backend-api/gizmos/"
 PROJECTS_PATH = "/backend-api/projects"
+PLUGIN_PREFIX = "/backend-api/ps/plugins/"
+PLUGIN_WORKSPACE = "/backend-api/public/plugins/workspace"
+PLUGIN_UPLOAD_URL = PLUGIN_WORKSPACE + "/upload-url"
 READ_POSTS = frozenset(
     {
         "/backend-api/global/search",
@@ -86,10 +100,12 @@ class GuardedSession:
         tier: str,
         sandbox_id: str = "",
         known_ids: Any = None,
+        sandbox_plugin_id: str = "",
     ) -> None:
         self.inner = inner
         self.tier = tier
         self.sandbox_id = sandbox_id
+        self.sandbox_plugin_id = sandbox_plugin_id
         self.known: set[str] = set(known_ids or [])
         self.created: set[str] = set()
         self.calls: list[tuple[str, str]] = []
@@ -134,6 +150,12 @@ class GuardedSession:
                 "have a name starting with 'rp-test'"
             )
 
+        if method == "POST" and stripped.startswith(
+            ("/backend-api/public/plugins/", PLUGIN_PREFIX)
+        ):
+            self._check_plugin(path, stripped, payload)
+            return
+
         if _is_or_is_under(stripped, f"/backend-api/gizmos/{self.sandbox_id}"):
             return
         if _is_or_is_under(stripped, f"/backend-api/projects/{self.sandbox_id}"):
@@ -144,6 +166,25 @@ class GuardedSession:
                 return
         raise GuardViolation(f"{method} {path}: outside the sandbox")
 
+    def _check_plugin(self, path: str, stripped: str, payload: Any) -> None:
+        """A plugin POST: only the sandbox plugin, never a new plugin."""
+        pid = self.sandbox_plugin_id
+        if pid:
+            if stripped.startswith(f"{PLUGIN_PREFIX}{pid}/"):
+                return
+            if stripped == f"{PLUGIN_WORKSPACE}/{pid}":
+                return
+            if (
+                stripped == PLUGIN_UPLOAD_URL
+                and isinstance(payload, dict)
+                and payload.get("plugin_id") == pid
+            ):
+                return
+        raise GuardViolation(
+            f"POST {path}: plugin writes are allowed only for the sandbox plugin, "
+            "and never create a plugin"
+        )
+
     def call(
         self,
         path: str,
@@ -151,11 +192,22 @@ class GuardedSession:
         payload: Any = None,
         raw: bool = False,
         retries: int = 3,
+        binary: bool = False,
     ) -> tuple[int, Any]:
         self._check(path, method, payload)
-        status, body = self.inner.call(
-            path, method=method, payload=payload, raw=raw, retries=retries
-        )
+        if binary:
+            status, body = self.inner.call(
+                path,
+                method=method,
+                payload=payload,
+                raw=raw,
+                retries=retries,
+                binary=True,
+            )
+        else:
+            status, body = self.inner.call(
+                path, method=method, payload=payload, raw=raw, retries=retries
+            )
         self.calls.append((method, path))
         if method == "POST" and _stripped(path) == PROJECTS_PATH and status == 200:
             new_id = _created_project_id(body)

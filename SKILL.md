@@ -89,7 +89,7 @@ skill does not import it.
 
 ## The commands
 
-There are 31 command scripts and six support modules. `clean_chats.py`,
+There are 32 command scripts and six support modules. `clean_chats.py`,
 `project_settings.py`, `pin_chat.py` and `delete_project.py` need `--apply`.
 `create_project.py`, `create_connector.py` and `connect_connector.py` act
 unless `--dry-run` is supplied. `delete_connector.py` and `delete_skill.py`
@@ -98,6 +98,8 @@ need `--confirm`.
 `round_status.py --collect --apply` writes local evidence and its ledger.
 `manage_tunnels.py create` acts unless `--dry-run`; its `update` needs
 `--apply`, and its `delete` needs `--confirm`.
+`manage_plugins.py upload` acts unless `--dry-run`; its `update`, `install`
+and `skill` need `--apply`, and its `uninstall` needs `--confirm`.
 
 Browser paths are sending, Deep research start, `preflight.py --browser`,
 `health.py --browser`, `measure_window.py`, and `discover_endpoints.py`.
@@ -119,6 +121,7 @@ use POST; HTTP method alone does not determine whether an operation writes.
 | `list_automations.py` | ChatGPT's scheduled tasks ("automations", `chatgpt.com/scheduled`): `--filter scheduled\|paused\|finished\|all` (default scheduled; `all` fetches all three and adds a state column), `--prompts` shows the task's own instruction text, `--json PATH`. A non-null `cursor` is reported, never followed (the paging parameter is unknown). | 0 every filter read, 1 a filter's read failed, 2 bad `--filter` |
 | `list_skills.py` | Skills and apps installed on the account: skills from `hazelnuts`, `--apps` adds installed apps and connectors from `ps/plugins/installed`. `--expect NAME` (repeatable) checks a skill is installed and enabled. `safety_check_status` and version fields print verbatim, never interpreted. `--json PATH`. | 0 listed and every `--expect` met, 1 a read failed or an `--expect` unmet, 2 bad arguments |
 | `delete_skill.py` | Delete exactly one uploaded Personal Skill by exact `NAME`; optional `--id SKILL_ID` adds an identity guard. Dry run unless `--confirm`; `--dry-run` overrides it. Refuses missing/ambiguous identities or missing read/delete permissions; reads the installed list once after every DELETE attempt. Success requires HTTP 200 plus verified id/name absence; a failed DELETE response remains exit 1 even if absent. `--browser` selects the session source. | 0 dry run or deleted and verified, 1 session/read/delete/verification failed (including malformed inventory), 2 bad arguments or safety refusal |
+| `manage_plugins.py` | The account's own uploaded plugins (Plugins page, Personal tab): `list`, `show PLUGIN`, `download PLUGIN --out FILE`, `upload ARCHIVE` (a new plugin, `--install` too), `update PLUGIN ARCHIVE` (a new release), `install`, `uninstall`, `skill PLUGIN SKILL --enable/--disable`; `--json PATH` on `list` and `show`. HTTP only; the zip must carry the Agent Plugins `$schema`; every write is read back. There is no delete: a personal plugin can only be uninstalled. | 0 done and verified or previewed, 1 a request or read-back failed, 2 bad arguments, an unreadable archive or a refusal |
 | `list_connectors.py` | List accessible links and custom MCP apps; filter names or ids, inspect details, list available tunnels, or print JSON. Read-only HTTP, including lookup POSTs. | 0 listed, 1 a read failed, 2 bad arguments |
 | `create_connector.py` | Create a custom MCP app on an existing tunnel with No Auth. `--dry-run` previews the request. | 0 created or dry run, 1 create failed or name taken, 2 bad arguments |
 | `connect_connector.py` | Connect a No Auth custom MCP app and discover its tools. Optionally set `--apps-privacy full_access`. `--dry-run` previews both requests. | 0 connected or dry run, 1 connect or privacy update failed, 2 bad arguments |
@@ -227,6 +230,32 @@ silently stopped turn, keeping a live wait, and cleanup by conversation id.
 
 **ChatGPT changed something.** `discover_endpoints.py`, then
 `references/endpoint-discovery.md` for how to read the output.
+
+## Plugins: upload, update, install, uninstall
+
+Captured 2026-09-29 on a throwaway plugin; the request shapes are in
+`references/endpoint-discovery.md`, "Seen on 2026-09-29: plugins". A plugin
+is a zip with `plugin.json` (the Agent Plugins manifest, `$schema`
+included) and `skills/<name>/SKILL.md`; ChatGPT lists the account's own
+under Plugins, Personal tab, "Created by you".
+
+```bash
+python3 $S/manage_plugins.py list                                  # own plugins, installed or not
+python3 $S/manage_plugins.py upload plugin.zip --install           # a new plugin; refused if the name exists
+python3 $S/manage_plugins.py update NAME plugin.zip --apply        # a new release; the installation follows it
+python3 $S/manage_plugins.py skill NAME SKILL --disable --apply    # switch one skill off
+python3 $S/manage_plugins.py uninstall NAME --confirm              # the nearest thing to delete
+python3 $S/manage_plugins.py download NAME --out plugin.zip        # the current release's archive
+```
+
+An uploaded plugin **cannot be deleted** from a personal account: the page
+has no control for it, its code has no route, and both DELETE paths were
+refused (400 and 404). Uninstall keeps it in "Created by you". So nothing
+creates a plugin casually: the live tests reuse one sandbox plugin,
+`rp-test-plugin` (`tests/live/sandbox.json`), and the live guard refuses
+any plugin creation. An archive without the `$schema` is refused before any
+request: ChatGPT reads it under another name (an update answered HTTP 400,
+"Plugin upload name must match the existing plugin").
 
 ## Connectors: apps, links and tunnels
 
