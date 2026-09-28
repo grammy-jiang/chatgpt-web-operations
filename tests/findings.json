@@ -128,7 +128,7 @@
     "id": "F-2026-09-29-12",
     "title": "a lost login answer escaped the authentication ladder, and a page instead of JSON escaped Session.call",
     "atlas": "The loopback tier's first run",
-    "fix": "pending",
+    "fix": "50fb8b1",
     "tests": [
       "loopback/test_loopback.py::test_a_stalled_handshake_is_one_failed_attempt_not_a_traceback",
       "loopback/test_loopback.py::test_a_page_instead_of_json_is_read_again_but_a_write_is_sent_once",
