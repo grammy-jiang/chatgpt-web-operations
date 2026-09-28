@@ -19,6 +19,12 @@ not just the first page. ``--id`` reads the project directly from
 the full (unshortened) instructions and the memory scope are available;
 ``--files`` then lists its files, keeping scalar fields only since a file
 record's full shape has not been seen on a real project yet.
+
+``--chats`` pages ``gizmos/<id>/conversations`` at most 50 per request and
+follows its ``cursor`` up to ``--limit`` chats. Since 2026-09-29 the endpoint
+answers HTTP 422 to ``limit`` above 50; a single ``--limit 80`` request used
+to be printed as "0 conversation(s)". A failed page is now reported with its
+status and exits 1.
 """
 
 from __future__ import annotations
@@ -32,6 +38,8 @@ from _common import ensure_venv, open_session, shorten, table
 SIDEBAR = "/backend-api/gizmos/snorlax/sidebar"
 GIZMO = "/backend-api/gizmos/{id}"
 SIDEBAR_PAGE_LIMIT = 50
+CONVERSATIONS = "/backend-api/gizmos/{id}/conversations"
+CONVERSATION_PAGE_LIMIT = 50  # the server answers 422 above 50 (2026-09-29)
 MAX_SIDEBAR_PAGES = 50  # a server that never returns a null cursor stops here
 
 SCALAR = (str, int, float, bool, type(None))
@@ -125,6 +133,34 @@ def project_of(payload: dict[str, Any]) -> dict[str, Any]:
     return project
 
 
+def project_chats(
+    session: Any, project_id: str, limit: int
+) -> tuple[list[dict[str, Any]], int | None]:
+    """Up to ``limit`` chats of one project, 50 per request, following ``cursor``.
+
+    Returns ``(items, failed_status)``: ``failed_status`` is the HTTP status of the
+    first page that was not a 200 JSON object, else ``None``. The walk stops at the
+    limit, an empty page, a null or missing cursor, or ``MAX_SIDEBAR_PAGES`` pages.
+    """
+    items: list[dict[str, Any]] = []
+    cursor = "0"
+    for _ in range(MAX_SIDEBAR_PAGES):
+        want = min(CONVERSATION_PAGE_LIMIT, limit - len(items))
+        if want <= 0:
+            break
+        status, body = session.session.call(
+            f"{CONVERSATIONS.format(id=project_id)}?cursor={cursor}&limit={want}"
+        )
+        if status != 200 or not isinstance(body, dict):
+            return items, status
+        page = body.get("items") or []
+        items.extend(page[:want])
+        cursor = body.get("cursor") or ""
+        if not page or not cursor:
+            break
+    return items, None
+
+
 def file_row(f: dict[str, Any]) -> tuple[str, str, str]:
     """One project file for ``--files``: id, name, then any other scalar field."""
     rest = ", ".join(
@@ -141,7 +177,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     ap.add_argument("--chats", action="store_true", help="list its conversations")
     ap.add_argument("--files", action="store_true", help="list its files (with --id)")
-    ap.add_argument("--limit", type=int, default=20, help="conversations to list")
+    ap.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="conversations to list (paged, 50 per request)",
+    )
     args = ap.parse_args(argv)
 
     session = open_session()
@@ -172,11 +213,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\n{len(project['files'])} file(s)")
 
         if args.chats:
-            _st, body = session.session.call(
-                f"/backend-api/gizmos/{project['id']}/conversations"
-                f"?cursor=0&limit={args.limit}"
-            )
-            items = body.get("items") or [] if isinstance(body, dict) else []
+            items, failed = project_chats(session, project["id"], args.limit)
             print()
             print(
                 table(
@@ -187,6 +224,12 @@ def main(argv: list[str] | None = None) -> int:
                     ("chat id", "title"),
                 )
             )
+            if failed is not None:
+                print(
+                    f"\nconversation listing failed: HTTP {failed} after "
+                    f"{len(items)} conversation(s) in {project['name']}"
+                )
+                return 1
             print(f"\n{len(items)} conversation(s) in {project['name']}")
         return 0
 

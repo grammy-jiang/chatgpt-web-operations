@@ -250,6 +250,91 @@ def test_id_with_chats_queries_cursor_zero(monkeypatch, capsys) -> None:
     assert backend.urls[-1] == f"{conversations}?cursor=0&limit=20"
 
 
+class _PagedConversations:
+    """gizmos/g-p-detail answers GIZMO_DETAIL; conversation pages come in call order."""
+
+    def __init__(self, pages: list[tuple[int, dict]]) -> None:
+        self.pages = list(pages)
+        self.urls: list[str] = []
+
+    def call(self, url: str) -> tuple[int, dict]:
+        self.urls.append(url)
+        if url == "/backend-api/gizmos/g-p-detail":
+            return 200, GIZMO_DETAIL
+        if not self.pages:
+            return 200, {"items": [], "cursor": None}
+        return self.pages.pop(0)
+
+
+def _chats(start: int, stop: int) -> list[dict]:
+    return [{"id": f"conv-{i}", "title": f"t{i}"} for i in range(start, stop)]
+
+
+def test_chats_page_at_most_50_per_request_and_follow_the_cursor(
+    monkeypatch, capsys
+) -> None:
+    """The endpoint answers 422 above limit=50 (2026-09-29): --limit 80 must page."""
+    conversations = "/backend-api/gizmos/g-p-detail/conversations"
+    backend = _PagedConversations(
+        [
+            (200, {"items": _chats(0, 50), "cursor": "c1"}),
+            (200, {"items": _chats(50, 60), "cursor": None}),
+        ]
+    )
+    monkeypatch.setattr(list_projects, "open_session", lambda: _FakeSession(backend))
+    assert list_projects.main(["--id", "g-p-detail", "--chats", "--limit", "80"]) == 0
+    out = capsys.readouterr().out
+    assert "conv-59" in out
+    assert "60 conversation(s) in Workers" in out
+    assert backend.urls[1:] == [
+        f"{conversations}?cursor=0&limit=50",
+        f"{conversations}?cursor=c1&limit=30",
+    ]
+
+
+def test_chats_stop_at_the_requested_limit(monkeypatch, capsys) -> None:
+    """A project with more chats than --limit is read only up to the limit."""
+    conversations = "/backend-api/gizmos/g-p-detail/conversations"
+    backend = _PagedConversations(
+        [
+            (200, {"items": _chats(0, 50), "cursor": "c1"}),
+            (200, {"items": _chats(50, 100), "cursor": "c2"}),
+        ]
+    )
+    monkeypatch.setattr(list_projects, "open_session", lambda: _FakeSession(backend))
+    assert list_projects.main(["--id", "g-p-detail", "--chats", "--limit", "60"]) == 0
+    assert "60 conversation(s) in Workers" in capsys.readouterr().out
+    assert backend.urls[1:] == [
+        f"{conversations}?cursor=0&limit=50",
+        f"{conversations}?cursor=c1&limit=10",
+    ]
+
+
+def test_a_rejected_chat_listing_is_reported_and_exits_1(monkeypatch, capsys) -> None:
+    """HTTP 422 used to print "0 conversation(s)", which reads as an empty project."""
+    backend = _PagedConversations([(422, {"detail": "limit must be at most 50"})])
+    monkeypatch.setattr(list_projects, "open_session", lambda: _FakeSession(backend))
+    assert list_projects.main(["--id", "g-p-detail", "--chats"]) == 1
+    out = capsys.readouterr().out
+    assert (
+        "conversation listing failed: HTTP 422 after 0 conversation(s) in Workers"
+        in out
+    )
+    assert "0 conversation(s) in Workers" not in out.replace(
+        "after 0 conversation(s) in Workers", ""
+    )
+
+
+def test_project_chats_with_a_zero_limit_reads_nothing() -> None:
+    """--limit 0 sends no request at all."""
+    backend = _PagedConversations([])
+    assert list_projects.project_chats(_FakeSession(backend), "g-p-detail", 0) == (
+        [],
+        None,
+    )
+    assert backend.urls == []
+
+
 def test_an_unknown_id_prints_no_project_and_exits_1(monkeypatch, capsys) -> None:
     """A 404 from gizmos/<id> must not crash or print a stale table."""
     missing = {"/backend-api/gizmos/g-p-missing": (404, {"detail": "not found"})}
