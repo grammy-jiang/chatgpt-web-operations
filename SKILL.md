@@ -4,7 +4,8 @@ description: >-
   Use when driving chatgpt.com from this machine — sending prompts, collecting
   replies, listing or cleaning up worker conversations, diagnosing a stalled
   or failing ChatGPT run, managing OpenAI tunnels for local MCP connectors,
-  or rediscovering ChatGPT's endpoints after they change. Self-contained: it
+  uploading, updating, installing or uninstalling the account's own ChatGPT
+  plugins, or rediscovering ChatGPT's endpoints after they change. Self-contained: it
   bundles the chatgpt.com client and its own .venv, so it works from any project.
   Do NOT use for designing research topics or gates; that is the research-pipeline
   skill.
