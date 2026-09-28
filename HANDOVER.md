@@ -59,7 +59,7 @@ its parent; preflight counts them). Atlas F-2026-09-28-7 to 9.
 For first use or missing access, read `references/setup.md` and the
 credential creation and recovery sections in `references/tunnels.md`.
 Read `VERIFICATION.md` for measured results, then `SKILL.md`, `ROADMAP.md`
-and `TESTING.md`. There are 30 commands. Codex and the shared
+and `TESTING.md`. There are 31 commands. Codex and the shared
 agent skill paths point at this working directory. The records below are
 historical handovers. Their command counts, test counts, timings and
 abandoned designs do not override the current documents.

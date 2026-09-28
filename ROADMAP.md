@@ -77,8 +77,8 @@ existing OpenAI tunnel with No Auth. Direct server URL and OAuth creation
 are not exposed by these commands. `list_connectors.py --detail` accepts
 connector ids, not link ids.
 
-`chatgpt-refresh` provides tool-list refresh as an adjacent installed
-command owned by binnacle's `chatgpt-mcp-dev` skill. `manage_tunnels.py`
+`refresh_connector.py` provides tool-list refresh (2026-09-29; the installed
+`chatgpt-refresh` name points to it). `manage_tunnels.py`
 now provides Platform tunnel list/get/create/update/delete in this skill.
 It uses separate Platform credentials and verifies mutations by reading
 them back. The onboarding skill delegates cloud tunnel operations here

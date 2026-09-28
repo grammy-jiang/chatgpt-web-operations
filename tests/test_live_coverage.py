@@ -120,6 +120,10 @@ LIVE_COVERAGE: dict[str, str] = {
         "test_setting_and_restoring_the_sandbox_instructions_round_trips"
     ),
     "read_chat.py": ROUNDTRIP,
+    "refresh_connector.py": (
+        "live/test_read_commands.py::"
+        "test_refresh_connector_lists_resolves_and_dry_runs_a_real_connector"
+    ),
     "review_topic.py": "offline-only",
     "round_status.py": "research-workdir",
     "search_chats.py": (
@@ -171,6 +175,6 @@ def test_every_row_resolves_to_a_live_test_or_a_named_reason(
 
 def test_the_reasons_are_the_exception_not_the_rule() -> None:
     """More than a third of the commands excused would mean the table has
-    become a list of excuses; today 9 of 30 have a reason."""
+    become a list of excuses; today 9 of 31 have a reason."""
     excused = [c for c, e in LIVE_COVERAGE.items() if "::" not in e]
     assert len(excused) * 3 <= len(LIVE_COVERAGE), excused

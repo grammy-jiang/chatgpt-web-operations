@@ -15,7 +15,7 @@ Scripts do not source `.bashrc` automatically.
 
 Then use these references:
 
-1. [SKILL.md](SKILL.md) -- the starting workflow and all 30 commands.
+1. [SKILL.md](SKILL.md) -- the starting workflow and all 31 commands.
 2. [VERIFICATION.md](VERIFICATION.md) -- test results and measured limits.
 3. `ROADMAP.md`, `TESTING.md`, `HANDOVER.md`, `references/endpoint-discovery.md`,
    `references/failure-atlas.md`, `VENDORED.md`.

@@ -89,7 +89,7 @@ skill does not import it.
 
 ## The commands
 
-There are 30 command scripts and six support modules. `clean_chats.py`,
+There are 31 command scripts and six support modules. `clean_chats.py`,
 `project_settings.py`, `pin_chat.py` and `delete_project.py` need `--apply`.
 `create_project.py`, `create_connector.py` and `connect_connector.py` act
 unless `--dry-run` is supplied. `delete_connector.py` and `delete_skill.py`
@@ -122,6 +122,7 @@ use POST; HTTP method alone does not determine whether an operation writes.
 | `list_connectors.py` | List accessible links and custom MCP apps; filter names or ids, inspect details, list available tunnels, or print JSON. Read-only HTTP, including lookup POSTs. | 0 listed, 1 a read failed, 2 bad arguments |
 | `create_connector.py` | Create a custom MCP app on an existing tunnel with No Auth. `--dry-run` previews the request. | 0 created or dry run, 1 create failed or name taken, 2 bad arguments |
 | `connect_connector.py` | Connect a No Auth custom MCP app and discover its tools. Optionally set `--apps-privacy full_access`. `--dry-run` previews both requests. | 0 connected or dry run, 1 connect or privacy update failed, 2 bad arguments |
+| `refresh_connector.py` | Refresh a connected app's cached tool list after its MCP server changed: `POST aip/connectors/mcp/refresh_actions`. NAME matches a link's name case-insensitively (exact, else a unique substring); `--link-id` skips the lookup; `--list` lists the links; HTTP 424 (the tunnel is not reachable yet) is retried 5 times 10 s apart unless `--no-retry`; `--dry-run` resolves without refreshing. Binnacle's `chatgpt-refresh` command line, so that installed name points here. | 0 refreshed, listed or previewed, 1 a request failed, 2 no such or an ambiguous connector, or bad arguments |
 | `delete_connector.py` | Delete a custom MCP app's links first, then its app; or delete one link. Stops if a link deletion fails. Dry run unless `--confirm`. | 0 deleted or dry run, 1 lookup or deletion failed, 2 bad arguments |
 | `manage_tunnels.py` | OpenAI Platform tunnel list/get/create/update/delete over HTTP. Uses a separate Platform management credential; runtime credentials permit get only. Create/update read back the fields, and delete requires a 404. Update/delete default to previews. See `references/tunnels.md`. | 0 completed or previewed, 1 request/read-back failed, 2 arguments/credentials/name guard refused |
 | `create_project.py` | Create a project over HTTP; `--memory project-only` from the start; `--dry-run` prints the body and sends nothing. | 0 created and read back, 1 create or read-back failed, 2 refused |
@@ -164,11 +165,9 @@ Task creation can be requested through the `tasks` hint, but this skill
 has no dedicated automation create/pause/delete command. Its dedicated
 automation interface is the read-only `list_automations.py`.
 
-`chatgpt-refresh` is installed on this machine and refreshes a connector's
-cached tool list. It belongs to binnacle's `chatgpt-mcp-dev` scripts, outside
-this self-contained skill. The adjacent `chatgpt-project` command also reads
-and updates project instructions. Neither command adds project rename/move
-or automation lifecycle flags. This skill owns Platform tunnel CRUD and
+`refresh_connector.py` refreshes a connector's cached tool list (since
+2026-09-29; until then binnacle's `chatgpt-refresh` did, and that installed
+name now points here with the same command line). This skill owns Platform tunnel CRUD and
 ChatGPT app/link operations. `chatgpt-mcp-onboarding` owns server setup,
 local tunnel-client profiles/daemons, and the order of the complete setup.
 
@@ -232,14 +231,14 @@ shapes are in `references/connectors.md`.
 Since the plugins era a connector made through "Create MCP App" is an *app*
 (`asdk_app_<32hex>`, a private plugin release) that is not usable until it
 is *connected*, which creates the user's *link* (`link_<32hex>`) and
-discovers the tool names through the tunnel. `chatgpt-refresh --list` and
+discovers the tool names through the tunnel. `refresh_connector.py --list` and
 `links/list_accessible` show links only.
 
 ```bash
 python3 $S/list_connectors.py [--match TEXT] [--tunnels] [--detail ID ...] [--json]
 python3 $S/create_connector.py --name NAME --tunnel tunnel_<id>        # POST aip/connectors/mcp -> asdk_app_<id>; 409 = name taken
 python3 $S/connect_connector.py asdk_app_<id> --name NAME --apps-privacy full_access   # POST links/noauth -> link_<id> + tools
-chatgpt-refresh NAME                                                    # re-read the tools after the server changed
+python3 $S/refresh_connector.py NAME                                    # re-read the tools after the server changed; 424 retried
 python3 $S/delete_connector.py asdk_app_<id> --confirm                  # DELETE its links (aip/connectors/links/<id>), then the app (aip/connectors/<id>)
 ```
 

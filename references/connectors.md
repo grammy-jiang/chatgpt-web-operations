@@ -10,7 +10,8 @@ clicked through the form, then verified by the scripts.
 Current command behavior is in `SKILL.md`; the latest acceptance results
 are in `VERIFICATION.md`. The captures below are a dated history. In the
 current CLI, `--detail` takes connector ids, not link ids. Tool-list refresh
-is provided by the adjacent `chatgpt-refresh` command outside this skill.
+is `refresh_connector.py` (since 2026-09-29; before that, binnacle's
+`chatgpt-refresh`, which the dated captures below name).
 Deletion stops if a link cannot be removed, and a requested privacy value
 must be confirmed before connect reports success.
 

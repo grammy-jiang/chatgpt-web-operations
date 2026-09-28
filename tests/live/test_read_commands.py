@@ -174,3 +174,18 @@ def test_search_chats_main_exits_as_documented(monkeypatch, adapter) -> None:
 def test_list_automations_reads_every_filter(monkeypatch, adapter) -> None:
     _point(monkeypatch, list_automations, adapter)
     assert list_automations.main(["--filter", "all"]) == 0
+
+
+def test_refresh_connector_lists_resolves_and_dry_runs_a_real_connector(
+    monkeypatch, adapter
+) -> None:
+    """The listing is a read POST (READ_POSTS); the refresh itself is not,
+    and the guard would refuse it: a dry run on a real name must never try."""
+    import refresh_connector
+
+    _point(monkeypatch, refresh_connector, adapter)
+    assert refresh_connector.main(["--list"]) == 0
+    assert refresh_connector.main([f"rp-no-such-connector-{secrets.token_hex(4)}"]) == 2
+    names = [link["name"] for link in list_connectors.links(adapter)]
+    if names:
+        assert refresh_connector.main([names[0], "--dry-run"]) == 0

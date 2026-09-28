@@ -300,6 +300,10 @@ EXCUSED = {
     "/backend-api/projects": "a write: creates a project",
     "/backend-api/projects/<id>": "a write: updates a project",
     "/backend-api/hazelnuts/<id>": "a write: deletes a skill",
+    "/backend-api/aip/connectors/mcp/refresh_actions": (
+        "a refresh: makes ChatGPT re-read a server's tools (refresh_connector.py); "
+        "done by hand and in the connector acceptance run"
+    ),
     "/backend-api/ecosystem/call_mcp": (
         "Deep research's MCP calls answer only for a conversation that hosts "
         "a research: covered by the manual acceptance run"
