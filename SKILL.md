@@ -636,3 +636,12 @@ This changes neither Chrome's cookie database nor the account's settings.
 The diagnostic event is `auth_browser_fallback`; no credential is logged.
 Network failures, 429 and 5xx retain the existing retry behavior. If both
 login copies fail, the command still fails and reports the request path.
+
+Since 2026-09-29 an answer lost on the wire (a read that timed out, a
+connection dropped mid-answer) and a 200 whose body is not JSON are
+ordinary failures too: a read is tried again and then returned as status 0,
+a write is never sent twice, and a login that fails this way goes through
+the same authentication ladder as a 403. `CHATGPT_BASE_URL` exists for the
+loopback test tier only (`TESTING.md`, tier L): it may name plain `http` on
+a loopback address, and any other value stops the command, because the
+cookies and the bearer token go wherever it points.

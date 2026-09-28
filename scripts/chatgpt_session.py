@@ -43,6 +43,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterable, MutableMapping
 from datetime import UTC
@@ -51,7 +52,11 @@ from http.cookies import SimpleCookie
 from pathlib import Path
 from typing import Any, NoReturn
 
-BASE = "https://chatgpt.com"
+DEFAULT_BASE = "https://chatgpt.com"
+# The loopback test tier (TESTING.md section 6, P6) points the session at a
+# fake server on 127.0.0.1 through this variable; nothing else may set it.
+BASE_ENV = "CHATGPT_BASE_URL"
+LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "::1"})
 UA = (
     "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/140.0 Safari/537.36"
@@ -106,6 +111,32 @@ def fail(msg: str) -> NoReturn:
     exc = SystemExit(1)
     exc.detail = msg
     raise exc
+
+
+def base_url(environ: MutableMapping[str, str] | None = None) -> str:
+    """Where every request of this module goes: ``https://chatgpt.com``, or
+    the loopback address ``CHATGPT_BASE_URL`` names (tests only).
+
+    The session's cookies and bearer token go wherever this points, so any
+    value that is not plain ``http`` to a loopback name is refused, never
+    followed: a stray variable in a shell must not ship the login to
+    another host.
+    """
+    if environ is None:
+        environ = os.environ
+    raw = (environ.get(BASE_ENV) or "").strip()
+    if not raw:
+        return DEFAULT_BASE
+    parts = urllib.parse.urlsplit(raw)
+    if parts.scheme != "http" or parts.hostname not in LOOPBACK_NAMES:
+        fail(
+            f"{BASE_ENV}={raw!r} is refused: it may only name a loopback "
+            "http address, for the loopback test tier"
+        )
+    return raw.rstrip("/")
+
+
+BASE = base_url()
 
 
 def _emit_diagnostic(
@@ -246,7 +277,16 @@ def _make_decryptor(app: str):
             algorithm=hashes.SHA1(), length=16, salt=b"saltysalt", iterations=1
         ).derive(pw)
 
-    keys = {b"v10": derive(b"peanuts"), b"v11": derive(_keyring_password(app))}
+    # v10 is Chrome's fixed "peanuts" key; the v11 key comes from the
+    # keyring, over D-Bus, and is fetched the first time a v11 value needs
+    # it. A jar without one (Chromium without a keyring, the loopback tier's
+    # synthetic jar) then never opens the bus at all.
+    keys: dict[bytes, bytes] = {b"v10": derive(b"peanuts")}
+
+    def key_for(version: bytes) -> bytes | None:
+        if version == b"v11" and version not in keys:
+            keys[version] = derive(_keyring_password(app))
+        return keys.get(version)
 
     def plain(enc: bytes) -> str | None:
         """The value, or None when it does not decode (never exits).
@@ -256,7 +296,7 @@ def _make_decryptor(app: str):
         text, and on 2026-09-27 an empty _dd_s made every session fail to
         open under the old printable-ASCII rule.
         """
-        key = keys.get(enc[:3])
+        key = key_for(enc[:3])
         if key is None:
             return None
         d = Cipher(algorithms.AES(key), modes.CBC(b" " * 16)).decryptor()
@@ -276,7 +316,7 @@ def _make_decryptor(app: str):
         return None
 
     def decrypt(enc: bytes) -> str:
-        if keys.get(enc[:3]) is None:
+        if key_for(enc[:3]) is None:
             fail(f"unexpected cookie encryption version {enc[:3]!r}")
         s = plain(enc)
         if s is None:
@@ -793,7 +833,13 @@ class Session:
                 data = json.loads(text)
             except urllib.error.HTTPError as e:
                 status, headers = e.code, e.headers
-            except (urllib.error.URLError, json.JSONDecodeError):
+            except (OSError, http.client.HTTPException, json.JSONDecodeError):
+                # URLError, a read that timed out, a connection dropped
+                # mid-answer, a body that is not JSON: one failed attempt,
+                # which fail() below turns into the SystemExit the client's
+                # authentication ladder retries. Before 2026-09-29 only
+                # URLError was caught here, and a stalled handshake left
+                # as a bare TimeoutError the ladder never saw.
                 pass
             info: dict = data if isinstance(data, dict) else {}
             self.token = info.get("accessToken") if status == 200 else None
@@ -974,7 +1020,19 @@ class Session:
         for attempt in range(attempts):
             try:
                 status, text, _headers = self._request(path, method, payload)
-                return status, (text if raw else json.loads(text))
+                if raw:
+                    return status, text
+                try:
+                    return status, json.loads(text)
+                except json.JSONDecodeError as e:
+                    # A body cut short or a page instead of JSON (Cloudflare
+                    # serves HTML with a 200 too). For a read it is one more
+                    # transient failure; a write's status stands, because
+                    # the server did answer it, and it is never sent twice.
+                    problem = {"error": f"the answer was not JSON ({e})"[:200]}
+                    if method.upper() not in ("GET", "HEAD"):
+                        return status, problem
+                    last = (0, problem)
             except urllib.error.HTTPError as e:
                 response_body = getattr(e, "_chatgpt_response_body", None)
                 if response_body is None:

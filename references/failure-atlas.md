@@ -500,3 +500,17 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   of its session stages into a "check crashed" block row and still writes
   its JSON. The lesson: every way out of a scheduled check must end in its
   report.
+- **(F-2026-09-29-12) The loopback tier's first run found two more of the
+  same kind.** Tier L (`TESTING.md`, P6) runs the real HTTP path against a
+  fake chatgpt.com on 127.0.0.1. Its first run, on 2026-09-29, failed twice.
+  A login whose answer stalled past the request timeout left
+  `Session.__init__` as a bare `TimeoutError`: the handshake caught only
+  `URLError`, and the client's authentication ladder retries only the
+  `SystemExit` of a failed login, so one slow answer ended a command with a
+  traceback instead of a retry 30 s later. And a 200 whose body is not JSON
+  (Cloudflare serves its challenge page with a 200 too) raised
+  `JSONDecodeError` out of `Session.call`. Neither is on record in
+  production. Now the first is a failed attempt the ladder retries; the
+  second is read again for a read and, for a write, returned once with its
+  status and an error, never sent twice. Each fix was removed once, and its
+  loopback test failed with the production error.

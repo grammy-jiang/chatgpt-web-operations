@@ -1769,6 +1769,134 @@ def test_session_init_fails_cleanly_on_a_transport_failure(monkeypatch) -> None:
     assert exc.value.code == 1
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        TimeoutError("The read operation timed out"),
+        ConnectionResetError("reset"),
+        http.client.RemoteDisconnected("closed"),
+    ],
+)
+def test_a_handshake_whose_answer_is_lost_is_a_failed_login(
+    monkeypatch, error, capsys
+) -> None:
+    """The SystemExit of fail() is what the client's authentication ladder
+    retries; a bare TimeoutError from reading the answer went past it
+    (found by the loopback tier, 2026-09-29)."""
+    monkeypatch.setattr(
+        chatgpt_session, "pick_browser", lambda choice="auto": "fake-browser"
+    )
+    monkeypatch.setattr(
+        chatgpt_session, "_cookie_pairs", lambda browser: ([("cookie", "abc")], None)
+    )
+    monkeypatch.setattr(chatgpt_session, "load_stored_session", lambda: None)
+
+    def fake_urlopen(req, timeout=60):
+        raise error
+
+    monkeypatch.setattr(chatgpt_session.urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(SystemExit) as exc:
+        chatgpt_session.Session()
+    assert exc.value.code == 1
+    assert "no HTTP response" in capsys.readouterr().err
+
+
+def test_the_base_url_is_chatgpt_com_unless_a_loopback_address_is_named() -> None:
+    assert chatgpt_session.base_url({}) == "https://chatgpt.com"
+    assert chatgpt_session.base_url({"CHATGPT_BASE_URL": "  "}) == "https://chatgpt.com"
+    for loopback in ("http://127.0.0.1:8123/", "http://localhost:9", "http://[::1]:7"):
+        assert chatgpt_session.base_url({"CHATGPT_BASE_URL": loopback}) == (
+            loopback.rstrip("/")
+        )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://chatgpt.com",
+        "https://127.0.0.1:8123",
+        "http://example.com",
+        "http://127.0.0.2:80",
+        "127.0.0.1:8123",
+    ],
+)
+def test_a_base_url_that_is_not_plain_http_to_loopback_is_refused(
+    value, capsys
+) -> None:
+    """The session's cookies and bearer token go wherever BASE points."""
+    with pytest.raises(SystemExit):
+        chatgpt_session.base_url({"CHATGPT_BASE_URL": value})
+    assert "is refused" in capsys.readouterr().err
+
+
+def test_a_jar_without_a_v11_value_never_opens_the_keyring(monkeypatch) -> None:
+    calls: list[str] = []
+
+    def keyring(app):
+        calls.append(app)
+        return b"keyring-password"
+
+    monkeypatch.setattr(chatgpt_session, "_keyring_password", keyring)
+    decrypt = chatgpt_session._make_decryptor("chrome")
+    assert decrypt(_encrypt(b"v10", _derive(b"peanuts"), b"plain-v10")) == "plain-v10"
+    assert calls == []
+    key = _derive(b"keyring-password")
+    assert decrypt(_encrypt(b"v11", key, b"one")) == "one"
+    assert decrypt(_encrypt(b"v11", key, b"two")) == "two"
+    assert calls == ["chrome"]  # fetched once, when first needed
+
+
+def test_call_reads_again_when_a_200_answer_is_not_json(monkeypatch) -> None:
+    """Cloudflare serves HTML with a 200 too; a read tries again."""
+    sleeps: list[float] = []
+    monkeypatch.setattr(chatgpt_session.time, "sleep", sleeps.append)
+    answers = iter(
+        [_FakeResponse(200, "<html>Just a moment...</html>"), _FakeResponse(200, "[]")]
+    )
+    monkeypatch.setattr(
+        chatgpt_session.urllib.request, "urlopen", lambda req, timeout=60: next(answers)
+    )
+    assert _session().call("/x") == (200, [])
+    assert sleeps == [2]
+
+
+def test_call_gives_up_on_a_read_that_is_never_json(monkeypatch) -> None:
+    monkeypatch.setattr(chatgpt_session.time, "sleep", lambda s: None)
+    monkeypatch.setattr(
+        chatgpt_session.urllib.request,
+        "urlopen",
+        lambda req, timeout=60: _FakeResponse(200, "<html></html>"),
+    )
+    status, data = _session().call("/x")
+    assert status == 0
+    assert data["error"].startswith("the answer was not JSON")
+
+
+def test_call_sends_a_write_once_and_keeps_its_status_when_the_answer_is_not_json(
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_urlopen(req, timeout=60):
+        calls.append(req.get_method())
+        return _FakeResponse(200, "<html></html>")
+
+    monkeypatch.setattr(chatgpt_session.urllib.request, "urlopen", fake_urlopen)
+    status, data = _session().call("/x", method="PATCH", payload={"is_visible": False})
+    assert status == 200
+    assert data["error"].startswith("the answer was not JSON")
+    assert calls == ["PATCH"]
+
+
+def test_call_raw_returns_a_page_as_text(monkeypatch) -> None:
+    monkeypatch.setattr(
+        chatgpt_session.urllib.request,
+        "urlopen",
+        lambda req, timeout=60: _FakeResponse(200, "<html></html>"),
+    )
+    assert _session().call("/x", raw=True) == (200, "<html></html>")
+
+
 def test_pick_browser_rejects_an_unknown_name_with_a_clear_message(capsys) -> None:
     """An unknown browser used to surface later as a raw KeyError."""
     with pytest.raises(SystemExit):

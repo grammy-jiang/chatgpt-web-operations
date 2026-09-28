@@ -38,7 +38,7 @@ LIVE_MARKERS = {
 # reach no network (TESTING.md tier R). Playwright's sync API runs an asyncio
 # loop whose self-pipe is a socketpair, so these tests keep socket.socket
 # and are held to loopback by name resolution and connection instead.
-LOCAL_MARKERS = frozenset({"replay"})
+LOCAL_MARKERS = frozenset({"replay", "loopback"})
 LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", ""})
 
 
@@ -53,8 +53,8 @@ def _loopback_only(host: Any) -> None:
         name = host.decode("ascii", "replace")
     if name not in LOOPBACK_HOSTS:
         raise RuntimeError(
-            f"tier R (replay) test tried to reach {name!r}, which is not "
-            "loopback; see TESTING.md"
+            f"a replay or loopback test tried to reach {name!r}, which is "
+            "not loopback; see TESTING.md"
         )
 
 

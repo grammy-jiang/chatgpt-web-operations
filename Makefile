@@ -1,9 +1,9 @@
 PY := .venv/bin/python
 
-.PHONY: test lint fmt replay refresh-dom-fixtures contract refresh-shapes read-paths live-read live-write live-browser live-send all
+.PHONY: test lint fmt replay loopback refresh-dom-fixtures contract refresh-shapes read-paths live-read live-write live-browser live-send all
 
 test:
-	$(PY) -m pytest tests -q -m "not live_read and not live_write and not live_browser and not live_send and not replay" --cov=scripts --cov-report=json --cov-report=term-missing:skip-covered
+	$(PY) -m pytest tests -q -m "not live_read and not live_write and not live_browser and not live_send and not replay and not loopback" --cov=scripts --cov-report=json --cov-report=term-missing:skip-covered
 	$(PY) tests/coverage_gate.py
 
 # Tier R: the client's page functions on recorded DOM fixtures in a real
@@ -12,6 +12,13 @@ test:
 # fixtures: the offline acceptance gate for a fix, before promotion.
 replay:
 	$(if $(FIXTURES),RP_DOM_FIXTURES=$(FIXTURES)) $(PY) -m pytest tests/replay -q -m replay
+
+# Tier L: the real HTTP client (urllib, the retry and authentication
+# ladders, a synthetic cookie jar, command mains, one subprocess) against a
+# fake chatgpt.com on 127.0.0.1 (TESTING.md section 6, P6). No account, no
+# network beyond loopback, no keyring.
+loopback:
+	$(PY) -m pytest tests/loopback -q -m loopback
 
 # Promote a recorded DOM snapshot into tests/fixtures/dom/ after re-sanitizing
 # it: FROM=<dir> selects the snapshot directory (default: the newest daily
