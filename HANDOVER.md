@@ -54,6 +54,25 @@ the shared-profile window invisible to the in-flight check and the
 watchdog (fixed) and 30 orphaned Xvfb servers (killed; Xvfb now dies with
 its parent; preflight counts them). Atlas F-2026-09-28-7 to 9.
 
+**State at 2026-09-29, 01:00.** P5 (API shapes, `0a9b7ec`) and the
+one-client work A1-A4 are done: binnacle keeps no ChatGPT tooling (its
+commit `640b906`, deployed 00:47), the installed `chatgpt-refresh` runs
+`refresh_connector.py`, and the weekly wrapper also checks the installed
+`chatgpt-refresh` and `chatgpt-send`. The A3 exit check found two defects
+(atlas F-2026-09-29-10 and 11). First, the send judged "posted" by counting
+user turns, and 40 of the 42 "not posted" events of 2026-09-27/28 (runs of
+ThreadDeck and python-migration-atlas) were messages ChatGPT had stored;
+the callers took them as failures and at least one turn was sent twice.
+The send now reads its own `f/conversation` POST's status and a new chat's
+real address before the count. Second, the daily check of 2026-09-28 05:25
+reported FAIL because one timed-out read ended `health.py` before it wrote
+its JSON; the session now returns such an error as data, and `health.py`
+always writes its document. Open: the real send through `chatgpt-send` (the
+scripted browser met a Cloudflare challenge at 00:49 and was not retried
+while another project's run waited to send), P12's T4 round trip, then
+P6-P10. The ThreadDeck and atlas callers were not changed; their runs of
+2026-09-27/28 may hold turns sent twice and chats deleted as failures.
+
 ## Entry point, 2026-09-25
 
 For first use or missing access, read `references/setup.md` and the
