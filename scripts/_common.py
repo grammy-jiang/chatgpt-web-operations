@@ -92,6 +92,27 @@ def table(rows: list[tuple[str, ...]], headers: tuple[str, ...]) -> str:
     return "\n".join(out)
 
 
+def resolve_name(
+    query: str, rows: list[dict[str, Any]], what: str = "item"
+) -> tuple[dict[str, Any], str]:
+    """``(row, "")`` for the one row whose ``name`` ``query`` names, or
+    ``({}, reason)``: an exact case-insensitive name first, else a unique
+    substring. Shared by the commands that take a name where an id would
+    do (a connector, a project)."""
+    wanted = query.casefold()
+    exact = [row for row in rows if str(row.get("name", "")).casefold() == wanted]
+    hits = exact or [
+        row for row in rows if wanted in str(row.get("name", "")).casefold()
+    ]
+    if not hits:
+        known = ", ".join(sorted(repr(str(row.get("name", ""))) for row in rows))
+        return {}, f"no {what} matches {query!r}; known: {known or 'none'}"
+    if len(hits) > 1:
+        names = ", ".join(sorted(repr(str(row.get("name", ""))) for row in hits))
+        return {}, f"{query!r} is ambiguous; it matches {names}"
+    return hits[0], ""
+
+
 def shorten(text: str, limit: int = 70) -> str:
     """One line, bounded, for a table cell."""
     flat = " ".join(str(text).split())

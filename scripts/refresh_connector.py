@@ -32,7 +32,7 @@ import time
 from typing import Any
 
 import list_connectors
-from _common import ensure_venv, open_session
+from _common import ensure_venv, open_session, resolve_name
 
 REFRESH = "/backend-api/aip/connectors/mcp/refresh_actions"
 RETRY_424_ATTEMPTS = 5
@@ -41,18 +41,9 @@ SLEEP = time.sleep
 
 
 def resolve(query: str, links: list[dict[str, Any]]) -> tuple[dict[str, Any], str]:
-    """``(link, "")`` for the one link ``query`` names, or ``({}, reason)``:
-    an exact case-insensitive name first, else a unique substring."""
-    wanted = query.casefold()
-    exact = [link for link in links if link["name"].casefold() == wanted]
-    hits = exact or [link for link in links if wanted in link["name"].casefold()]
-    if not hits:
-        known = ", ".join(sorted(repr(link["name"]) for link in links)) or "none"
-        return {}, f"no connector matches {query!r}; known: {known}"
-    if len(hits) > 1:
-        names = ", ".join(sorted(repr(link["name"]) for link in hits))
-        return {}, f"{query!r} is ambiguous; it matches {names}"
-    return hits[0], ""
+    """``(link, "")`` for the one link ``query`` names, or ``({}, reason)``
+    (``_common.resolve_name``: exact, else a unique substring)."""
+    return resolve_name(query, links, "connector")
 
 
 def refresh(

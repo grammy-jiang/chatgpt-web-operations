@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
-"""Set a project's instructions and memory scope.
+"""Set a project's instructions and memory scope, or show its instructions.
 
-    project_settings.py g-p-<id> [--apply]
+    project_settings.py (g-p-<id> | --name NAME) [--apply]
         [--instructions FILE | --instructions-text TEXT | --clear-instructions]
         [--memory project-only|default]
+    project_settings.py (g-p-<id> | --name NAME) --show
+
+``--name`` finds the project by name instead of id: an exact
+case-insensitive name first, else a unique substring of the names the
+sidebar lists (every page); an unknown or ambiguous name is refused.
+``--show`` prints the project's instructions exactly as stored, followed by
+the one newline ``print`` adds, and changes nothing: what binnacle's
+``chatgpt-project get-instructions`` printed, for the same callers.
 
 Project settings (a project's "..." menu) always saves its whole record in
 one PATCH, never a single field: name, instructions, emoji, theme and, when
@@ -22,9 +30,10 @@ follows from it.
 Exit 0 on a dry run, and on --apply when the PATCH answered 200 and the
 read-back agreed. Exit 1 when the PATCH does not answer 200, or a changed
 field's read-back disagrees with what was sent (both values are printed).
-Exit 2 when the id is not a project id, when more than one of
---instructions / --instructions-text / --clear-instructions was given, or
-when nothing was asked to change.
+Exit 2 when the id is not a project id, when neither or both of an id and
+--name were given, when --name is unknown or ambiguous, when more than one
+of --instructions / --instructions-text / --clear-instructions was given,
+when --show is combined with a change, or when nothing was asked to change.
 """
 
 from __future__ import annotations
@@ -35,8 +44,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from _common import ensure_venv, open_session
-from list_projects import project_of
+from _common import ensure_venv, open_session, resolve_name
+from list_projects import project_of, sidebar_entry, sidebar_items
 
 GIZMO = "/backend-api/gizmos/{id}"
 PROJECT = "/backend-api/projects/{id}"
@@ -136,7 +145,17 @@ def render_change(
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("project_id", metavar="g-p-ID", help="the project to change")
+    ap.add_argument(
+        "project_id", nargs="?", metavar="g-p-ID", help="the project to change"
+    )
+    ap.add_argument(
+        "--name", metavar="NAME", help="the project by name (exact, else substring)"
+    )
+    ap.add_argument(
+        "--show",
+        action="store_true",
+        help="print the instructions exactly as stored; change nothing",
+    )
     ap.add_argument(
         "--instructions",
         default=None,
@@ -163,7 +182,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--apply", action="store_true", help="without it, dry run")
     args = ap.parse_args(argv)
 
-    if not args.project_id.startswith("g-p-"):
+    if (args.project_id is None) == (args.name is None):
+        print("give exactly one of a g-p- project id and --name")
+        return 2
+    if args.project_id is not None and not args.project_id.startswith("g-p-"):
         print(f"{args.project_id!r} is not a project id (it must start with 'g-p-')")
         return 2
 
@@ -195,7 +217,10 @@ def main(argv: list[str] | None = None) -> int:
 
     memory = MEMORY_SCOPES[args.memory] if args.memory else None
 
-    if instructions is None and memory is None:
+    if args.show and (instructions is not None or memory is not None):
+        print("--show changes nothing: drop the change options, or drop --show")
+        return 2
+    if not args.show and instructions is None and memory is None:
         print(
             "nothing to change: pass --instructions, --instructions-text, "
             "--clear-instructions or --memory"
@@ -203,12 +228,23 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     session = open_session()
-    status, gizmo_payload = session.session.call(GIZMO.format(id=args.project_id))
+    project_id = args.project_id
+    if args.name is not None:
+        entries = [sidebar_entry(item) for item in sidebar_items(session)]
+        found, reason = resolve_name(args.name, entries, "project")
+        if reason:
+            print(reason)
+            return 2
+        project_id = found["id"]
+    status, gizmo_payload = session.session.call(GIZMO.format(id=project_id))
     if status != 200 or not isinstance(gizmo_payload, dict):
-        print(f"no project with id {args.project_id} (gizmos read: HTTP {status})")
+        print(f"no project with id {project_id} (gizmos read: HTTP {status})")
         return 1
 
     before = project_of(gizmo_payload)
+    if args.show:
+        print(before["instructions"])
+        return 0
     body = patch_body(gizmo_payload, instructions=instructions, memory=memory)
 
     print(render_current(before))
@@ -222,13 +258,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     patch_status, patch_resp = session.session.call(
-        PROJECT.format(id=args.project_id), method="PATCH", payload=body
+        PROJECT.format(id=project_id), method="PATCH", payload=body
     )
     if patch_status != 200:
         print(f"\nPATCH failed: HTTP {patch_status} {str(patch_resp)[:200]}")
         return 1
 
-    read_status, gizmo_after = session.session.call(GIZMO.format(id=args.project_id))
+    read_status, gizmo_after = session.session.call(GIZMO.format(id=project_id))
     after = (
         project_of(gizmo_after)
         if read_status == 200 and isinstance(gizmo_after, dict)

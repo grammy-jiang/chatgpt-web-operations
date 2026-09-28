@@ -189,3 +189,30 @@ def test_refresh_connector_lists_resolves_and_dry_runs_a_real_connector(
     names = [link["name"] for link in list_connectors.links(adapter)]
     if names:
         assert refresh_connector.main([names[0], "--dry-run"]) == 0
+
+
+def test_project_settings_shows_the_sandbox_instructions_by_name(
+    monkeypatch, adapter, capsys
+) -> None:
+    """--name walks the sidebar, --show prints the text and changes nothing
+    (the guard would refuse the PATCH in this tier anyway)."""
+    import project_settings
+
+    _point(monkeypatch, project_settings, adapter)
+    assert project_settings.main(["--name", "rp-test-sandbox", "--show"]) == 0
+    assert capsys.readouterr().out.endswith("\n")
+    assert (
+        project_settings.main(["--name", f"rp-none-{secrets.token_hex(4)}", "--show"])
+        == 2
+    )
+
+
+def test_clean_chats_by_id_reports_a_missing_chat_as_already_gone(
+    monkeypatch, adapter, capsys
+) -> None:
+    """A dry run by exact id reads the chat raw; an id that names nothing is
+    'already gone', never an error and never a write."""
+    _point(monkeypatch, clean_chats, adapter)
+    missing = "00000000-0000-4000-8000-" + secrets.token_hex(6)
+    assert clean_chats.main(["--id", missing, "--delete"]) == 0
+    assert "(already gone)" in capsys.readouterr().out
