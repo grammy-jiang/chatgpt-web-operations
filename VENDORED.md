@@ -10,6 +10,12 @@ one client, here, and the repository's 186 orchestrator tests run against
 it. Anything below describes where the files came from, not a sync
 obligation.
 
+**Since 2026-09-29 the binnacle origin is retired too.** binnacle deleted its
+`chatgpt_session.py` and `chatgpt_cookies.py` (commit `640b906`, with the
+three tools that used them), and the two links in
+`~/.local/lib/python3.13/site-packages/` that pointed at them now point at this
+skill's modules. There is no other copy on this host to compare with.
+
 This skill imports nothing from a repository checkout. The modules below
 started as copies.
 
@@ -21,8 +27,8 @@ not an origin. The table records where each file came from.
 | File | Origin | Taken | sha256 of the origin file |
 |------|--------|-------|---------------------------|
 | `scripts/chatgpt_client.py` | research-pipeline `.github/scripts/chatgpt_client.py`, branch `feat/chatgpt-orchestrator` | commit `00b5e1a0`, 2026-09-19 | `6f0ec336b0e2a7d24024edc9d82888ce6cea1559a7dca5b4a84492f0d9608688` |
-| `scripts/chatgpt_session.py` | binnacle `.claude/skills/chatgpt-mcp-dev/scripts/chatgpt_session.py` (untracked in that repository) | 2026-09-19 | `c00fb681645093cd9a680a8d1dd96b1979c6c4facdb983afc25e57647947e828` |
-| `scripts/chatgpt_cookies.py` | binnacle `.claude/skills/chatgpt-mcp-dev/scripts/chatgpt_cookies.py` (untracked in that repository) | 2026-09-19 | `1c172761abca0fd19c6a1905a59802bd87df9c6bbc01b542cf4a0b38539c37f1` |
+| `scripts/chatgpt_session.py` | binnacle `.claude/skills/chatgpt-mcp-dev/scripts/chatgpt_session.py` (untracked there on 2026-09-19; tracked from `77ff93c` until `640b906` deleted it) | 2026-09-19 | `c00fb681645093cd9a680a8d1dd96b1979c6c4facdb983afc25e57647947e828` |
+| `scripts/chatgpt_cookies.py` | binnacle `.claude/skills/chatgpt-mcp-dev/scripts/chatgpt_cookies.py` (untracked there on 2026-09-19; tracked from `77ff93c` until `640b906` deleted it) | 2026-09-19 | `1c172761abca0fd19c6a1905a59802bd87df9c6bbc01b542cf4a0b38539c37f1` |
 | `scripts/round_state.py` | research-pipeline `.github/scripts/chatgpt_research.py`: `base_id`, `read_jsonl`, `paper_id_of`, `ANALYSIS_SUFFIX`, `admitted_ids`, `analysed_ids`, `skipped_papers`, `accounted_ids` | commit `00b5e1a0`, 2026-09-19 | `4bef6b11ba3366ac45ff0701f91dccecfd29b3772fab0527eec26923f0d1d7bb` |
 
 ## Local changes
@@ -71,12 +77,14 @@ not an origin. The table records where each file came from.
 ## Provenance check
 
 To see how far the repository's copy has drifted from this one, for
-information only, nothing is synced:
+information only, nothing is synced. binnacle's copies exist only in its
+history now (tracked from `77ff93c`, 2026-09-19, to their deletion in
+`640b906`):
 
 ```bash
 diff <research-pipeline checkout>/.github/scripts/chatgpt_client.py scripts/chatgpt_client.py
-cmp  <binnacle checkout>/.claude/skills/chatgpt-mcp-dev/scripts/chatgpt_session.py scripts/chatgpt_session.py
-cmp  <binnacle checkout>/.claude/skills/chatgpt-mcp-dev/scripts/chatgpt_cookies.py scripts/chatgpt_cookies.py
+git -C <binnacle checkout> show 640b906^:.claude/skills/chatgpt-mcp-dev/scripts/chatgpt_session.py | diff - scripts/chatgpt_session.py
+git -C <binnacle checkout> show 640b906^:.claude/skills/chatgpt-mcp-dev/scripts/chatgpt_cookies.py | diff - scripts/chatgpt_cookies.py
 ```
 
 For `round_state.py`, compare each listed function with its definition in

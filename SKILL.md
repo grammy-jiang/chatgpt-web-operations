@@ -588,8 +588,9 @@ check whether a send is in flight (`dispatching` with no matching `done`).
 
 ## House facts
 
-- Cookies come from the bundled `chatgpt_session.py` (binnacle's helper,
-  vendored). One unreadable cookie must never end the session.
+- Cookies come from the bundled `chatgpt_session.py` (first copied from
+  binnacle on 2026-09-19; since 2026-09-29 binnacle keeps no copy, and this is
+  the only one). One unreadable cookie must never end the session.
 - Kill with `pkill -f "chatgpt_researc[h].py"` so the pattern does not match
   the calling shell.
 - Report progress as position/total (`14/18`), never a bare stage name.

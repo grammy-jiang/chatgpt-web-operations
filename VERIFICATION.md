@@ -151,10 +151,12 @@ Canvas, Study, Sketch, and scheduled-task creation/lifecycle were not tested
 from start to finish; their artifacts and cleanup are not covered by the
 ordinary text-reply collector.
 
-`chatgpt-refresh` is installed next to this skill and refreshes connector
-tools. It belongs to binnacle's `chatgpt-mcp-dev` skill. The adjacent
-`chatgpt-project` reads/updates project instructions but has no project
-rename or move command. No dedicated automation lifecycle, account-memory
+Connector tools are refreshed by `refresh_connector.py`; the installed name
+`chatgpt-refresh` points at it since 2026-09-29 (at the time of this run it
+was binnacle's own tool). Project instructions are read and changed with
+`project_settings.py --name NAME --show` and `--instructions`, which
+replaced binnacle's `chatgpt-project` the same day. Neither renames or
+moves a project. No dedicated automation lifecycle, account-memory
 or custom-instruction editing, temporary-chat, message-edit/branch/regenerate,
 voice, sharing, or library-management CLI was found.
 

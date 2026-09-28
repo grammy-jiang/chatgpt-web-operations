@@ -459,12 +459,34 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
   resolution (`POST links/list_accessible` joins `READ_POSTS`, it only
   reads); the real refresh in the manual connector acceptance (section 4,
   step 5) and in the weekly run of P3 when the tunnel is up.
+  - Done 2026-09-29 (`1129b45`): `tests/test_refresh_connector.py` covers
+    name resolution, the 424 ladder with a fake clock, `--no-retry`,
+    `--json`, `--dry-run` and binnacle's command line; T1
+    (`tests/live/test_read_commands.py`) runs `--list` and a dry-run
+    resolution of a real connector. The first real refresh through the
+    installed name `chatgpt-refresh` passed on 2026-09-29 at 00:48 (the
+    Raspberry Pi MCP connector, six tools). The weekly run does not refresh:
+    a refresh needs the tunnel up, and the weekly run calls `--list` (P13).
 - **P12.** `clean_chats.py --id ... --backup DIR` and `project_settings.py
   --name NAME` (`PLAN` A2): offline tests, and one T4 round trip: mint,
   back up, delete, 404.
+  - Done 2026-09-29 offline (`896e052`, `b8f3ef8`, `be0d0b8`):
+    `tests/test_clean_chats_ids.py` and `tests/test_project_settings_names.py`;
+    T1 runs `project_settings.py --name rp-test-sandbox --show` and
+    `clean_chats.py --id` on a chat that does not exist. Not done: the T4
+    round trip. It needs a real send, and on 2026-09-29 the scripted browser
+    met a Cloudflare challenge while another project's run was waiting to
+    send, so it was not written blind; the weekly send's own cleanup
+    (`delete_sandbox_chat`, then a 404) covers delete-and-404 but not the
+    backup.
 - **P13.** Once binnacle's `chatgpt-*` names point at this skill (`PLAN`
   A3), the weekly run calls them by their installed names, because entry
   points are what break (`PLAN` B3).
+  - Done 2026-09-29: the weekly wrapper (`~/.local/bin` commits `d43d643`,
+    `0a20211`) runs `chatgpt-refresh --list` and `chatgpt-send --help`
+    after the send and reports WARN when either fails, without hiding a
+    drift. `chatgpt-chats` and `chatgpt-project` were retired, so no
+    installed name is left to call for them.
 
 ### 6.4 Rules that come with the plan
 

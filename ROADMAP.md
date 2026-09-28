@@ -9,7 +9,9 @@ separate claims.
 
 1. Record a new endpoint's actual request before implementing a mutation.
 2. Keep the client and commands in this skill. Do not recreate a second
-   client in the research-pipeline repository.
+   client in any repository: a consumer runs this skill's commands or imports
+   its modules (`CHATGPT_SKILL_DIR`, `CHATGPT_WEB_OPS_DIR`), and a second copy
+   found anywhere is deleted, not synced.
 3. Use HTTP for reads and account changes. Use the scripted browser for
    messages and browser diagnostics. Do not build send-gate solvers.
 4. Test mutations on disposable `rp-test` objects. Record their ids, check
@@ -114,10 +116,17 @@ session that can send arbitrary requests is not a maintained feature CLI.
 
 Two parts, both in `PLAN-2026-09-27.md`, section 5:
 
-- **One client.** binnacle's `chatgpt-refresh`, `chatgpt-chats` and
-  `chatgpt-project` still use binnacle's own copies of `chatgpt_session.py`
-  and `chatgpt_cookies.py`. They move onto this skill, and the copies are
-  deleted. `chatgpt-send` moved on 2026-09-27.
+- **One client.** Done 2026-09-29: binnacle's `chatgpt-refresh`,
+  `chatgpt-chats` and `chatgpt-project` and its copies of `chatgpt_session.py`
+  and `chatgpt_cookies.py` are deleted (binnacle commit `640b906`); this skill
+  gained `refresh_connector.py`, `clean_chats.py --id/--backup/--track`,
+  `project_settings.py --name/--show`, and binnacle's benchmark harness calls
+  them. `chatgpt-send` moved on 2026-09-27. One stale copy remains outside
+  the owner's active work: research-pipeline's `feat/chatgpt-skill` branch
+  (last change 2026-09-16) carries its own `chatgpt_client.py`, which imports
+  the session modules from binnacle's old path; that repository is not
+  modified any more (owner decision, 2026-09-20), and running that branch
+  needs `CHATGPT_HELPERS_DIR` pointed at this skill's `scripts/`.
 - **Test hardening.** Real-path boundary tests, fixtures recorded by the
   daily browser check, a scripted end-to-end send, a count of "not posted"
   events, and a flaky-test rule.
