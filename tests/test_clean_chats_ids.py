@@ -10,8 +10,8 @@ from typing import Any
 import clean_chats as ccm
 import pytest
 
-A = "6ab9cc0a-b708-83ec-9337-52553608281f"
-B = "6ab94a01-340c-83ec-9551-1b0d592aca12"
+A = "0ab9cc0a-b708-83ec-9337-00000000000a"
+B = "0ab94a01-340c-83ec-9551-00000000000b"
 URL_A = f"https://chatgpt.com/g/g-p-x/c/{A}"
 
 

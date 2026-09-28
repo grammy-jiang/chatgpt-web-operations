@@ -16,7 +16,7 @@ import refresh_read_paths
 import test_consistency
 from test_fixture_hygiene import leaks_in
 
-UUID = "6ab9cc0a-b708-83ec-9337-52553608281f"
+UUID = "0ab9cc0a-b708-83ec-9337-00000000000a"
 HEX32 = "6ab5bed1195c8191b35529e60f4d1547"
 
 
