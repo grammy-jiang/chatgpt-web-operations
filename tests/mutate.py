@@ -9,14 +9,17 @@ at the lowest priority (nice 19), one test process at a time, and it
 refuses to start while a send is in flight unless ``--force``.
 
 How: a throwaway git worktree of HEAD (the live ``scripts/`` that other
-processes import is never touched); every mutation site of the module,
+processes import is never touched). A baseline run of the chosen test
+files under coverage, one context per test, must pass first; it records
+which tests execute each line. Every mutation site of the module,
 found in its AST, is applied one at a time (the module is re-parsed and
-written back with ``ast.unparse``); each mutant runs the offline test files
-that name the module or a script importing it (``-x``, file order, no
-cache) and is *killed* when a
+written back with ``ast.unparse``); each mutant runs the tests that
+executed its line (``-x``, file order, no cache), or all the chosen files
+when the line runs only at import or is not in the map, and is *killed* when a
 test fails or times out or the suite cannot run at all (the mutant broke
-an import), *survived* when all pass. A baseline run on the
-unchanged module must pass first. The report names every survivor by line,
+an import), *survived* when all pass. The chosen files are the offline
+test files that name the module or a script importing it. The report
+names every survivor by line,
 with the original line and the change.
 
 Why not mutmut: mutmut 3 runs the tests against instrumented copies it
@@ -224,10 +227,12 @@ def tests_for(module: str, root: Path) -> list[str]:
     )
 
 
-def run_tests(root: Path, tests: list[str], timeout: float) -> tuple[str, float]:
+def run_tests(
+    root: Path, tests: list[str], timeout: float, extra: tuple[str, ...] = ("-x",)
+) -> tuple[str, float]:
     started = time.monotonic()
     command = [
-        "nice", "-n", "19", sys.executable, "-m", "pytest", "-x", "-q",
+        "nice", "-n", "19", sys.executable, "-m", "pytest", *extra, "-q",
         "-p", "no:randomly", "-p", "no:cacheprovider", "-m", T0, *tests,
     ]  # fmt: skip
     try:
@@ -243,6 +248,32 @@ def run_tests(root: Path, tests: list[str], timeout: float) -> tuple[str, float]
         return "timeout", time.monotonic() - started
     status = {0: "survived", 1: "killed"}.get(done.returncode, "error")
     return status, time.monotonic() - started
+
+
+def coverage_map(root: Path, module: str) -> dict[int, list[str]]:
+    """``{line: [test ids that executed it]}`` for ``module``, from the
+    baseline run's coverage data; ``""`` stands for "at import"."""
+    from coverage import CoverageData
+
+    data = CoverageData(basename=str(root / ".coverage.mutate"))
+    data.read()
+    data.set_query_contexts(None)
+    target = str((root / "scripts" / module).resolve())
+    by_line = data.contexts_by_lineno(target)
+    return {
+        line: sorted({context.split("|", 1)[0] for context in contexts})
+        for line, contexts in by_line.items()
+    }
+
+
+def targets_for(
+    line: int, covered: dict[int, list[str]], files: list[str]
+) -> list[str]:
+    """The tests to run for a mutant on ``line``: the tests that executed
+    it; every chosen file when it ran only at import or is not in the map
+    (never fewer tests than could see it)."""
+    ids = [t for t in covered.get(line, []) if t]
+    return ids or files
 
 
 def send_in_flight() -> bool:
@@ -306,12 +337,17 @@ def _mutate(root: Path, module: str, args: argparse.Namespace) -> int:
     if not tests:
         print(f"no test file names {module}")
         return 2
-    status, baseline = run_tests(root, tests, timeout=900)
+    os.environ["COVERAGE_FILE"] = str(root / ".coverage.mutate")
+    status, baseline = run_tests(
+        root, tests, 1800, ("--cov=scripts", "--cov-context=test", "--cov-report=")
+    )
+    os.environ.pop("COVERAGE_FILE", None)
     if status != "survived":
         print(
             f"the unchanged module does not pass its tests ({status}); nothing measured"
         )
         return 1
+    covered = coverage_map(root, module)
     timeout = max(60.0, baseline * 10)
     sites = sites_of(original)
     if args.limit:
@@ -324,7 +360,8 @@ def _mutate(root: Path, module: str, args: argparse.Namespace) -> int:
     try:
         for site in sites:
             target.write_text(mutant(original, site.index), encoding="utf-8")
-            status, seconds = run_tests(root, tests, timeout)
+            chosen = targets_for(site.line, covered, tests)
+            status, seconds = run_tests(root, chosen, timeout)
             text = lines[site.line - 1].strip() if 0 < site.line <= len(lines) else ""
             outcomes.append(
                 Outcome(site.index, site.line, site.kind, status, text, seconds)

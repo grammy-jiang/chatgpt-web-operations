@@ -73,3 +73,17 @@ def test_the_tests_run_name_the_module_or_a_script_that_imports_it(
         "tests/test_a.py",
         "tests/test_b.py",
     ]
+
+
+def test_a_mutant_runs_the_tests_that_executed_its_line_or_every_file() -> None:
+    files = ["tests/test_a.py", "tests/test_b.py"]
+    covered = {
+        10: ["", "tests/test_a.py::test_one", "tests/test_b.py::test_two[x]"],
+        11: [""],  # ran only at import
+    }
+    assert mutate.targets_for(10, covered, files) == [
+        "tests/test_a.py::test_one",
+        "tests/test_b.py::test_two[x]",
+    ]
+    assert mutate.targets_for(11, covered, files) == files
+    assert mutate.targets_for(99, covered, files) == files  # not in the map
