@@ -70,7 +70,8 @@ def read_json(path: pathlib.Path):
 def count_lines(path: pathlib.Path) -> int:
     if not path.is_file():
         return 0
-    return len([x for x in path.read_text(encoding="utf-8").splitlines() if x.strip()])
+    # "\n" only: see read_jsonl below.
+    return len([x for x in path.read_text(encoding="utf-8").split("\n") if x.strip()])
 
 
 def rounds_of(topic: pathlib.Path) -> list[tuple[int, pathlib.Path]]:
@@ -90,7 +91,10 @@ def read_jsonl(path: pathlib.Path) -> list[dict]:
     if not path.is_file():
         return []
     rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    # JSON Lines are separated by "\n" only; splitlines() also breaks at
+    # U+0085/U+2028/U+2029, which a record may carry unescaped, and the
+    # halves were then dropped as unparseable (2026-09-29).
+    for line in path.read_text(encoding="utf-8").split("\n"):
         if line.strip():
             with contextlib.suppress(json.JSONDecodeError):
                 rows.append(json.loads(line))

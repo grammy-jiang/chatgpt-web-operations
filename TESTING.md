@@ -82,6 +82,7 @@ Enforcement, not promises:
 | round trip | T2 | each write command: act, read back, revert; the cleanup is verified by a read. A round trip that needs a conversation to act on mints one (`tests/live/minting.py`) and is therefore T4, not T2: a test that waits for a chat an earlier run left never runs, because the sweep deletes them | set instructions on the sandbox, read `gizmos/<id>`, restore |
 | browser dry run | T3 | the send path opens: window, cookies, composer found, upload works; never sends | `tests/live/test_browser_upload.py`: `BrowserSender.attach_files` uploads one file, the composer shows its `Remove file …` chip and the send button stays enabled, never clicked |
 | measured send | T4 | the send path end to end, one message per feature, timings recorded in `failure-atlas.md` | search on and off, one attachment, one deep research; `tests/live/test_send_effort.py`, which pins a level the account is **not** already using and asserts the reply recorded it -- the check that would have caught the two-month effort regression; `tests/live/test_send_chat_flags.py`, which mints a chat and round-trips pin, unpin, archive and unarchive on it; and `tests/live/test_send_cli_roundtrip.py`, the scripted end-to-end send through `send_prompt.main` itself (posted, replied with the nonce, deleted and 404), which also records the `conversation` and `composer-filled` pages for tier R and runs weekly from cron (`~/.local/bin/chatgpt-ops-send-check.sh`, Sunday 05:40) |
+| property | T0 | a rule a function promises, over inputs hypothesis generates and shrinks: decoding is the identity on cookie text and never raises; the later session copy wins; a send body's rewrite is idempotent; every SSE and JSON Lines record survives any text; a sanitized payload passes the hygiene test; coverage verdicts are monotone; table columns line up; post evidence and shape merges keep their laws | `tests/test_properties.py`, derandomized in `make test`, `HYPOTHESIS_PROFILE=explore` for a wider search |
 | API contract | T0 | every read command's real `main()` and the preflight and health reads run over payloads synthesized from the recorded response shapes in `tests/fixtures/http`; a call to an endpoint with no recorded shape fails; the fields they read are the ones the daily "api shapes" check guards | `tests/test_api_contracts.py`, 23 command lines; `make contract SHAPES=<run>/http` runs them against a fresh recording |
 | local secrets | TL | the session's first steps on this machine's real secrets: the jar opens from a copy, the keyring key is read over D-Bus once, the session token decrypts, `probe_cookies.py` exits 0 without printing a value, the keyring's own session record has an expiry, and the later of the two copies is the one a session uses | `tests/local/test_local_secrets.py`, daily before `health.py` |
 | real HTTP path | L | the client's own transport: `Session._request` through urllib and a socket, `Session.call`'s retries, the authentication ladders (production 30/90/180 s, health 5/10 s) and the rate-limit ladder, the cookie header from a Chrome jar, the renewal from `Set-Cookie`, every read command's `main()`, and one command as its own process through the system Python; each fault (a Cloudflare 403, 429, 424, a stall, a body cut short, a page instead of JSON) is scripted on the fake server | `tests/loopback/test_loopback.py`: two challenges then a login under each policy (the timeout of 2026-09-23, offline in under a second); a stalled handshake is one failed attempt, not a traceback |
@@ -466,6 +467,21 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
     is monotone in the percentage; `table()` column widths.
   - Exit: ten properties, a fixed seed in the daily run, a shrunk example
     printed on failure.
+  - Done 2026-09-29: `tests/test_properties.py`, thirteen properties in
+    about 5 s, part of `make test`. The default profile, `daily`, is
+    derandomized and keeps no database, so every run tries the same
+    examples; `HYPOTHESIS_PROFILE=explore` searches a thousand random
+    examples per property and keeps `.hypothesis/` (ignored by git). A
+    failure prints the shrunk example and a reproduction blob. Beyond the
+    list above: `post_evidence` (F-2026-09-29-10), shape `merge` and
+    `drift` (P5), and the two JSON Lines readers. They found four defects
+    the same day, each fixed, pinned with `@example` where the daily
+    profile would not generate it again, and removed once to watch its
+    property fail: a damaged cookie value raised out of the decoder
+    (F-2026-09-29-13); the SSE and JSON Lines readers split lines at
+    U+0085/U+2028/U+2029 and lost the record (F-2026-09-29-14, found only
+    by `explore`); the fixture sanitizer left strays the hygiene test
+    refuses (F-2026-09-29-15).
 - **P9. Order independence, timeouts and the flaky ledger** (`PLAN` B6).
   Kind: hygiene. Tier: T0.
   - `pytest-randomly` (random order per run; `-p no:randomly` reproduces)

@@ -180,7 +180,12 @@ def stream_events(text: str) -> list[Any]:
     skipped; nothing here raises on odd input.
     """
     events: list[Any] = []
-    for line in text.splitlines():
+    # SSE ends a line with CRLF, LF or CR and nothing else. str.splitlines()
+    # also breaks at U+0085, U+2028 and U+2029, which a JSON payload may
+    # carry unescaped, and the halves of such a line then failed to parse
+    # and the event was dropped (found by tests/test_properties.py,
+    # 2026-09-29).
+    for line in re.split(r"\r\n|\r|\n", text):
         if not line.startswith("data: "):
             continue
         payload = line[len("data: ") :].strip()

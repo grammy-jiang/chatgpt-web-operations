@@ -300,7 +300,14 @@ def _make_decryptor(app: str):
         if key is None:
             return None
         d = Cipher(algorithms.AES(key), modes.CBC(b" " * 16)).decryptor()
-        pt = d.update(enc[3:]) + d.finalize()
+        try:
+            pt = d.update(enc[3:]) + d.finalize()
+        except ValueError:
+            # A ciphertext that is not a whole number of AES blocks: a
+            # damaged value. Found by tests/test_properties.py (2026-09-29);
+            # before, it raised out of here and out of _cookie_pairs, and one
+            # damaged analytics cookie ended the session.
+            return None
         pad = pt[-1] if pt else 0
         pt = pt[:-pad] if 0 < pad <= 16 else pt
         # Newer Chromium prepends a 32-byte domain hash; strip it only when

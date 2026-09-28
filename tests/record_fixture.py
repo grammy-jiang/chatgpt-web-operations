@@ -31,6 +31,12 @@ _GP_ID_RE = re.compile(r"g-p-[0-9a-fA-F]{32}(?![0-9a-fA-F])")
 _UUID_RE = re.compile(
     r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 )
+# What the patterns above leave, and tests/test_fixture_hygiene.py still
+# refuses: an "@" that was not part of a whole address (two addresses run
+# together, "@name" handles) and a "user-"/"org-" followed by something that
+# is not an id character. Found by tests/test_properties.py (2026-09-29).
+_STRAY_AT_RE = re.compile(r"@(?!example\.invalid)")
+_STRAY_ID_RE = re.compile(r"(user|org)-(?!XXXXXXXX)")
 
 # Keys whose text is free-form account content: kept only as a length, never
 # as text, regardless of whether it also happens to match a pattern above.
@@ -87,7 +93,8 @@ def sanitize(obj: Any, *, keep: Iterable[str] = (), redact: Iterable[str] = ()) 
         text = _ORG_ID_RE.sub("org-XXXXXXXX", text)
         text = _GP_ID_RE.sub(gp_placeholder, text)
         text = _UUID_RE.sub(uuid_placeholder, text)
-        return text
+        text = _STRAY_AT_RE.sub("(at)", text)
+        return _STRAY_ID_RE.sub(r"\1-XXXXXXXX", text)
 
     def walk(node: Any, key: str | None = None) -> Any:
         if isinstance(node, dict):

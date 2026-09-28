@@ -514,3 +514,32 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   second is read again for a read and, for a write, returned once with its
   status and an error, never sent twice. Each fix was removed once, and its
   loopback test failed with the production error.
+- **(F-2026-09-29-13) A damaged cookie value raised out of the decoder.**
+  The property tests of P8 (`tests/test_properties.py`) fed the cookie
+  decoder arbitrary bytes after a version prefix. A ciphertext that is not a
+  whole number of AES blocks raised `ValueError` from the cipher's
+  `finalize()`, through `plain()` and `_cookie_pairs`, so one damaged
+  analytics cookie would have ended the session: the very failure the
+  2026-09-27 fix (`007c3d5`) was meant to rule out, reached by a path it did
+  not cover. `plain()` returns None for it now. Not seen in a real jar.
+- **(F-2026-09-29-14) The stream and JSON Lines readers split lines where no
+  line ends.** `stream_events` (the recorded SSE stream, where a Deep research
+  session id is read), `round_state.read_jsonl` and `review_topic`'s JSONL
+  reader and line count used `str.splitlines()`, which also breaks at U+0085,
+  U+2028 and U+2029. JSON escapes neither when it is written with
+  `ensure_ascii=False`, and a reply may contain one. The two halves of such a
+  line do not parse: `stream_events` and `review_topic` dropped the record in
+  silence, and `round_state.read_jsonl` raised. Found by the property tests'
+  random search (`HYPOTHESIS_PROFILE=explore`) with the payload `{"\x85":
+  null}`; the daily profile had not generated it, so the case is now pinned
+  with `@example`. All four split on the real line endings now (SSE: CRLF,
+  LF or CR; JSON Lines: LF).
+- **(F-2026-09-29-15) The fixture sanitizer was weaker than the hygiene
+  check.** `tests/record_fixture.sanitize` replaced whole addresses and ids,
+  and left what the hygiene test then refuses: an "@" that was not part of a
+  whole address (two addresses run together, a handle) and a "user-" or
+  "org-" followed by a character that is not an id character. The hygiene
+  test caught such a fixture before a commit, so nothing leaked; the
+  recording just could not be committed. The sanitizer now turns a stray "@"
+  into "(at)" and completes a stray "user-"/"org-" with the placeholder, and
+  a property checks its output against the hygiene test itself.

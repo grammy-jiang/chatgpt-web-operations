@@ -24,7 +24,9 @@ def read_jsonl(path: Path) -> list[dict]:
     if not path.is_file():
         return []
     rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    # JSON Lines are separated by "\n" only; splitlines() also breaks at
+    # U+0085/U+2028/U+2029, which a record may carry unescaped (2026-09-29).
+    for line in path.read_text(encoding="utf-8").split("\n"):
         if line.strip():
             rows.append(json.loads(line))
     return rows

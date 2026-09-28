@@ -5,3 +5,5 @@ __pycache__/
 .coverage
 coverage.json
 htmlcov/
+# hypothesis's example database (HYPOTHESIS_PROFILE=explore, TESTING.md P8)
+.hypothesis/
