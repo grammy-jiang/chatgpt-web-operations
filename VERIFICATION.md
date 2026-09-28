@@ -279,3 +279,21 @@ Cost: the first `chatgpt_session.py` run ran every chosen test file for
 every mutant, about a minute each, five hours in all; it was stopped, and
 the per-test coverage selection brought the same 298 mutants to under
 twelve minutes. Run monthly by hand, one core module at a time.
+
+## Project chat listing limit (2026-09-29, morning)
+
+Measured read-only on the P10.4 worker project (30 chats) with the
+authenticated HTTP session:
+
+| Request | Result |
+|---------|--------|
+| `gizmos/<id>/conversations?cursor=0&limit=20` | 200, 20 items and a cursor |
+| `...&limit=50` | 200, 30 items, cursor null |
+| `...&limit=51` and `...&limit=80` | 422, no items |
+
+Before the fix `list_projects.py --id <id> --chats --limit 80` printed
+"0 conversation(s)". After `645cbb5` the same command lists the 30 chats and
+exits 0 (live read, 2026-09-29). The four new offline tests fail with the
+fix removed (F-2026-09-29-16). The worker-round rules learned on the same
+project are in `references/worker-rounds.md`; they are operating guidance
+from real runs, not a separately verified feature.

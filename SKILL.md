@@ -115,7 +115,7 @@ use POST; HTTP method alone does not determine whether an operation writes.
 | `profile_context.py` | The hidden inputs of a run: custom instructions, memory usage, model and effort from cookie and server, one project's instructions and files. `--json` keeps them beside a run. | 0 every read answered |
 | `list_chats.py` | Recent conversations by title substring; `--pinned`, `--archived`, `--no-project-chats`; flags project / pinned / archived. | 0 always |
 | `search_chats.py` | Global search by content, not just title (`list_chats.py --match` cannot see inside a chat): `--limit` (server cap 40), `--pages` follows the `cursor`, `--json PATH`. Conversations only, never project or library sources. | 0 at least one hit, 1 no hit or a page failed, 2 bad argument |
-| `list_projects.py` | Every project (paged), one project's full instructions and files, and the chats inside one. | 0 found, 1 no such `--id` |
+| `list_projects.py` | Every project (paged), one project's full instructions and files, and the chats inside one (paged, 50 per request). | 0 found, 1 no such `--id` or a chats page failed |
 | `list_automations.py` | ChatGPT's scheduled tasks ("automations", `chatgpt.com/scheduled`): `--filter scheduled\|paused\|finished\|all` (default scheduled; `all` fetches all three and adds a state column), `--prompts` shows the task's own instruction text, `--json PATH`. A non-null `cursor` is reported, never followed (the paging parameter is unknown). | 0 every filter read, 1 a filter's read failed, 2 bad `--filter` |
 | `list_skills.py` | Skills and apps installed on the account: skills from `hazelnuts`, `--apps` adds installed apps and connectors from `ps/plugins/installed`. `--expect NAME` (repeatable) checks a skill is installed and enabled. `safety_check_status` and version fields print verbatim, never interpreted. `--json PATH`. | 0 listed and every `--expect` met, 1 a read failed or an `--expect` unmet, 2 bad arguments |
 | `delete_skill.py` | Delete exactly one uploaded Personal Skill by exact `NAME`; optional `--id SKILL_ID` adds an identity guard. Dry run unless `--confirm`; `--dry-run` overrides it. Refuses missing/ambiguous identities or missing read/delete permissions; reads the installed list once after every DELETE attempt. Success requires HTTP 200 plus verified id/name absence; a failed DELETE response remains exit 1 even if absent. `--browser` selects the session source. | 0 dry run or deleted and verified, 1 session/read/delete/verification failed (including malformed inventory), 2 bad arguments or safety refusal |
@@ -220,6 +220,11 @@ a collectable reply beside the orchestrator's own transcripts and marks the
 entry; it refuses while a run is in flight, because the orchestrator
 rewrites that ledger wholesale and would drop the change.
 
+**Many worker chats from an agent.** Read `references/worker-rounds.md`
+first: compact JSON answers, chunked reviews, a fresh browser profile per
+window, checking a "not posted" error before sending again, detecting a
+silently stopped turn, keeping a live wait, and cleanup by conversation id.
+
 **ChatGPT changed something.** `discover_endpoints.py`, then
 `references/endpoint-discovery.md` for how to read the output.
 
@@ -294,7 +299,7 @@ say gizmo and nothing says project:
 | Endpoint | Use |
 |----------|-----|
 | `GET /backend-api/gizmos/snorlax/sidebar?owned_only=true&limit=50` | projects, pinned first, with instructions and files. **Paged**: without `limit` it returns 5 and a `cursor`; `list_projects.py` walks every page since 2026-09-20, so its printed count is the true total |
-| `GET /backend-api/gizmos/<g-p-id>/conversations` | the chats inside one |
+| `GET /backend-api/gizmos/<g-p-id>/conversations` | the chats inside one. **Paged**: `limit` at most 50 (HTTP 422 above it since 2026-09-29) and a `cursor`; `list_projects.py --chats` and `clean_chats.py --project` walk the pages |
 
 A project's `short_url` gives its page: `https://chatgpt.com/g/<short_url>/project`.
 **Composing there creates the chat inside the project**, so the browser send
@@ -594,6 +599,8 @@ check whether a send is in flight (`dispatching` with no matching `done`).
   the one command that would have settled it.
 - `references/endpoint-discovery.md` — how to rebuild the transport map when
   ChatGPT changes.
+- `references/worker-rounds.md` — driving many worker chats from an agent:
+  task shape, sends, stalled turns, waiting and cleanup (2026-09-28/29).
 - `ROADMAP.md` — what is not supported yet, staged by evidence, risk and
   value; start there before adding a command.
 

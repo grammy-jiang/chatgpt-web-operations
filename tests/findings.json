@@ -167,5 +167,18 @@
       "test_properties.py::test_sanitize_leaves_nothing_the_hygiene_check_refuses"
     ],
     "removed_and_failed": "2026-09-29"
+  },
+  {
+    "id": "F-2026-09-29-16",
+    "title": "list_projects --chats read an HTTP 422 page as an empty project",
+    "atlas": "list_projects --chats read a rejected page as an empty",
+    "fix": "645cbb5",
+    "tests": [
+      "test_stage1.py::test_chats_page_at_most_50_per_request_and_follow_the_cursor",
+      "test_stage1.py::test_chats_stop_at_the_requested_limit",
+      "test_stage1.py::test_a_rejected_chat_listing_is_reported_and_exits_1",
+      "test_stage1.py::test_project_chats_with_a_zero_limit_reads_nothing"
+    ],
+    "removed_and_failed": "2026-09-29"
   }
 ]

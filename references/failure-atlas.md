@@ -293,6 +293,20 @@ Refusing to synthesise on a partial corpus is right; abandoning the round is
 not. `paper-analyzer-web` re-shards the unread remainder and stops only when
 a pass reads nothing new (ac4fe826), which is the honest signal.
 
+## Worker rounds driven by an agent, 2026-09-28/29
+
+About 30 worker chats in one project, driven by a Claude Code coordinator.
+The rules that came out of them are in `worker-rounds.md`.
+
+| Failure | What it actually was | The check that settles it |
+|---------|----------------------|---------------------------|
+| Long review answers never arrived | The turn stopped with its final message `in_progress`; nothing was blocked | `read_chat.py <id>` twice, minutes apart: a flat message count and no finished turn. Ask for compact JSON, chunk the task, send a standard-effort "FINISH NOW" continuation |
+| Every send sat on a Cloudflare check | The shared automation profile stayed in a Turnstile loop; the user's clicks did not clear it | Send with `RP_BROWSER_PROFILE=` (a fresh profile per window); the shared profile only with `RP_MAX_BROWSERS=1` |
+| "Not posted", then a duplicate worker | The client reported failure for a posted message | Compare the chat's message count before and after, or find the TASK_ID in the project, before sending again |
+| A chunk driver collected the wrong answer | An older finished turn looked like the new one | Require the chunk marker in the parsed JSON |
+| The coordinator did nothing for six hours | It ended its turn to wait and armed no background wait or monitor | A background command that exits when the reply is ready, or a monitor that prints on change |
+| The project "had 0 chats" | `limit=80` got HTTP 422 and the listing hid it (F-2026-09-29-16) | `list_projects.py --id g-p-<id> --chats` now pages 50 per request and exits 1 on a failed page |
+
 ## Fixed bugs worth not re-introducing
 
 - **"Could not load this ChatGPT conversation."** Under read-path
@@ -551,3 +565,11 @@ a pass reads nothing new (ac4fe826), which is the honest signal.
   recording just could not be committed. The sanitizer now turns a stray "@"
   into "(at)" and completes a stray "user-"/"org-" with the placeholder, and
   a property checks its output against the hygiene test itself.
+- **(F-2026-09-29-16) list_projects --chats read a rejected page as an empty
+  project.** Since 2026-09-29 `gizmos/<id>/conversations` answers HTTP 422 to
+  `limit` above 50. `list_projects.py --chats` sent one request with the whole
+  `--limit` and took a failed page for an empty list, so `--limit 80` printed
+  "0 conversation(s)" for a project with 30 chats, and a stray-chat adopter
+  that searched that listing found nothing. The listing now pages 50 per
+  request, follows the cursor up to `--limit`, and exits 1 with the HTTP
+  status when a page fails.
