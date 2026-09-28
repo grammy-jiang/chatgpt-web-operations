@@ -27,6 +27,10 @@ Enforcement, not promises:
   that reaches the network fails.
 - A live marker without its `CHATGPT_LIVE` value skips and prints why. Both
   are needed, so `pytest` alone can never reach the account.
+- Every test has 60 s (`pytest.ini`, pytest-timeout); a live tier that
+  reaches the account or a browser has 900 s (`tests/conftest.py`). Every
+  run shuffles the order (pytest-randomly) and names its seed on its last
+  line.
 - `tests/live/guard.py` wraps `session.session.call`. In T1 mutations raise before the request is made. The allowlist also
   permits `POST /backend-api/global/search`, which only reads. In T2 to T4 a non-`GET` is allowed only
   when its path names the sandbox gizmo or a `conversation/<id>` whose id the
@@ -492,6 +496,19 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
     reason=...)`, and a T0 test fails once `until` has passed. The daily
     `tests.log` files are the record; 11 runs are green since 2026-09-24.
   - Exit: ten randomized repeats pass; the ledger exists, empty or not.
+  - Done 2026-09-29: `pytest-randomly` and `pytest-timeout` are in
+    `requirements.txt`; every run of any tier shuffles the order, and its
+    last line names the seed (`tests/conftest.py`,
+    `pytest_terminal_summary`), because `-q` hides pytest-randomly's own
+    header; `pytest.ini` gives every test 60 s and the conftest gives the
+    live tiers that reach the account or a browser 900 s. `make
+    test-repeat` ran the offline suite ten times in ten orders the same
+    day: 2250 passed each time, 26 to 40 s a run on a loaded Pi. The
+    quarantine marker and its expiry are in `tests/conftest.py`
+    (`quarantine_state`, `apply_quarantine`), `tests/FLAKY.md` is the
+    ledger, with one closed row (the environment leak of 2026-09-27), and
+    `tests/test_flaky_ledger.py` checks the marker, the one-week deadlines
+    and that every quarantine in the suite has a row.
 - **P10. Mutation testing pilot.** Kind: mutation score. Tier: by hand, never
   in cron.
   - `mutmut` in the venv, `make mutate MODULE=...`, first on

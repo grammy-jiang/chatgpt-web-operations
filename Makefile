@@ -1,10 +1,24 @@
 PY := .venv/bin/python
 
-.PHONY: test lint fmt replay loopback refresh-dom-fixtures contract refresh-shapes read-paths live-read live-write live-browser live-send live-local all
+.PHONY: test test-repeat lint fmt replay loopback refresh-dom-fixtures contract refresh-shapes read-paths live-read live-write live-browser live-send live-local all
+
+# T0: everything that needs no opt-in and no browser. Each run shuffles the
+# order (pytest-randomly; the last line names the seed) and stops a test
+# after 60 s (pytest-timeout), TESTING.md P9.
+T0 := not live_read and not live_write and not live_browser and not live_send and not live_local and not replay and not loopback
 
 test:
-	$(PY) -m pytest tests -q -m "not live_read and not live_write and not live_browser and not live_send and not live_local and not replay and not loopback" --cov=scripts --cov-report=json --cov-report=term-missing:skip-covered
+	$(PY) -m pytest tests -q -m "$(T0)" --cov=scripts --cov-report=json --cov-report=term-missing:skip-covered
 	$(PY) tests/coverage_gate.py
+
+# T0 N times (default 10), each in a new random order, stopping at the first
+# failure; its seed is on the line above the failure's summary.
+N ?= 10
+test-repeat:
+	@for i in $$(seq $(N)); do \
+	  echo "run $$i/$(N)"; \
+	  $(PY) -m pytest tests -q -p no:cacheprovider -m "$(T0)" || exit 1; \
+	done
 
 # Tier R: the client's page functions on recorded DOM fixtures in a real
 # headless Chrome, no network (TESTING.md section 6, P1). Needs Chrome.

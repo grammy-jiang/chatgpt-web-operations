@@ -14,6 +14,7 @@ from __future__ import annotations
 import os
 import socket
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -160,9 +161,82 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     )
 
 
+# pytest.ini gives every test 60 s (pytest-timeout); a test of a live tier
+# that talks to the account or a browser gets this instead (TESTING.md P9).
+LIVE_TIMEOUT_S = 900
+# Tiers that stay fast however they fail: no account, no browser.
+FAST_LIVE_MARKERS = frozenset({"live_local"})
+
+
+def quarantine_state(until: str, today: date) -> str:
+    """``"active"`` until the day named by ``until`` (ISO, inclusive), then
+    ``"expired"``; ``"invalid"`` when ``until`` is not a date. A quarantine
+    is a deadline, not a hiding place (tests/FLAKY.md)."""
+    try:
+        deadline = date.fromisoformat(str(until))
+    except ValueError:
+        return "invalid"
+    return "active" if today <= deadline else "expired"
+
+
+def apply_quarantine(item: Any, today: date) -> str | None:
+    """For an item marked ``quarantine(until=..., reason=...)``: while active
+    it runs and may fail (a non-strict xfail); once expired, or when the
+    marker is malformed, the reason it must fail at setup. None otherwise."""
+    marker = item.get_closest_marker("quarantine")
+    if marker is None:
+        return None
+    until = marker.kwargs.get("until", "")
+    reason = str(marker.kwargs.get("reason") or "").strip()
+    if not reason:
+        return "a quarantine needs a reason (tests/FLAKY.md)"
+    state = quarantine_state(until, today)
+    if state == "invalid":
+        return f"quarantine until={until!r} is not an ISO date (tests/FLAKY.md)"
+    if state == "expired":
+        return (
+            f"the quarantine ended on {until}: fix the test or delete it "
+            f"(tests/FLAKY.md); it was: {reason}"
+        )
+    item.add_marker(pytest.mark.xfail(reason=f"quarantined until {until}: {reason}"))
+    return None
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:
-    """A live_X item needs CHATGPT_LIVE=X; the marker alone must not run it."""
+    """A live_X item needs CHATGPT_LIVE=X; the marker alone must not run it.
+    A slow live tier gets its own timeout; a quarantine is applied or, once
+    expired, turned into a failure."""
+    today = date.today()
     for item in items:
         variable = missing_live_var(item)
         if variable:
             item.add_marker(pytest.mark.skip(reason=f"needs CHATGPT_LIVE={variable}"))
+        slow_live = is_live_marked(item) and not any(
+            item.get_closest_marker(m) for m in FAST_LIVE_MARKERS
+        )
+        if slow_live and item.get_closest_marker("timeout") is None:
+            item.add_marker(pytest.mark.timeout(LIVE_TIMEOUT_S))
+        problem = apply_quarantine(item, today)
+        if problem:
+            item.stash[_QUARANTINE_PROBLEM] = problem
+
+
+_QUARANTINE_PROBLEM = pytest.StashKey[str]()
+
+
+def pytest_runtest_setup(item: Any) -> None:
+    problem = item.stash.get(_QUARANTINE_PROBLEM, None)
+    if problem:
+        pytest.fail(problem, pytrace=False)
+
+
+def pytest_terminal_summary(
+    terminalreporter: Any, exitstatus: int, config: Any
+) -> None:
+    """The order this run used, even under -q, so a failure that depends on
+    it can be run again in the same order (pytest-randomly, TESTING.md P9)."""
+    seed = getattr(config.option, "randomly_seed", None)
+    if isinstance(seed, int):
+        terminalreporter.write_line(
+            f"test order: --randomly-seed={seed} (-p no:randomly keeps file order)"
+        )

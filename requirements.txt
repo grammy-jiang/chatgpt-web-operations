@@ -7,3 +7,6 @@ pytest>=8
 pytest-cov>=6
 # Property-based tests (TESTING.md section 6, P8): tests/test_properties.py.
 hypothesis>=6
+# Order independence and per-test timeouts (TESTING.md section 6, P9).
+pytest-randomly>=3
+pytest-timeout>=2
