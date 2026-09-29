@@ -589,3 +589,10 @@ The rules that came out of them are in `worker-rounds.md`.
   would take is unknown, and a plugin cannot be deleted, so
   `manage_plugins.py` refuses such an archive before any request
   (2026-09-29).
+- **(F-2026-09-29-19) read_chat ended in a traceback on a deleted
+  conversation.** Checking that the chats of a deleted worker project were
+  gone, `read_chat.py <id>` raised the client's `TransportError` (HTTP 404,
+  "Conversation has been deleted. Start a new chat.") as a traceback. It now
+  prints the server's reason in one line and exits 3 for a 404, since a retry
+  cannot help, and exits 4 with one line for any other failed read, which may
+  be transient.

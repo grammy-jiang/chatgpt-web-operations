@@ -80,7 +80,9 @@ rule that prevents it is written next to it.
   `clean_chats.py --project` both do (F-2026-09-29-16).
 - `delete_project.py g-p-<id> --expect-name NAME --force --apply` deletes
   the project and every chat in it. Run it only after every reply is
-  persisted.
+  persisted. Then `read_chat.py <id>` on a few recorded ids prints the
+  server's "Conversation has been deleted" reason and exits 3
+  (F-2026-09-29-19).
 - **Kill only exact PIDs.** A `pkill -f` or `pgrep -f` pattern that also
   occurs in the killer's own command line killed the coordinator's shell
   twice and once killed another session's send in flight.

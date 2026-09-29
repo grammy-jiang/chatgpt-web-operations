@@ -320,3 +320,10 @@ names it. Debugging the two defects added two releases to it by hand
 each T2 run adds a release, and a plugin's releases cannot be removed
 either.
 
+## Reading a deleted conversation (2026-09-29, afternoon)
+
+After the P10.4 worker project was deleted, `read_chat.py` on two of its
+recorded chat ids got HTTP 404 with the reason "Conversation has been
+deleted. Start a new chat." and ended in a traceback. After `827a3dd` the
+same live read prints that reason in one line and exits 3. The three new
+offline tests fail with the fix removed (F-2026-09-29-19).

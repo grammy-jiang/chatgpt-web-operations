@@ -200,5 +200,17 @@
       "test_manage_plugins.py::test_inspect_archive_refuses_a_manifest_without_the_schema"
     ],
     "removed_and_failed": "2026-09-29"
+  },
+  {
+    "id": "F-2026-09-29-19",
+    "title": "read_chat ended in a TransportError traceback on a deleted conversation",
+    "atlas": "read_chat ended in a traceback on a deleted",
+    "fix": "827a3dd",
+    "tests": [
+      "test_command_mains_2.py::test_a_deleted_conversation_prints_the_server_reason_and_exits_3",
+      "test_command_mains_2.py::test_a_404_without_a_reason_says_not_found",
+      "test_command_mains_2.py::test_another_failed_read_is_one_line_and_exits_4"
+    ],
+    "removed_and_failed": "2026-09-29"
   }
 ]
