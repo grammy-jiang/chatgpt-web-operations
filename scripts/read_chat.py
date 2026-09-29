@@ -17,11 +17,17 @@ only steers its label, and the account's server-side settings decide the
 real ``thinking_effort`` and ``model`` a send posts (SKILL.md, "Reasoning
 effort"). Use it after a send made with ``send_prompt.py --effort/--model/
 --search`` to confirm the pin took.
+
+Exit codes: 0 the turn is finished, 1 it is not, 2 bad arguments, 3 the
+conversation does not exist or was deleted (HTTP 404; the server's reason is
+printed, and retrying cannot help), 4 any other failed read (printed in one
+line; it may be transient). A failed read used to end in a traceback.
 """
 
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from typing import Any
 
@@ -119,6 +125,27 @@ def format_turn_fact(index: int, fact: dict[str, Any]) -> str:
     )
 
 
+SERVER_MESSAGE = re.compile(r'"message"\s*:\s*"([^"]+)"')
+
+
+def report_read_failure(chat: str, exc: Exception) -> int:
+    """Print a failed conversation read in one line and return its exit code.
+
+    HTTP 404 means the conversation does not exist or was deleted: print the
+    server's own reason when it gave one ("Conversation has been deleted. Start
+    a new chat.") and return 3, because a retry cannot help. Anything else
+    (403, 429, 5xx, a Cloudflare page) returns 4 and may be transient.
+    """
+    text = str(exc)
+    if getattr(exc, "status", 0) == 404:
+        found = SERVER_MESSAGE.search(text)
+        reason = found.group(1) if found else "not found"
+        print(f"conversation {chat}: {reason} (HTTP 404)")
+        return 3
+    print(f"conversation {chat}: read failed: {shorten(text, 300)}")
+    return 4
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("chat", help="conversation id or /c/ URL")
@@ -136,7 +163,11 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     cc = load_client()
-    conv = open_session().get_conversation(cc.chat_id(args.chat))
+    chat = cc.chat_id(args.chat)
+    try:
+        conv = open_session().get_conversation(chat)
+    except cc.TransportError as exc:
+        return report_read_failure(chat, exc)
     state = turn_state(cc, conv)
 
     print(f"{state['title']}")
