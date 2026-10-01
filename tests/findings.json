@@ -301,5 +301,64 @@
       "test_page_snapshot.py::test_find_composer_names_the_refused_requests_on_a_logged_in_page"
     ],
     "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-27",
+    "title": "a chat page's hidden composer ahead of its own made the strict composer wait fail or wait on the hidden one",
+    "atlas": "A chat page keeps a hidden composer ahead of its",
+    "fix": "3ea66b2",
+    "tests": [
+      "test_page_snapshot.py::test_find_composer_returns_the_locator_once_visible",
+      "test_page_snapshot.py::test_find_composer_waits_out_a_chat_page_s_second_composer",
+      "test_page_snapshot.py::test_find_composer_settles_for_the_visible_composer_when_two_stay"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-28",
+    "title": "the reply-stream capture never finished through the dedicated browser and held a posted send for 20 minutes",
+    "atlas": "Through the dedicated browser the reply stream never",
+    "fix": "3ea66b2",
+    "tests": [
+      "test_client_rewrite.py::test_send_skips_the_stream_through_the_dedicated_browser"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-29",
+    "title": "a killed send left its tab in the dedicated window, and a chat page's missing composer started the cool-down",
+    "atlas": "A killed send left its tab in the dedicated window",
+    "fix": "3ea66b2",
+    "tests": [
+      "test_client_browser.py::test_sigterm_closes_the_attached_tab_and_leaves_through_systemexit",
+      "test_client_browser.py::test_an_existing_sigterm_handler_is_left_alone",
+      "test_client_browser.py::test_a_chat_page_without_a_composer_records_no_refusal",
+      "test_page_snapshot.py::test_find_composer_on_a_chat_page_names_the_chat_not_the_window"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-30",
+    "title": "an effort pinned on a model that takes none (the window's Auto, gpt-5-6) recorded no effort",
+    "atlas": "An effort pinned on the window's own model recorded",
+    "fix": "3ea66b2",
+    "tests": [
+      "test_client_rewrite.py::test_effort_on_a_model_that_takes_none_moves_the_model_too",
+      "test_client_rewrite.py::test_takes_effort_knows_the_catalog_s_shapes",
+      "test_client_rewrite.py::test_record_send_body_carries_original_and_sent_when_rewriting"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-32",
+    "title": "the dedicated profile synced the owner's extensions and a duplicate-tab blocker bounced the home page",
+    "atlas": "The dedicated profile synced the owner's extensions",
+    "fix": "cd90582",
+    "tests": [
+      "test_client_browser.py::test_a_tab_sent_off_chatgpt_right_after_loading_is_named_not_waited_for",
+      "test_dedicated_browser.py::test_profile_extensions_lists_web_store_extensions_only",
+      "test_dedicated_browser.py::test_status_names_the_profile_s_extensions"
+    ],
+    "removed_and_failed": "2026-10-01"
   }
 ]

@@ -34,7 +34,12 @@ rule that prevents it is written next to it.
 
 - One `send_prompt.py` call per chat:
   `--project g-p-<id> --effort extended --no-wait --attach ... --json <file>`.
-- **A fresh browser profile per window is the default since 2026-10-01**
+- **Sends attach to the dedicated browser window since 2026-10-01**
+  (`dedicated_browser.py status`; SKILL.md, "Sending through the dedicated
+  browser window"): one tab per send in a window the owner logged in to by
+  hand. Keep that window alive; without it the sends below fall back to the
+  scripted window, which Cloudflare refuses at the time of writing.
+- **A fresh browser profile per scripted window is the default since 2026-10-01**
   (`RP_BROWSER_PROFILE=<dir>` opts into a persistent one; atlas
   F-2026-10-01-26). On 2026-09-29 the shared profile
   `/tmp/rp-browser-profile` stayed in a Cloudflare Turnstile loop and the

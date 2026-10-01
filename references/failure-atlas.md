@@ -726,8 +726,88 @@ The rules that came out of them are in `worker-rounds.md`.
   refusal the correct move is to stop, say until when, and not try again at
   once. None of this makes a window acceptable to Cloudflare; it stops the
   skill from making things worse and names what happened.
+- **(F-2026-10-01-27) A chat page keeps a hidden composer ahead of its
+  own, and the strict wait fell on it.** Through the dedicated window a
+  continuation into an existing chat failed at 12:24 with "strict mode
+  violation: locator(COMPOSER_SELECTOR) resolved to 2 elements"; a probe
+  eight seconds after load found one. Waiting on the first match then
+  waited 60 s on the hidden one (13:38, the T4 round trip's conversation
+  snapshot). `find_composer` now waits on the first *visible* match, gives
+  the extra one `COMPOSER_SETTLE_SECONDS` (10 s) to go, and drives the
+  visible one if it stays; the recorded pages still match exactly once.
+- **(F-2026-10-01-28) Through the dedicated browser the reply stream never
+  finishes.** `--record-send-body`'s stream capture, `Response.finished()`
+  on the `f/conversation` response, blocked for over 100 s after the reply
+  had arrived (a scratch probe at 13:27), and two acceptance sends (search
+  12:24, the connector call 12:51) ran into their 20-minute outer timeouts
+  while the sends themselves had posted and replied. Why CDP never reports
+  that streamed body complete on the attached tab is not established. The
+  sender skips the stream wait when attached and the record says
+  `stream_skipped`; the Deep research widget path never needed the stream,
+  and the older MCP-only `export` route (its session id comes from the
+  stream) is not available through the window.
+- **(F-2026-10-01-29) A killed send left its tab in the dedicated window,
+  and a chat page's missing composer read as a refusal.** Two
+  timeout-killed sends (12:49, 13:11) left their tabs open: the default
+  SIGTERM disposition ends the process before `__exit__` closes the tab,
+  and the next attached windows (measure_window 13:11, health 13:14) failed
+  on a tab that never navigated ("composer did not appear at about:blank"),
+  not reproduced once the leaked tabs were gone. The window now installs a
+  SIGTERM handler (main thread, default disposition only) that closes its
+  own tab through the browser's HTTP endpoint (`/json/close/<target>`) and
+  leaves through `SystemExit`, restored on exit. And at 13:38 a chat page
+  whose composer never rendered (F-2026-10-01-27) was classified as a
+  refused window and stopped every send for half an hour: on a `/c/` page
+  the reason is now the chat's (`CHAT_PAGE_REASON`) and no refusal is
+  noted.
+- **(F-2026-10-01-30) An effort pinned on the window's own model recorded
+  no effort.** The dedicated profile's picker holds "Auto", so the page
+  builds the body with `model: gpt-5-6`, and `thinking_effort: standard`
+  rewritten onto it came back with no effort recorded (T4's effort test,
+  13:1x; the recorded body of the search send shows the rewrite went out).
+  `rewrite_send_body` now moves the model to `EFFORT_MODEL`
+  (`gpt-5-6-thinking`) when the body's model takes no effort
+  (`takes_effort`) and no `--model` was given; a named model still wins.
+- **(F-2026-10-01-32) The dedicated profile synced the owner's extensions,
+  and a duplicate-tab blocker bounced every new tab opened on the home
+  page.** The Google login in the dedicated window signed Chrome in as
+  well, and between 11:38 and 12:07 Chrome synced 33 of the owner's
+  extensions into the profile (AdBlock, MetaMask, 2FAS, Bitwarden, the
+  Claude and Gemini extensions, "Clutter Free - Prevent duplicate tabs"
+  among them). From then on a new tab navigated to `https://chatgpt.com/`
+  -- the address the owner's own tab held -- was sent straight back to
+  where it came from (measured 14:05: the navigation request went out, the
+  frame navigated, and one second later the tab was back on the previous
+  page; a project page, held by no other tab, stayed). `preflight
+  --browser`, `health --browser` and `measure_window` therefore waited 60 s
+  on `about:blank` and blamed the login, while sends into the project
+  worked. What changed: a composer wait that ends on a tab no longer on
+  chatgpt.com names the bounce (`BOUNCED_REASON`, event
+  `navigation-bounced`, no cool-down), and `dedicated_browser.py status`
+  lists the profile's Web Store extensions with the advice. What the
+  skill does not do is fight the extension: the dedicated profile should
+  carry none, which is the owner's setting to make (sign the profile out
+  of Chrome, not out of chatgpt.com, or remove them).
 
 ## Re-validation after the Work surface, 2026-10-01
+
+### Open on 2026-10-01 evening: the effort pin (F-2026-10-01-31)
+
+The reply to a send with `--effort standard` records no effort through the
+dedicated window, and the recorded body shows why the pin cannot take any
+more: the page's `f/conversation` body no longer carries `thinking_effort`
+at all (it carries `model: "gpt-5-6"`, `requested_default_model:
+"gpt-5-6-thinking"`, `one_off_model_override: true`), and the assistant
+message's metadata no longer carries `thinking_effort` either (it has
+`reasoning_status`, `reasoning_start_time`, `reasoning_end_time`,
+`cot_version`, `reasoning_recap_type`). The rewrite still goes out and the
+model part still takes (`--model gpt-5-6-instant` was recorded; an effort
+pin now moves the model to `gpt-5-6-thinking`, which the reply recorded).
+Where the Power slider's level travels now is not measured; finding it is
+a `discover_endpoints.py --bodies` pass over sends made at two slider
+positions in the owner's own browser. Until then `--effort` pins the
+model, not the level, and `tests/live/test_send_effort.py` fails for this
+reason. No ledger entry: nothing is fixed yet.
 
 What the morning's evidence said, before anything was changed, in the
 order it was read:

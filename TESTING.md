@@ -63,6 +63,11 @@ Enforcement, not promises:
   reads as a pass -- which is exactly how `test_send_chat_flags.py` went
   unrun. A `CHATGPT_LIVE_SENDS` that is not a positive whole number falls
   back to the default, so a typo can never lift the cap.
+- Since 2026-10-01 the browser tiers (T3, T4) attach to the dedicated
+  browser window when it answers at 127.0.0.1:9222 and open one tab in it;
+  `tests/live/test_browser_dedicated.py` (T3) fails when the window is down,
+  because a send would then fall back to the scripted window Cloudflare
+  refuses. `RP_BROWSER_CDP=off` runs the tiers on the scripted window.
 - Browser send paths use the client's process/memory budget. A history
   rate-limit notice alone is not a send failure. Tests must not claim an
   account block merely because that notice is present. Check for an active

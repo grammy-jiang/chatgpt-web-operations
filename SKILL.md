@@ -470,7 +470,26 @@ URL names another endpoint.
 Limits. The window has to exist, on the desktop of this machine's only user
 (another workspace is fine); the login expires like any other and is
 renewed by hand in that window; a tab appears and disappears per send; the
-window is driven for nothing else. Chrome 136 and later ignore the debugging
+window is driven for nothing else. Through it `--record-send-body` records
+the request but not the reply stream (`stream_skipped` in the record;
+F-2026-10-01-28), so the older MCP-only Deep research export route is not
+available there, while the widget route (`deep_research.py start`, `status`,
+`fetch`, `export --force`) is and was verified through the window. An
+effort pinned without a model lands on `EFFORT_MODEL` (`gpt-5-6-thinking`),
+because the window's own picker may hold a model that takes no effort
+(F-2026-10-01-30). **The dedicated profile must carry no extensions.** Signing it into a
+Google account in Chrome syncs the owner's extensions into it (33 arrived
+on 2026-10-01 after the login), and a duplicate-tab blocker among them
+bounced every new tab opened on the home page, the address the owner's own
+tab holds (F-2026-10-01-32): `preflight --browser`, `health --browser` and
+`measure_window` then fail with "the tab is on 'about:blank'", while sends
+into a project work. `dedicated_browser.py status` lists the profile's Web
+Store extensions; keep the profile signed out of Chrome (not out of
+chatgpt.com), or remove them. The pinned effort is a separate, open
+limit: the page's send body no longer carries `thinking_effort` and the
+reply's metadata no longer records it (`references/failure-atlas.md`,
+F-2026-10-01-31), so `--effort` pins the thinking model but not the level
+until the new carrier is found. Chrome 136 and later ignore the debugging
 switches on the default profile, which is why this is a separate profile
 and never the owner's own Chrome. Nothing here solves or evades a
 challenge: if Cloudflare asks the dedicated window to prove a human, the

@@ -133,6 +133,24 @@ Two parts, both in `PLAN-2026-09-27.md`, section 5:
 
 Working rule 2 applies to every repository, not only research-pipeline.
 
+## Decisions of 2026-10-01
+
+1. **A browser is used only for what cannot be done over HTTP**: a send,
+   Deep research's start, and the browser diagnostics. Every read and every
+   other write stays on `/backend-api/*` with the session token (the owner's
+   rule, 2026-10-01).
+2. **The send attaches to the dedicated browser window** -- a Chrome with
+   its own profile, a debugging port on 127.0.0.1 and a login the owner
+   made by hand, kept alive by a systemd user unit (`dedicated_browser.py`)
+   -- and opens one tab there. The scripted Xvfb window stays as the
+   fallback, with a fresh profile per window and a cool-down after a
+   refusal (atlas F-2026-10-01-23 and -26). Measured the same day: the
+   scripted window's handshake refused by Cloudflare, the dedicated window's
+   accepted.
+3. **No challenge is ever solved or evaded by this skill.** A challenge in
+   the dedicated window is answered by the owner, in that window; until
+   then a send reports the refusal and waits.
+
 ## Historical decisions
 
 The original stages and abandoned experiments remain in git history,

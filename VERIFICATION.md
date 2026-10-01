@@ -104,6 +104,57 @@ sandbox refused in 40 s with the reason named -- `403 on conversation/init,
 the browser send path is still refused on this host while every HTTP path
 works; the client now says so at once instead of after five minutes.
 
+## The dedicated browser window (2026-10-01, afternoon)
+
+The owner's decision after the morning: a browser only for what HTTP cannot
+do, and that browser is one the owner launched and logged in to. The
+experiment before any code changed, 11:38-11:45: a Chrome started by hand
+with its own profile (`~/.local/share/chatgpt-web-operations/chrome`) and
+`--remote-debugging-port=9222`, the owner logged in to chatgpt.com in it,
+and a scratch Playwright script attached over CDP, opened a tab on the
+sandbox project, filled the composer with the skill's own page functions
+and clicked send:
+
+| What | Result |
+| --- | --- |
+| `navigator.webdriver` in that tab | false (a normally launched browser) |
+| `conversation/init`, `sentinel/chat-requirements/prepare`, `finalize`, `f/conversation/prepare` | all 200 (the scripted window: all 403 at 11:22) |
+| `f/conversation` | 200; the reply `RP-CDP-c5183fa9` in 10 s; the address `/c/6abdbaea-…` |
+| read back, backup, delete over HTTP | `read_chat.py`: the turn finished (`gpt-5-6`, no effort); `clean_chats.py --id --delete --backup --apply`; 404 afterwards |
+
+Then the integration (`dedicated_browser.py`; `BrowserSender._open_attached`;
+`RP_BROWSER_CDP`; preflight's "dedicated browser" check; T3
+`tests/live/test_browser_dedicated.py`), with the offline gates and the
+live tiers below.
+
+| Check through the dedicated window | Result |
+| --- | --- |
+| `preflight.py --browser` | GO, "through the dedicated browser at http://127.0.0.1:9222"; the window's own tab untouched. |
+| `send_prompt.py` (one prompt, sandbox) | posted with a real id at once, reply in 73 s, renamed, deleted, 404. |
+| `make live-browser` (T3) | 2 passed: the upload dry run (chip "Remove rp-test-…", send enabled) and the window check; `composer-attached` recorded. |
+| `make live-send` (T4), first run | 1 passed (pin/unpin/archive/unarchive on a minted chat), 2 failed: the effort pin on the window's "Auto" model recorded no effort (F-2026-10-01-30), and the round trip's conversation snapshot waited on a chat page's hidden composer (F-2026-10-01-27). |
+| `make live-send` (T4), after the fixes | 2 passed (the chat flags and the CLI round trip with its attachment, backup and 404; `conversation` and `composer-filled` recorded and promoted), 1 failed: the effort pin (F-2026-10-01-31, open: the page's body and the reply's metadata no longer carry `thinking_effort`). |
+| batch send, two prompts in one window | both posted with real ids, both replies exact, both renamed. |
+| continuation with two attachments | failed on the chat page's hidden composer (F-2026-10-01-27); fixed, not re-run. |
+| `--search --effort standard --record-send-body` | posted; the reply used web search (`search=yes`) and the recorded body carried `search` and `standard`; the model stayed `gpt-5-6`, so no effort was recorded (F-2026-10-01-30); the stream wait never ended and the outer 20-minute timeout killed the command (F-2026-10-01-28). |
+| `--model gpt-5-6-instant` | the reply recorded `gpt-5-6-instant`. |
+| connector tool call (`--system-hint plugin:plugin_<app>`) | the MCP server ran `run_command echo RP-CONN-…` at 12:52:31 (`client=openai-mcp`); the recorded body carried the hint; the stream wait hung as above. |
+| Deep research `start`, `status --wait`, `fetch`, `export --force` | DONE in about 3 min; 4,456 Markdown characters and 160 sources; DOCX 14,274 bytes; PDF 39,505 bytes. |
+| `round_status.py --collect [--apply]` on a crafted ledger | the orphan reply classified collectable, archived, the ledger entry marked collected; `review_topic.py`: no integrity problem. |
+| `measure_window.py`, `health.py --browser`, `preflight.py --browser` | pass whenever the home page is not already open in the owner's tab; from 13:54 all three failed on a tab bounced back to `about:blank` by the duplicate-tab blocker that Chrome sync had installed in the profile (F-2026-10-01-32: measured 14:05, a navigation to the home page sent back in one second, a project page kept). The failure now names the bounce; the extensions are the owner's to remove. |
+| `discover_endpoints.py` | its own diagnostic browser; 4 endpoints in 20 s. |
+| cleanup | the disposable connector's link and app deleted; 6 sandbox chats backed up and deleted; the window keeps only the owner's tab. |
+
+A note the owner must read: logging the dedicated profile in to the Google
+account signed that Chrome in too, and Chrome synced the owner's 33
+extensions into the profile (AdBlock, MetaMask, 2FAS, Bitwarden, the
+Claude and Gemini extensions, a duplicate-tab blocker among them). Every
+send's tab runs them, and the duplicate-tab blocker is what broke the
+browser checks from 13:54 (F-2026-10-01-32). Sign the profile out of Chrome
+(not out of chatgpt.com) or remove the extensions; `dedicated_browser.py
+status` shows when the profile is clean. The skill was not changed to work
+around them.
+
 ## What the owner decides
 
 - Whether to delete `/tmp/rp-browser-profile.stale-20261001`.

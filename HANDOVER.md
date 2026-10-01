@@ -135,6 +135,32 @@ browser-dependent acceptance sends are **not verified** today and are the
 first thing to run when a scripted window gets through again. Results and
 remaining limits: `VERIFICATION.md`, "Re-validation 2026-10-01".
 
+**State at 2026-10-01, afternoon.** The owner decided: a browser only for
+what HTTP cannot do (sends, Deep research's start, browser diagnostics), and
+that browser is a dedicated Chrome window on this machine -- own profile,
+debugging port on 127.0.0.1:9222, logged in by the owner by hand, kept alive
+by a systemd user unit -- that a send attaches to over CDP and opens one tab
+in (`scripts/dedicated_browser.py`; `BrowserSender._open_attached`;
+`RP_BROWSER_CDP` auto/off/URL; preflight's host check "dedicated browser";
+T3 `tests/live/test_browser_dedicated.py`). The experiment that decided it:
+11:43, through that window, every handshake 200 and the reply in 10 s,
+while the scripted window was refused the same hour. The scripted Xvfb
+window is the fallback. The afternoon's acceptance through the window found
+four more defects, all fixed with tests: a chat page's hidden composer
+(F-2026-10-01-27), the reply-stream wait that never ends there
+(F-2026-10-01-28), the tab a killed send leaves and the chat page taken for
+a refusal (F-2026-10-01-29), and an effort pinned on the window's "Auto"
+model (F-2026-10-01-30). Chrome synced the owner's 33 extensions into the
+dedicated profile after the Google login, and a duplicate-tab blocker
+among them bounces every new tab opened on the home page (F-2026-10-01-32:
+named now, not fought; the owner removes them or signs the profile out of
+Chrome). Open: the effort pin no longer takes because the page's body and
+the reply's metadata dropped `thinking_effort` (F-2026-10-01-31, atlas
+"Open on 2026-10-01 evening"); `--effort` pins the thinking model only, and
+T4's effort test fails until the level's new carrier is found with a
+`discover_endpoints.py --bodies` pass. Results: `VERIFICATION.md`, "The
+dedicated browser window".
+
 ## Entry point, 2026-09-25
 
 For first use or missing access, read `references/setup.md` and the
