@@ -1524,6 +1524,105 @@ def test_send_failure_evidence_is_read_on_the_owner_thread(make_sender, monkeypa
     assert _events()[0]["screenshot"].endswith("chatgpt-send-error.png")
 
 
+def test_a_missing_composer_on_a_logged_in_page_starts_the_cooldown(make_sender):
+    """The refusal's third shape (2026-10-01 10:33): logged in, no composer,
+    no challenge widget. Its event says logged_in and the cool-down starts,
+    so the next window is not opened into the same wall."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    page.url = fp.sequence("https://chatgpt.com/g/g-p-x/project")
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    page.set_locator(cc.LOGGED_IN_SELECTOR, count=14)
+
+    with pytest.raises(cc.TransportError, match="requests are being refused"):
+        sender._probe_composer()
+
+    events = _events()
+    assert [e["kind"] for e in events] == ["composer-missing"]
+    assert events[0]["logged_in"] is True
+    left, record = cc.cooldown_remaining()
+    assert left > 0
+    assert record["kind"] == "composer-missing"
+
+
+def test_a_logged_out_page_records_no_refusal(make_sender):
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    page.url = fp.sequence("https://chatgpt.com/")
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+
+    with pytest.raises(cc.TransportError, match="logged out or challenged"):
+        sender._probe_composer()
+
+    assert _events()[0]["logged_in"] is False
+    assert cc.cooldown_remaining() == (0.0, {})
+
+
+def test_profile_dir_from_reads_unset_and_empty_as_a_fresh_profile() -> None:
+    """Since 2026-10-01 a fresh profile per window is the default; a path
+    opts into a persistent one (F-2026-10-01-26)."""
+    assert cc.profile_dir_from(None) is None
+    assert cc.profile_dir_from("") is None
+    assert cc.profile_dir_from("/tmp/rp-browser-profile") == Path(
+        "/tmp/rp-browser-profile"
+    )
+
+
+def test_the_cooldown_is_noted_read_back_and_expires(monkeypatch) -> None:
+    monkeypatch.setattr(cc, "COOLDOWN_SECONDS", 1800.0)
+    assert cc.cooldown_remaining() == (0.0, {})
+    path = cc.note_refusal("handshake-refused", "https://chatgpt.com/", "403 on x")
+    assert path.endswith("browser-refusal.json")
+    left, record = cc.cooldown_remaining()
+    assert 1790 < left <= 1800
+    assert record["kind"] == "handshake-refused"
+    assert record["url"] == "https://chatgpt.com/"
+    assert cc.cooldown_remaining(now=record["at"] + 1801) == (0.0, {})
+    message = cc.cooldown_message(left, record)
+    assert "handshake-refused" in message
+    assert "cool-down ends at" in message
+    assert "RP_BROWSER_COOLDOWN_SECONDS=0" in message
+
+
+def test_the_cooldown_is_off_at_zero_and_ignores_a_damaged_record(monkeypatch):
+    cc.note_refusal("challenge-page", "https://chatgpt.com/", "challenge")
+    monkeypatch.setattr(cc, "COOLDOWN_SECONDS", 0.0)
+    assert cc.cooldown_remaining() == (0.0, {})
+    monkeypatch.setattr(cc, "COOLDOWN_SECONDS", 1800.0)
+    cc.refusal_file().write_text("not json", encoding="utf-8")
+    assert cc.cooldown_remaining() == (0.0, {})
+    cc.refusal_file().write_text('{"at": "soon"}', encoding="utf-8")
+    assert cc.cooldown_remaining() == (0.0, {})
+
+
+def test_enter_opens_no_window_during_the_cooldown(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    """A refused window puts every scripted window on hold: __enter__ fails
+    before the slot, the display and the launch, with the rate-limit status
+    the dispatcher's ladder waits on."""
+    monkeypatch.setattr(cc, "COOLDOWN_SECONDS", 1800.0)
+    cc.note_refusal("handshake-refused", "https://chatgpt.com/", "403 on x")
+    sender = make_sender()
+
+    with pytest.raises(cc.TransportError, match="cool-down ends at") as excinfo, sender:
+        pass
+
+    assert excinfo.value.status == 429
+    assert fake_pw.chromium.launch_calls == []
+    assert fake_pw.chromium.launch_persistent_context_calls == []
+
+
 def test_a_missing_composer_behind_the_challenge_is_its_own_event(make_sender):
     """The three-day ALERT of 2026-09-29 to 2026-10-01: the page was
     Cloudflare's challenge, recorded as ``composer-missing`` like a logged
@@ -1544,6 +1643,9 @@ def test_a_missing_composer_behind_the_challenge_is_its_own_event(make_sender):
 
     assert [e["kind"] for e in _events()] == ["challenge-page"]
     assert _page_calls(page, "screenshot")
+    left, record = cc.cooldown_remaining()
+    assert left > 0
+    assert record["kind"] == "challenge-page"
 
 
 def test_send_wraps_a_fill_timeout_as_a_rate_limit_when_the_modal_is_present(

@@ -330,8 +330,29 @@ def test_find_composer_names_the_cloudflare_challenge_when_its_widget_is_up(
     with pytest.raises(cc.TransportError, match="Verify you are human") as excinfo:
         cc.find_composer(page, timeout_ms=5)
     assert cc.CHALLENGE_REASON in str(excinfo.value)
-    assert "RP_BROWSER_PROFILE=" in str(excinfo.value)
+    assert "not the account" in str(excinfo.value)
     assert "logged out" not in str(excinfo.value)
+
+
+def test_find_composer_names_the_refused_requests_on_a_logged_in_page(monkeypatch):
+    """2026-10-01 10:33: the sidebar listed conversations, the main pane
+    stayed blank, no challenge widget; the page's own API requests were
+    refused. Neither "logged out" nor "challenged" was true."""
+    fp.install(monkeypatch)
+    page = fp.Page()
+    page.url = "https://chatgpt.com/g/g-p-x/project"
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    page.set_locator(cc.LOGGED_IN_SELECTOR, count=14)
+    with pytest.raises(cc.TransportError, match="requests are being refused") as exc:
+        cc.find_composer(page, timeout_ms=5)
+    assert cc.REFUSED_REASON in str(exc.value)
+    assert "logged out" not in str(exc.value)
+    assert cc.page_logged_in(page) is True
+    assert cc.page_logged_in(fp.Page()) is False
 
 
 def test_challenge_page_reads_the_widget_or_the_notice_and_survives_a_dead_page():

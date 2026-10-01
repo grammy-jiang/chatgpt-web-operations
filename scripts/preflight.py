@@ -57,6 +57,7 @@ import json
 import os
 import shutil
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -280,6 +281,32 @@ def disk_check(free_bytes: int, workdir: Path) -> dict[str, Any]:
     return check("host", "disk space", "ok", detail)
 
 
+def browser_cooldown_check(
+    left: float, record: dict[str, Any], cooldown: float
+) -> dict[str, Any]:
+    """The cool-down after a refused scripted window (``cc.cooldown_remaining``,
+    atlas F-2026-10-01-26): a block while it runs, with the time it ends."""
+    if cooldown <= 0:
+        return check("host", "browser cool-down", "ok", "cool-down disabled (0 s)")
+    if left <= 0:
+        return check(
+            "host",
+            "browser cool-down",
+            "ok",
+            f"no scripted window refused in the last {cooldown:.0f} s",
+        )
+    at = time.strftime("%H:%M:%S", time.localtime(float(record.get("at", 0))))
+    return check(
+        "host",
+        "browser cool-down",
+        "block",
+        f"Cloudflare refused the last scripted window at {at} "
+        f"({record.get('kind', 'refusal')}); {left:.0f} s of the {cooldown:.0f} s "
+        "cool-down left",
+        COOLDOWN_FIX,
+    )
+
+
 def host_checks(cc: Any, workdir: Path | None) -> list[dict[str, Any]]:
     checks = [
         memory_check(cc.available_mb(), cc.MIN_AVAILABLE_MB),
@@ -295,6 +322,7 @@ def host_checks(cc: Any, workdir: Path | None) -> list[dict[str, Any]]:
             importlib.util.find_spec("dbus") is not None,
         ),
         fetch_keyring_bus(cc),
+        browser_cooldown_check(*cc.cooldown_remaining(), cc.COOLDOWN_SECONDS),
     ]
     if workdir is not None:
         free = shutil.disk_usage(_existing_ancestor(workdir)).free
@@ -707,6 +735,17 @@ CHALLENGE_FIX = (
     "profile directory (RP_BROWSER_PROFILE, default /tmp/rp-browser-profile), "
     "then re-run with --browser"
 )
+COOLDOWN_FIX = (
+    "wait for the cool-down to end (RP_BROWSER_COOLDOWN_SECONDS, default 1800 s "
+    "after a refused window), then re-run with --browser; "
+    "RP_BROWSER_COOLDOWN_SECONDS=0 overrides, and the account was never the "
+    "problem: check probe_account.py"
+)
+REFUSED_FIX = (
+    "the scripted window's own requests are refused by Cloudflare while the page "
+    "loads: not the account (probe_account.py reads), not the login. Wait for the "
+    "cool-down, then one window at a time; never solve or evade the check"
+)
 WORK_FIX = (
     "the page opened on the Work surface and the Chat/Work toggle could not "
     "switch it back: open chatgpt.com in this machine's own browser, press Chat, "
@@ -781,6 +820,10 @@ def browser_composer_check(
             fix = LOGIN_FIX
         elif "Verify you are human" in detail:
             fix = CHALLENGE_FIX
+        elif "cool-down ends" in detail:
+            fix = COOLDOWN_FIX
+        elif "requests are being refused" in detail:
+            fix = REFUSED_FIX
         elif "Work surface" in detail:
             fix = WORK_FIX
         return check("browser", "composer", "block", detail, fix)

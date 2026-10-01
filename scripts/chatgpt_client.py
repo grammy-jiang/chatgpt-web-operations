@@ -634,12 +634,27 @@ BROWSER_WAIT_SECONDS = float(os.environ.get("RP_BROWSER_WAIT_SECONDS", "900"))
 # generous: it covers a full resolve_new_conversation timeout plus a send.
 NEW_CHAT_WAIT_SECONDS = float(os.environ.get("RP_NEW_CHAT_WAIT_SECONDS", "600"))
 SLOT_DIR = Path(os.environ.get("RP_BROWSER_SLOT_DIR", "/tmp/rp-browser-slots"))
-# One Chrome profile shared by every send, so the app bundle is fetched
-# once instead of once per send. Safe to share because MAX_BROWSERS is a
-# cross-process lock: two windows never exist at the same moment. Set
-# RP_BROWSER_PROFILE to an empty string to go back to a fresh profile.
-_profile = os.environ.get("RP_BROWSER_PROFILE", "/tmp/rp-browser-profile")
-PROFILE_DIR = Path(_profile) if _profile else None
+# One Chrome profile per window by default: Playwright's temporary one,
+# thrown away with the window. RP_BROWSER_PROFILE=<dir> keeps a persistent
+# profile at <dir> instead, which saves the app bundle between windows
+# (measured: 505 kB and 420 responses for a fresh load, 144 kB and 354 cache
+# hits with a profile) and is safe to share because MAX_BROWSERS is a
+# cross-process lock. From 2026-09-20 to 2026-10-01 the default was the
+# shared /tmp/rp-browser-profile. It met Cloudflare's "Verify you are human"
+# page on every open from 2026-09-29 while fresh profiles did not
+# (F-2026-10-01-21), and a profile left on the Work surface opened there on
+# 2026-09-30 (F-2026-10-01-20): state in a shared profile outlives the window
+# that caused it, and a fresh profile carries none. The bundle is the price
+# (F-2026-10-01-26).
+
+
+def profile_dir_from(value: str | None) -> Path | None:
+    """``RP_BROWSER_PROFILE`` as a directory, or None for a fresh profile
+    per window (unset or empty)."""
+    return Path(value) if value else None
+
+
+PROFILE_DIR = profile_dir_from(os.environ.get("RP_BROWSER_PROFILE"))
 DISK_CACHE_BYTES = int(os.environ.get("RP_DISK_CACHE_BYTES", str(256 * 1024**2)))
 PAGE_LOAD_MS = int(os.environ.get("RP_PAGE_LOAD_MS", "150000"))
 # Playwright launches Chrome with its own temporary profile. Matching on that
@@ -679,7 +694,7 @@ def scripted_markers() -> tuple[str, ...]:
     """Argument substrings that mark a browser process as ours: Playwright's
     temporary profile path (``PW_MARKER``) and, when a shared profile is
     configured, its ``--user-data-dir``. The second was missing until
-    2026-09-28: the shared-profile window a send uses by default carried no
+    2026-09-28: the shared-profile window a send used by default then carried no
     "playwright" in its arguments, so it was invisible to preflight's
     in-flight check and to the sender's own lifetime watchdog, whose kill
     set is ``_own_pids & scripted_browser_pids()``."""
@@ -1626,6 +1641,18 @@ WORK_COMPOSER_LABEL_RE = re.compile(r"^Work with ChatGPT$", re.I)
 CHALLENGE_SELECTOR = 'iframe[src*="challenges.cloudflare.com"]'
 CHALLENGE_TEXT_RE = re.compile(r"verify you are human", re.I)
 CHALLENGE_REASON = "Cloudflare's 'Verify you are human' challenge is on the page"
+# A page that is logged in -- its sidebar lists conversations -- but whose
+# composer never renders is the third shape of the same refusal (2026-10-01
+# 10:33, a fresh profile on the project page): the HTML and bundle loaded,
+# every API request the page made was refused, so the project and its
+# composer never came. The sidebar links are the one logged-in sign a
+# recording cannot keep (href is dropped), so this selector is excused from
+# tier R by name.
+LOGGED_IN_SELECTOR = 'a[href^="/c/"]'
+REFUSED_REASON = (
+    "the page is logged in (its sidebar lists conversations) but the composer "
+    "never rendered; the page's own requests are being refused"
+)
 
 # What the composer shows after an upload, read from its own DOM. Scoped to
 # the composer's <form> when one is found (SEND_BUTTONS shows the send
@@ -2011,6 +2038,14 @@ def challenge_page(page: Any) -> bool:
     return False
 
 
+def page_logged_in(page: Any) -> bool:
+    """Whether ``page`` shows a logged-in sidebar (``LOGGED_IN_SELECTOR``).
+    Read-only; a page that cannot be read is not one."""
+    with contextlib.suppress(Exception):
+        return page.locator(LOGGED_IN_SELECTOR).count() > 0
+    return False
+
+
 def find_composer(page: Any, timeout_ms: int = 60_000) -> Any:
     """Wait for the composer on ``page`` and return its locator. When it
     never appears, raise the same ``TransportError`` a send raises: naming
@@ -2028,8 +2063,12 @@ def find_composer(page: Any, timeout_ms: int = 60_000) -> Any:
         if challenge_page(page):
             raise TransportError(
                 f"composer did not appear at {page.url}: {CHALLENGE_REASON}; the "
-                "browser profile is what is challenged, and a fresh profile "
-                "(RP_BROWSER_PROFILE=) passes"
+                "browser profile is what is challenged, not the account"
+            ) from None
+        if page_logged_in(page):
+            raise TransportError(
+                f"composer did not appear at {page.url}: {REFUSED_REASON} "
+                "(references/failure-atlas.md, F-2026-10-01-23)"
             ) from None
         raise TransportError(
             f"composer did not appear at {page.url} (logged out or challenged)"
@@ -2164,6 +2203,79 @@ def default_screenshot_dir() -> Path:
     return Path(
         os.environ.get("RP_SCREENSHOT_DIR") or STATE_DIR / "screenshots"
     ).expanduser()
+
+
+# After Cloudflare refuses a scripted window -- its challenge page
+# (challenge-page), a send handshake answered 4xx/5xx (handshake-refused), or
+# a logged-in page whose composer never renders (composer-missing with
+# logged_in) -- no scripted window is opened for RP_BROWSER_COOLDOWN_SECONDS
+# (default 1800; 0 disables). Measured 2026-10-01: seven windows in forty
+# minutes went from GO to 403 on every handshake, and binnacle-jobs retried
+# eleven times on 2026-09-30 into the same wall. The last refusal is one JSON
+# record, RP_REFUSAL_FILE or <state>/browser-refusal.json; preflight's host
+# group reports the cool-down, and BrowserSender refuses to open during it
+# with the time it ends (F-2026-10-01-26). This is politeness, not a solver:
+# the window is not opened at all, and nothing about it changes.
+COOLDOWN_SECONDS = float(os.environ.get("RP_BROWSER_COOLDOWN_SECONDS", "1800"))
+
+
+def refusal_file() -> Path:
+    """Where the last refusal is kept: ``RP_REFUSAL_FILE`` or the default."""
+    return Path(
+        os.environ.get("RP_REFUSAL_FILE") or STATE_DIR / "browser-refusal.json"
+    ).expanduser()
+
+
+def note_refusal(kind: str, url: str, detail: str) -> str:
+    """Record that Cloudflare refused a scripted window just now (``kind``
+    is the event kind). Never raises; returns the path written, or ""."""
+    now = time.time()
+    record = {
+        "at": now,
+        "at_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+        "kind": kind,
+        "url": url,
+        "detail": detail[:300],
+    }
+    path = refusal_file()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    except OSError as exc:
+        logger.warning("refusal could not be recorded at %s: %s", path, exc)
+        return ""
+    return str(path)
+
+
+def cooldown_remaining(now: float | None = None) -> tuple[float, dict[str, Any]]:
+    """Seconds left of the cool-down after the last refusal, and that
+    record; ``(0.0, {})`` when none applies: no record, an unreadable one,
+    an expired one, or ``COOLDOWN_SECONDS`` at 0."""
+    if COOLDOWN_SECONDS <= 0:
+        return 0.0, {}
+    try:
+        record = json.loads(refusal_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0.0, {}
+    if not isinstance(record, dict) or not isinstance(record.get("at"), (int, float)):
+        return 0.0, {}
+    left = (
+        float(record["at"]) + COOLDOWN_SECONDS - (time.time() if now is None else now)
+    )
+    return (left, record) if left > 0 else (0.0, {})
+
+
+def cooldown_message(left: float, record: dict[str, Any]) -> str:
+    """The one line a refused window opening reports."""
+    at = time.strftime("%H:%M:%S", time.localtime(float(record.get("at", 0))))
+    until = time.strftime(
+        "%H:%M:%S", time.localtime(float(record.get("at", 0)) + COOLDOWN_SECONDS)
+    )
+    return (
+        f"no scripted window: Cloudflare refused the last one at {at} "
+        f"({record.get('kind', 'refusal')}); the cool-down ends at {until} "
+        f"({left:.0f} s left); RP_BROWSER_COOLDOWN_SECONDS=0 overrides"
+    )
 
 
 def record_event(kind: str, **fields: Any) -> str:
@@ -2398,6 +2510,13 @@ class BrowserSender:
         self._own_pids: set[int] = set()
 
     def __enter__(self) -> BrowserSender:
+        # No window during the cool-down after a refusal (cooldown_remaining):
+        # the caller gets the time it ends and the rate-limit status, which
+        # is what a dispatcher's ladder already knows how to wait on.
+        left, record = cooldown_remaining()
+        if left > 0:
+            self._owner.shutdown(wait=False)
+            raise TransportError(cooldown_message(left, record), 429)
         # Hold a slot for the whole window, so the cap counts open windows and
         # not merely concurrent opens. It is released by the exit stack.
         self._stack.enter_context(browser_slot())
@@ -2763,6 +2882,7 @@ class BrowserSender:
             for path, status in refused[:4]
         )
         status = 429 if any(s == 429 for _, s in refused) else 0
+        note_refusal("handshake-refused", str(page.url), names)
         return TransportError(
             "message was not posted: ChatGPT's send handshake was refused "
             f"({names}) and no f/conversation request followed; the bubble on "
@@ -2945,18 +3065,23 @@ class BrowserSender:
         except TransportError as exc:
             # Which it was is in the message (find_composer). The challenge
             # page is its own event, so the weekly digest counts it apart
-            # from a logged-out session and the fix names the profile.
+            # from a logged-out session and the fix names the profile; a
+            # logged-in page without a composer is the refusal's third shape.
+            # Both start the cool-down (note_refusal); a logged-out page does
+            # not, because the next window may be a signed-in one.
+            url = str(self.page.url)
+            shot = self._screenshot("chatgpt-composer-missing.png")
             if CHALLENGE_REASON in str(exc):
+                record_event("challenge-page", url=url, screenshot=shot)
+                note_refusal("challenge-page", url, str(exc))
+            elif REFUSED_REASON in str(exc):
                 record_event(
-                    "challenge-page",
-                    url=str(self.page.url),
-                    screenshot=self._screenshot("chatgpt-composer-missing.png"),
+                    "composer-missing", url=url, logged_in=True, screenshot=shot
                 )
+                note_refusal("composer-missing", url, str(exc))
             else:
                 record_event(
-                    "composer-missing",
-                    url=str(self.page.url),
-                    screenshot=self._screenshot("chatgpt-composer-missing.png"),
+                    "composer-missing", url=url, logged_in=False, screenshot=shot
                 )
             raise
 

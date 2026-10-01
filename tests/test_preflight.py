@@ -146,6 +146,47 @@ class _FakeSenderWork:
         )
 
 
+class _FakeSenderCooldown:
+    """No window was opened: the cool-down after a refused one still runs."""
+
+    def __init__(self, browser: str) -> None:
+        self.browser = browser
+
+    def __enter__(self) -> _FakeSenderCooldown:
+        raise RuntimeError(
+            "no scripted window: Cloudflare refused the last one at 10:33:00 "
+            "(handshake-refused); the cool-down ends at 11:03:00 (900 s left); "
+            "RP_BROWSER_COOLDOWN_SECONDS=0 overrides"
+        )
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def probe_composer(self) -> str:
+        return "https://chatgpt.com/"
+
+
+class _FakeSenderRefused:
+    """The page loaded logged in, its composer never rendered (2026-10-01)."""
+
+    def __init__(self, browser: str) -> None:
+        self.browser = browser
+
+    def __enter__(self) -> _FakeSenderRefused:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def probe_composer(self) -> str:
+        raise RuntimeError(
+            "composer did not appear at https://chatgpt.com/g/g-p-x/project: the "
+            "page is logged in (its sidebar lists conversations) but the composer "
+            "never rendered; the page's own requests are being refused "
+            "(references/failure-atlas.md, F-2026-10-01-23)"
+        )
+
+
 class _FakeSenderBusy:
     """Every window slot taken: a failure that names its own cause."""
 
@@ -225,6 +266,8 @@ def _fake_cc(
         ChatGPTSession=lambda browser: session,
         BrowserSender=sender_cls,
         ensure_desktop_env_calls=[],
+        cooldown_remaining=lambda: (0.0, {}),
+        COOLDOWN_SECONDS=1800.0,
     )
     ns.ensure_desktop_env = lambda: ns.ensure_desktop_env_calls.append(True)
     return ns
@@ -661,6 +704,7 @@ def test_host_checks_returns_five_checks_without_a_workdir(
         "virtual displays",
         "browser tooling",
         "keyring bus",
+        "browser cool-down",
     ]
     assert all(c["state"] == "ok" for c in checks)
 
@@ -671,7 +715,7 @@ def test_host_checks_adds_disk_space_last_with_a_workdir(
     client = _fake_cc(None)
     checks = preflight.host_checks(client, tmp_path)
     assert [c["name"] for c in checks][-1] == "disk space"
-    assert len(checks) == 7
+    assert len(checks) == 8
 
 
 def test_host_checks_reflects_a_low_memory_client(clean_host: None) -> None:
@@ -1208,6 +1252,44 @@ def test_browser_composer_check_names_the_work_surface_fix() -> None:
     assert c["fix"] == preflight.WORK_FIX
 
 
+def test_browser_composer_check_names_the_cooldown_and_its_end() -> None:
+    cc = SimpleNamespace(BrowserSender=_FakeSenderCooldown)
+    c = preflight.browser_composer_check(cc, "chrome")
+    assert c["state"] == "block"
+    assert "cool-down ends at 11:03:00" in c["detail"]
+    assert c["fix"] == preflight.COOLDOWN_FIX
+
+
+def test_browser_composer_check_names_the_refused_requests_on_a_logged_in_page():
+    cc = SimpleNamespace(BrowserSender=_FakeSenderRefused)
+    c = preflight.browser_composer_check(cc, "chrome")
+    assert c["state"] == "block"
+    assert "requests are being refused" in c["detail"]
+    assert c["fix"] == preflight.REFUSED_FIX
+    assert "log in" not in c["fix"]
+
+
+def test_browser_cooldown_check_is_ok_without_a_recent_refusal() -> None:
+    c = preflight.browser_cooldown_check(0.0, {}, 1800.0)
+    assert (c["group"], c["name"], c["state"]) == ("host", "browser cool-down", "ok")
+    assert "1800 s" in c["detail"]
+
+
+def test_browser_cooldown_check_blocks_while_the_cooldown_runs() -> None:
+    record = {"at": 1_790_000_000.0, "kind": "handshake-refused"}
+    c = preflight.browser_cooldown_check(900.0, record, 1800.0)
+    assert c["state"] == "block"
+    assert "handshake-refused" in c["detail"]
+    assert "900 s of the 1800 s" in c["detail"]
+    assert c["fix"] == preflight.COOLDOWN_FIX
+
+
+def test_browser_cooldown_check_says_so_when_disabled() -> None:
+    c = preflight.browser_cooldown_check(0.0, {}, 0.0)
+    assert c["state"] == "ok"
+    assert "disabled" in c["detail"]
+
+
 def test_browser_composer_check_names_a_busy_slot_without_blaming_the_login() -> None:
     """A failure before the page even opened must not be dressed as a login
     problem: the detail names the cause and there is no fix line to mislead."""
@@ -1328,6 +1410,8 @@ def test_the_fake_senders_offer_nothing_the_real_sender_does_not() -> None:
         _FakeSenderBlocked: ["probe_composer"],
         _FakeSenderChallenged: ["probe_composer"],
         _FakeSenderWork: ["probe_composer"],
+        _FakeSenderCooldown: ["probe_composer"],
+        _FakeSenderRefused: ["probe_composer"],
         _FakeSenderBusy: ["probe_composer"],
         _FakeSenderSnapshot: ["snapshot_page"],
     }

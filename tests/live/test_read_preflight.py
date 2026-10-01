@@ -38,7 +38,7 @@ pytestmark = pytest.mark.live_read
 
 STATES = {"ok", "warn", "block"}
 
-# The ten checks a bare `preflight.py` makes, in GROUP_ORDER.
+# The eleven checks a bare `preflight.py` makes, in GROUP_ORDER.
 DEFAULT_NAMES = [
     "available memory",
     "load average",
@@ -46,6 +46,7 @@ DEFAULT_NAMES = [
     "virtual displays",
     "browser tooling",
     "keyring bus",
+    "browser cool-down",
     "wireless link",
     "auth and read",
     "send gates",

@@ -231,6 +231,9 @@ def test_a_refused_handshake_with_no_message_request_is_not_a_post(make_sender):
     assert events[0]["chars"] == 5
     assert events[0]["screenshot"].endswith("chatgpt-send-fail.png")
     assert not _page_calls(page, "keyboard.press")
+    left, record = cc.cooldown_remaining()
+    assert left > 0
+    assert record["kind"] == "handshake-refused"
 
 
 def test_a_refused_handshake_is_forgotten_once_the_message_request_went_out(
