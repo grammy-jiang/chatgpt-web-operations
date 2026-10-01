@@ -350,6 +350,16 @@
     "removed_and_failed": "2026-10-01"
   },
   {
+    "id": "F-2026-10-01-31",
+    "title": "a pinned effort was ignored when the body carried the page's one-off model override (the Instant picker's shape)",
+    "atlas": "A pinned effort is ignored when the body carries the",
+    "fix": "3a7c4b3",
+    "tests": [
+      "test_client_rewrite.py::test_a_pin_drops_the_page_s_one_off_override_fields"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
     "id": "F-2026-10-01-32",
     "title": "the dedicated profile synced the owner's extensions and a duplicate-tab blocker bounced the home page",
     "atlas": "The dedicated profile synced the owner's extensions",

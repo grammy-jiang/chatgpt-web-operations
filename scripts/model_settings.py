@@ -14,7 +14,9 @@ never the composer's ``oai-last-model-config`` cookie, which measured
 (SKILL.md, "Reasoning effort") -- is what a send without an explicit
 ``--effort``/``--model`` inherits; ``send_prompt.py --effort``/``--model``
 pin a send by rewriting its POST body in flight, never by touching this
-record or that cookie.
+record or that cookie. The slider itself writes the record with ``PATCH
+/backend-api/settings/user_last_used_model_config?model_slug=…&thinking_effort=…``
+(measured 2026-10-01); this command only reads it.
 
 Exit 0 when the server record resolves to a known preset, 1 when it does not.
 """

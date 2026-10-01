@@ -154,12 +154,14 @@ model (F-2026-10-01-30). Chrome synced the owner's extensions (23 from the
 Web Store) into the dedicated profile after the Google login, and a duplicate-tab blocker
 among them bounces every new tab opened on the home page (F-2026-10-01-32:
 named now, not fought; the owner removes them or signs the profile out of
-Chrome). Open: the effort pin no longer takes because the page's body and
-the reply's metadata dropped `thinking_effort` (F-2026-10-01-31, atlas
-"Open on 2026-10-01 evening"); `--effort` pins the thinking model only, and
-T4's effort test fails until the level's new carrier is found with a
-`discover_endpoints.py --bodies` pass. Results: `VERIFICATION.md`, "The
-dedicated browser window".
+Chrome; measured again at 15:46, two of four browser checks bounced, so it
+is not a one-off). The effort pin was found again the same evening: the
+window's picker sat on "Instant", whose body carries a one-off model
+override that makes the server ignore a pinned level; the rewrite now drops
+it (F-2026-10-01-31), and `make live-send`'s effort test passes. The slider
+itself writes `PATCH /backend-api/settings/user_last_used_model_config`,
+which the skill never calls. Results: `VERIFICATION.md`, "The dedicated
+browser window" and "The effort pin, the same evening".
 
 ## Entry point, 2026-09-25
 

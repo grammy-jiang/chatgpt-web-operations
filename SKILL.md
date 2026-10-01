@@ -485,11 +485,10 @@ tab holds (F-2026-10-01-32): `preflight --browser`, `health --browser` and
 `measure_window` then fail with "the tab is on 'about:blank'", while sends
 into a project work. `dedicated_browser.py status` lists the profile's Web
 Store extensions; keep the profile signed out of Chrome (not out of
-chatgpt.com), or remove them. The pinned effort is a separate, open
-limit: the page's send body no longer carries `thinking_effort` and the
-reply's metadata no longer records it (`references/failure-atlas.md`,
-F-2026-10-01-31), so `--effort` pins the thinking model but not the level
-until the new carrier is found. Chrome 136 and later ignore the debugging
+chatgpt.com), or remove them. A fresh profile's picker sits on "Instant",
+whose body carries a one-off model override that makes the server ignore a
+pinned level; the rewrite drops it, so `--effort` takes there too
+(F-2026-10-01-31, "Reasoning effort" below). Chrome 136 and later ignore the debugging
 switches on the default profile, which is why this is a separate profile
 and never the owner's own Chrome. Nothing here solves or evades a
 challenge: if Cloudflare asks the dedicated window to prove a human, the
@@ -498,9 +497,10 @@ owner answers in it, and until then a send reports `challenge-page` or
 
 ## Reasoning effort is a setting; know which one a send will use
 
-Every send carries a `thinking_effort` and a `model` in its
-`POST /backend-api/f/conversation` body. Where they come from, measured on
-2026-09-20 with recorded sends:
+Every send carries a `model` in its `POST /backend-api/f/conversation`
+body, and a `thinking_effort` whenever the picker is on a thinking preset.
+Where they come from, measured on 2026-09-20 with recorded sends and
+re-measured on 2026-10-01 through the dedicated window:
 
 - **A send inherits the server's record**: `GET /backend-api/settings/user`
   → `settings.last_used_model_config`, `slugs` for the last model per surface
@@ -523,10 +523,25 @@ Every send carries a `thinking_effort` and a `model` in its
   reply whose metadata says `thinking_effort: standard`,
   `search_result_groups` filled and a cited answer, where two sends before
   it had posted `max` and no search.
+- **The slider writes the record; the skill never does.** Moving the Power
+  slider fires `PATCH
+  /backend-api/settings/user_last_used_model_config?model_slug=<slug>&thinking_effort=<level>`
+  (empty body; measured 2026-10-01), which is what fills
+  `last_used_model_config` and what the picker reads back after a reload.
+  That is the place the effort is configured for the account; a pinned
+  send leaves it alone (read before and after every test send).
+- **A one-off model override cancels the level.** When the picker holds a
+  model other than the account's default -- the "Instant" position a fresh
+  profile starts on -- the page builds `model: "gpt-5-6"`,
+  `requested_default_model: "gpt-5-6-thinking"`, `one_off_model_override:
+  true` and no `thinking_effort`, and the server ignores a
+  `thinking_effort` added to such a body (F-2026-10-01-31). An effort or
+  model pin therefore drops both fields (`ONE_OFF_FIELDS`); a search or
+  hint alone leaves them.
 - **A transcript records what was used**: each assistant message's
-  `metadata` carries `thinking_effort`, `model_slug`, `resolved_model_slug`,
-  `search_result_groups` and `citations`; `read_chat.py --effort` prints
-  them per turn. `send_prompt.py --record-send-body PATH` keeps `original`
+  `metadata` carries `thinking_effort` when a level applied (absent when
+  none did), `model_slug`, `resolved_model_slug`, `search_result_groups`
+  and `citations`; `read_chat.py --effort` prints them per turn. `send_prompt.py --record-send-body PATH` keeps `original`
   (what the page built) and `sent` (what left the browser).
 
 **The UI control** (checked 2026-09-19) is the **Power** slider in the
@@ -540,6 +555,10 @@ the selected version in `GET /backend-api/models`, not five effort levels:
 | 3 | High | `gpt-5-6-thinking`, `extended` |
 | 4 | Extra High | `gpt-5-6-thinking`, `max` |
 | 5 | Pro | `gpt-6-pro`, no effort field |
+
+At position 1 the dedicated window's page built `model: "gpt-5-6"` with the
+one-off override fields rather than `gpt-5-6-instant` (2026-10-01); `--model
+gpt-5-6-instant` still pins the instant model by name.
 
 **The API levels are unchanged**, from a model's `thinking_efforts` when
 `configurable_thinking_effort` is true:

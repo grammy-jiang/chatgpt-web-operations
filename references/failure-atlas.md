@@ -789,26 +789,58 @@ The rules that came out of them are in `worker-rounds.md`.
   skill does not do is fight the extension: the dedicated profile should
   carry none, which is the owner's setting to make (sign the profile out
   of Chrome, not out of chatgpt.com, or remove them).
+- **(F-2026-10-01-31) A pinned effort is ignored when the body carries the
+  page's one-off model override.** The morning's `--effort standard` through
+  the dedicated window recorded no effort, and the recorded body was read
+  as "the page dropped `thinking_effort`". Measured in the evening, without
+  touching the account's record: the window's picker sat on "Instant"
+  (Power slider position 0), and at that position the page builds `model:
+  "gpt-5-6"`, `requested_default_model: "gpt-5-6-thinking"`,
+  `one_off_model_override: true` and no `thinking_effort` (the page sets
+  the flag whenever `requested_default_model` is set). Moving the slider to
+  "High" in a probe tab fired `PATCH
+  /backend-api/settings/user_last_used_model_config?model_slug=gpt-5-6-thinking&thinking_effort=extended`
+  (empty body; the page's `save-chat-last-used-model` mutation), the picker
+  kept the position across a reload, and the body carried `model:
+  "gpt-5-6-thinking"`, `thinking_effort: "extended"` and neither one-off
+  field. Three sandbox sends then separated the cause: that body with
+  `standard` pinned in flight recorded `standard` (S1); the same body with
+  the two one-off fields added recorded no effort (S2a); the Instant shape
+  with the fix below recorded `standard` (S3); `tests/live/test_send_effort.py`
+  passed (62.8 s). The reply's `metadata.thinking_effort` is present
+  exactly when a level applied (the owner's own chat of 15:24 carried
+  `max`), so the morning's "the metadata dropped it" was the absence of a
+  level, not of the field. What changed: `rewrite_send_body` drops
+  `requested_default_model` and `one_off_model_override` (`ONE_OFF_FIELDS`)
+  whenever an effort or a model is pinned, and leaves them for a search or
+  hint alone. The account's `last_used_model_config` stayed `gpt-5-6-thinking`
+  / `extended` through every test send, read before and after; the skill
+  still never calls the PATCH.
 
 ## Re-validation after the Work surface, 2026-10-01
 
-### Open on 2026-10-01 evening: the effort pin (F-2026-10-01-31)
+### The effort pin, 2026-10-01 evening (F-2026-10-01-31, fixed the same evening)
 
-The reply to a send with `--effort standard` records no effort through the
-dedicated window, and the recorded body shows why the pin cannot take any
-more: the page's `f/conversation` body no longer carries `thinking_effort`
-at all (it carries `model: "gpt-5-6"`, `requested_default_model:
-"gpt-5-6-thinking"`, `one_off_model_override: true`), and the assistant
-message's metadata no longer carries `thinking_effort` either (it has
-`reasoning_status`, `reasoning_start_time`, `reasoning_end_time`,
-`cot_version`, `reasoning_recap_type`). The rewrite still goes out and the
-model part still takes (`--model gpt-5-6-instant` was recorded; an effort
-pin now moves the model to `gpt-5-6-thinking`, which the reply recorded).
-Where the Power slider's level travels now is not measured; finding it is
-a `discover_endpoints.py --bodies` pass over sends made at two slider
-positions in the owner's own browser. Until then `--effort` pins the
-model, not the level, and `tests/live/test_send_effort.py` fails for this
-reason. No ledger entry: nothing is fixed yet.
+What was believed at 14:00: the page's `f/conversation` body no longer
+carried `thinking_effort` and the reply's metadata no longer recorded it,
+so the level had moved to an unknown carrier. What the evening measured,
+in order and without a `discover_endpoints.py` pass:
+
+| Step | How | What it settled |
+|------|-----|-----------------|
+| the picker's state | a probe tab on the sandbox project page, the model menu opened (no send) | "Instant", Power slider `aria-valuenow` 0 of 0-4; opening the menu makes no request |
+| the slider moved to "High" | `ArrowRight` twice on the slider, then `Escape` | `PATCH /backend-api/settings/user_last_used_model_config?model_slug=gpt-5-6-thinking&thinking_effort=extended`, then `f/conversation/prepare` with `model: gpt-5-6-thinking`, `thinking_effort: extended`; no cookie or localStorage key changed; after a reload the picker still read "High" |
+| S1, a pinned send (`effort=standard`) on the High body | `BrowserSender` through the window, `record_send_body` | original `thinking_effort: extended`, no one-off fields; sent `standard`; the reply recorded `standard` |
+| S2a, the morning's shape reproduced | the same, with `requested_default_model` and `one_off_model_override: true` added before the pin | the reply recorded no effort |
+| S3, the Instant shape with the fix | model `gpt-5-6`, no effort, both one-off fields, then the fixed `rewrite_send_body` | sent `gpt-5-6-thinking` / `standard`, no one-off fields; the reply recorded `standard` |
+| `make live-send`, the effort test | `CHATGPT_LIVE=send`, one send | 1 passed in 62.8 s |
+| the account's record | `GET /backend-api/settings/user` before and after each send | `web`: `gpt-5-6-thinking` / `extended` throughout |
+
+The page names the body's fields in its bundle
+(`one_off_model_override: null != requested_default_model || undefined`),
+and `client_contextual_info.app_surface` reads `codex_browser` in the
+dedicated window; which `juices` surface a send without any pin inherits
+there is not measured, and a pinned send does not depend on it.
 
 What the morning's evidence said, before anything was changed, in the
 order it was read:

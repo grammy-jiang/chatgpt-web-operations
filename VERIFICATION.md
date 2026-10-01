@@ -133,7 +133,7 @@ live tiers below.
 | `send_prompt.py` (one prompt, sandbox) | posted with a real id at once, reply in 73 s, renamed, deleted, 404. |
 | `make live-browser` (T3) | 2 passed: the upload dry run (chip "Remove rp-test-…", send enabled) and the window check; `composer-attached` recorded. |
 | `make live-send` (T4), first run | 1 passed (pin/unpin/archive/unarchive on a minted chat), 2 failed: the effort pin on the window's "Auto" model recorded no effort (F-2026-10-01-30), and the round trip's conversation snapshot waited on a chat page's hidden composer (F-2026-10-01-27). |
-| `make live-send` (T4), after the fixes | 2 passed (the chat flags and the CLI round trip with its attachment, backup and 404; `conversation` and `composer-filled` recorded and promoted), 1 failed: the effort pin (F-2026-10-01-31, open: the page's body and the reply's metadata no longer carry `thinking_effort`). |
+| `make live-send` (T4), after the fixes | 2 passed (the chat flags and the CLI round trip with its attachment, backup and 404; `conversation` and `composer-filled` recorded and promoted), 1 failed: the effort pin, whose cause was found and fixed the same evening (F-2026-10-01-31, the table below). |
 | batch send, two prompts in one window | both posted with real ids, both replies exact, both renamed. |
 | continuation with two attachments | failed on the chat page's hidden composer (F-2026-10-01-27); fixed, not re-run. |
 | `--search --effort standard --record-send-body` | posted; the reply used web search (`search=yes`) and the recorded body carried `search` and `standard`; the model stayed `gpt-5-6`, so no effort was recorded (F-2026-10-01-30); the stream wait never ended and the outer 20-minute timeout killed the command (F-2026-10-01-28). |
@@ -141,7 +141,7 @@ live tiers below.
 | connector tool call (`--system-hint plugin:plugin_<app>`) | the MCP server ran `run_command echo RP-CONN-…` at 12:52:31 (`client=openai-mcp`); the recorded body carried the hint; the stream wait hung as above. |
 | Deep research `start`, `status --wait`, `fetch`, `export --force` | DONE in about 3 min; 4,456 Markdown characters and 160 sources; DOCX 14,274 bytes; PDF 39,505 bytes. |
 | `round_status.py --collect [--apply]` on a crafted ledger | the orphan reply classified collectable, archived, the ledger entry marked collected; `review_topic.py`: no integrity problem. |
-| `measure_window.py`, `health.py --browser`, `preflight.py --browser` | pass whenever the home page is not already open in the owner's tab; from 13:54 all three failed on a tab bounced back to `about:blank` by the duplicate-tab blocker that Chrome sync had installed in the profile (F-2026-10-01-32: measured 14:05, a navigation to the home page sent back in one second, a project page kept). The failure now names the bounce; the extensions are the owner's to remove. |
+| `measure_window.py`, `health.py --browser`, `preflight.py --browser` | pass whenever the home page is not already open in the owner's tab; from 13:54 all three failed on a tab bounced back to `about:blank` by the duplicate-tab blocker that Chrome sync had installed in the profile (F-2026-10-01-32: measured 14:05, a navigation to the home page sent back in one second, a project page kept). The failure now names the bounce; the extensions are the owner's to remove.; measured again 15:46-15:48 after the owner called it a one-off: four checks, two passed (`preflight` twice) and two bounced (`preflight`, `health`), the blocker still enabled in the profile (`disable_reasons: []`). |
 | `discover_endpoints.py` | its own diagnostic browser; 4 endpoints in 20 s. |
 | cleanup | the disposable connector's link and app deleted; 6 sandbox chats backed up and deleted; the window keeps only the owner's tab. |
 
@@ -155,9 +155,27 @@ browser checks from 13:54 (F-2026-10-01-32). Sign the profile out of Chrome
 status` shows when the profile is clean. The skill was not changed to work
 around them.
 
+### The effort pin, the same evening (F-2026-10-01-31)
+
+The owner asked where the effort is configured. Measured through the
+dedicated window, four sandbox sends in all, each deleted afterwards, the
+account's record read before and after each and unchanged
+(`gpt-5-6-thinking` / `extended` for `web`):
+
+| Step | Result |
+| --- | --- |
+| the picker on the sandbox project page (probe tab, no send) | "Instant", Power slider position 0 of 0-4; opening the menu makes no request. |
+| the slider moved to "High" | `PATCH /backend-api/settings/user_last_used_model_config?model_slug=gpt-5-6-thinking&thinking_effort=extended`; the on-load `prepare` then carried `gpt-5-6-thinking` / `extended`; the picker kept "High" across a reload; no cookie or localStorage key changed. |
+| S1: `effort=standard` pinned on the High body | original `extended`, sent `standard`, reply recorded `standard`; the body carried no `requested_default_model` / `one_off_model_override`. |
+| S2a: the morning's shape reproduced (`one_off_model_override: true`, `requested_default_model` added before the pin) | reply recorded no effort -- the cause. |
+| S3: the Instant shape (`model: gpt-5-6`, no effort, both fields) through the fixed rewrite | sent `gpt-5-6-thinking` / `standard` without the fields; reply recorded `standard`. |
+| `make live-send`, `tests/live/test_send_effort.py` | 1 passed in 62.8 s. |
+| fix removed (worktree at the previous commit) | the new rewrite test fails, as the ledger requires. |
+| offline gates with the fix | lint clean; 2,497 passed; replay 40; loopback 43. |
+
 ## What the owner decides
 
-- Whether to delete `/tmp/rp-browser-profile.stale-20261001`.
+- `/tmp/rp-browser-profile.stale-20261001` (174 MB) was deleted at the owner's request, 2026-10-01 15:4x.
 - When to retry `make live-send` and the browser acceptance sends: after a
   quiet period, one window at a time, with `preflight.py --browser` first.
 

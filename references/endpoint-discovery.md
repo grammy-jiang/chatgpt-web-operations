@@ -311,6 +311,20 @@ from the cookie. The reply's assistant messages carry
 `search_result_groups`, `citations`, `reasoning_start_time` and
 `reasoning_end_time`.
 
+**Re-measured 2026-10-01 through the dedicated window** (atlas
+F-2026-10-01-31): `thinking_effort` is on the body only while the picker is
+on a thinking preset. On "Instant" -- where a fresh profile's picker sits --
+the body carries `model: "gpt-5-6"`, `requested_default_model:
+"gpt-5-6-thinking"`, `one_off_model_override: true` and no effort, and the
+server ignores a `thinking_effort` added to such a body; `rewrite_send_body`
+drops the two fields when it pins. The reply's `metadata.thinking_effort`
+is present exactly when a level applied. The body also carries
+`browser_context.instance_id`, `client_contextual_info.app_surface:
+"codex_browser"`, `local_function_names: ["local.continue_in_work"]` and
+`turn_attribution.turn_trigger: "composer"`; `supports_buffering`,
+`force_parallel_switch`, `model_response_contracts` and
+`paragen_cot_summary_display_override` were not seen.
+
 **Captured 2026-09-20, project create and delete**, from the user's own
 Chrome with the fetch hook, on a throwaway project `rp-test-sandbox-2`
 that was deleted in the same minute, each verified over HTTP:
@@ -754,6 +768,7 @@ next change can be told from this one.
 | `GET /backend-api/celsius/ws/user`, `GET /backend-api/profiles/me`, `GET /backend-api/amphora/notifications?limit=20`, `POST /backend-api/amphora/clear_settings_cache`, `GET /backend-api/user_granular_consent`, `GET /backend-api/pageConfigs/billing`, `GET /backend-api/subscriptions?account_id=...` | account and notification reads made on load | no |
 | `POST /backend-api/sentinel/chat-requirements/finalize` | made on load now, before any message | no |
 | `POST /backend-api/conversation/init` | fired twice when the toggle is pressed | no |
+| `PATCH /backend-api/settings/user_last_used_model_config?model_slug=<slug>&thinking_effort=<level>` | the Power slider's save (the page's `save-chat-last-used-model` mutation, empty body, account id in headers); what writes `last_used_model_config`; the picker reads it back after a reload (2026-10-01 evening) | no: a send pins in flight and never touches the record |
 
 `GET /backend-api/settings/user` gained `tpp_work_mode_quick_send_by_default`
 (false here), `codex_training_allowed`, `developer_mode` and
