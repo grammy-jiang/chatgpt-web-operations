@@ -55,6 +55,7 @@ SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+import api_shapes  # noqa: E402
 import read_chat  # noqa: E402
 import send_prompt  # noqa: E402
 
@@ -92,6 +93,7 @@ def test_send_prompt_main_posts_gets_a_reply_and_is_cleaned_up(
     backup_dir = tmp_path / "backup"
     cleaned: int | None = None
     try:
+        body_record = tmp_path / "send-body.json"
         rc = send_prompt.main(
             [
                 str(prompt),
@@ -103,6 +105,8 @@ def test_send_prompt_main_posts_gets_a_reply_and_is_cleaned_up(
                 "240",
                 "--attach",
                 str(attachment),
+                "--record-send-body",
+                str(body_record),
             ]
         )
         printed = capsys.readouterr().out
@@ -120,9 +124,16 @@ def test_send_prompt_main_posts_gets_a_reply_and_is_cleaned_up(
         assert read_chat.main([conversation_id, "--text"]) == 0
         assert nonce in capsys.readouterr().out
 
-        # tier R fixtures, when asked for
+        # tier R fixtures, when asked for; and the send body's shape (field
+        # names and types, never a value), compared by the weekly check with
+        # tests/fixtures/send/send_body.shape.json (2026-10-01 evening)
         snapshot_dir = os.environ.get("RP_SNAPSHOT_DIR")
         if snapshot_dir:
+            if body_record.is_file():
+                sent = json.loads(body_record.read_text(encoding="utf-8"))
+                body = json.loads(sent.get("original") or "{}")
+                assert body.get("model"), body
+                api_shapes.write_send_body_shape(body, snapshot_dir)
             with cc.BrowserSender(
                 "chrome", project=sandbox_id, visible=False
             ) as sender:

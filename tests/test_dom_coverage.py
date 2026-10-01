@@ -74,6 +74,11 @@ EXCUSED = {
         "the challenge notice is text, which no recording keeps (see "
         "CHALLENGE_SELECTOR)"
     ),
+    "LOGIN_SELECTOR": (
+        "no logged-out page is recorded (a recording keeps no URL, and the "
+        "login route is an href); the selector is best effort for the page "
+        "facts a composer-missing message carries (2026-10-01 evening)"
+    ),
     "LOGGED_IN_SELECTOR": (
         "the sidebar's conversation links are hrefs, which a recording drops; "
         "the only logged-in sign a page without a composer has"

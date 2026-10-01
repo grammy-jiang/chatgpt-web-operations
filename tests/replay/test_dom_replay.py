@@ -132,6 +132,27 @@ def test_the_legacy_composer_still_offers_the_old_upload_input(replay) -> None:
     assert page.locator(cc.UPLOAD_INPUT_SELECTOR).count() == 1
 
 
+@pytest.mark.parametrize("name", RECORDED_COMPOSERS)
+def test_the_controls_beside_the_composer_are_found_on_every_recorded_page(
+    replay, name: str
+) -> None:
+    """2026-10-01 evening: the attach menu (``ATTACH_MENU_SELECTOR``) and
+    the model picker (``PICKER_SELECTOR``) stand beside every recorded
+    composer, the page facts count them, and the file inputs the fallback
+    reads are counted too; no recorded page is a challenge or a login page."""
+    page = replay(name)
+    assert page.locator(cc.ATTACH_MENU_SELECTOR).count() >= 1
+    assert page.locator(cc.PICKER_SELECTOR).count() >= 1
+    facts = cc.page_snapshot(page)
+    assert facts["controls"]["attach_menu"] is True
+    assert facts["controls"]["picker"] is True
+    assert facts["uploads"]["inputs"] >= 1
+    assert facts["composers"]["total"] >= 1
+    assert facts["page"] == {"title_kind": None, "challenge": False, "login": False}
+    compact = cc.page_facts_compact(facts)
+    assert compact["attach_menu"] and compact["picker"] and not compact["challenge"]
+
+
 @pytest.mark.parametrize("name", COMPOSERS)
 def test_the_surface_toggle_is_found_where_it_was_recorded(replay, name: str) -> None:
     """Since 2026-10-01 the home page carries the Chat/Work toggle

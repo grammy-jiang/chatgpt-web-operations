@@ -73,6 +73,16 @@ RAW_SNAPSHOT = {
         "matched_any": [],
     },
     "surface": {"found": True, "buttons": 2, "pressed": ["true", "false"]},
+    # 2026-10-01 evening: the facts beyond the composer (page_facts_compact)
+    "composers": {"total": 1, "visible": 1, "hidden": 0},
+    "uploads": {
+        "inputs": 3,
+        "primary_found": False,
+        "any_file": 1,
+        "accepts": ["", "image/*", "image/*,video/*"],
+    },
+    "controls": {"attach_menu": True, "picker": True, "remove_chips": 0},
+    "page": {"title_kind": "chatgpt", "challenge": False, "login": False},
     "html": {
         "composer": RAW_FORM,
         "turns": ["<article data-testid='conversation-turn-1'>hi</article>"],
@@ -200,6 +210,20 @@ def test_page_snapshot_sanitizes_the_markup_and_keeps_the_facts() -> None:
         "user_turn": list(cc.USER_TURN_SELECTORS),
         "chat_turn": list(cc.CHAT_TURN_SELECTORS),
         "surface_group": cc.SURFACE_GROUP_SELECTOR,
+        "upload_primary": cc.UPLOAD_INPUT_SELECTOR,
+        "attach_menu": cc.ATTACH_MENU_SELECTOR,
+        "picker": cc.PICKER_SELECTOR,
+        "challenge": cc.CHALLENGE_SELECTOR,
+        "login": cc.LOGIN_SELECTOR,
+    }
+    # the page facts of 2026-10-01 evening come through as recorded
+    assert facts["composers"] == {"total": 1, "visible": 1, "hidden": 0}
+    assert facts["uploads"]["inputs"] == 3 and facts["uploads"]["any_file"] == 1
+    assert facts["controls"] == {"attach_menu": True, "picker": True, "remove_chips": 0}
+    assert facts["page"] == {
+        "title_kind": "chatgpt",
+        "challenge": False,
+        "login": False,
     }
 
 
@@ -214,8 +238,105 @@ def test_page_snapshot_makes_an_empty_record_from_an_unusable_page(raw) -> None:
     assert facts["send_button"] == {}
     assert facts["turns"] == {}
     assert facts["surface"] == {}
+    for group in ("composers", "uploads", "controls", "page"):
+        assert facts[group] == {}, group
     assert facts["html"] == {"composer": "", "turns": [], "surface": ""}
     assert facts["url"] == "https://chatgpt.com/x"
+    assert cc.page_facts_compact(facts) == {}
+    assert cc.page_facts_summary(facts) == ""
+
+
+def test_page_facts_compact_and_summary_name_what_a_page_without_a_composer_is():
+    """The owner's ask of 2026-10-01 evening: when the composer does not
+    appear, say what the page is instead -- a challenge, a login page, a
+    page with a hidden composer, a page that lost its controls."""
+    facts = json.loads(json.dumps(RAW_SNAPSHOT))
+    assert cc.page_facts_compact(facts) == {
+        "challenge": False,
+        "login": False,
+        "composers": 1,
+        "hidden": 0,
+        "toggle": True,
+        "attach_menu": True,
+        "picker": True,
+        "title": "chatgpt",
+    }
+    facts["page"] = {"title_kind": "other", "challenge": True, "login": False}
+    facts["composers"] = {"total": 2, "visible": 0, "hidden": 2}
+    facts["controls"] = {"attach_menu": False, "picker": False, "remove_chips": 0}
+    facts["surface"] = {"found": False}
+    assert cc.page_facts_summary(facts) == (
+        "page: challenge=yes, login=no, composers=2 (2 hidden), toggle=no, "
+        "attach-menu=no, picker=no, title=other"
+    )
+    # a page that answered with some groups but no page facts still counts
+    assert cc.page_facts_compact({"surface": {"found": True}})["toggle"] is True
+    assert cc.page_facts_compact({"composer": {"found": True}}) == {}
+
+
+def test_snapshot_drift_skips_facts_the_fixture_never_recorded_and_names_them():
+    """A fixture promoted before a fact joined SNAPSHOT_DRIFT_KEYS lacks
+    it: that is not drift (the page did not change, the keys did), it is an
+    unproven fact -- named by snapshot_unproven until a re-recording is
+    promoted. A fixture that has the fact still compares it."""
+    fresh = json.loads(json.dumps(RAW_SNAPSHOT))
+    older = {
+        k: v
+        for k, v in json.loads(json.dumps(RAW_SNAPSHOT)).items()
+        if k not in ("composers", "uploads", "controls", "page")
+    }
+    assert cc.snapshot_drift(fresh, older) == []
+    unproven = cc.snapshot_unproven(older)
+    assert "composers.visible" in unproven and "page.challenge" in unproven
+    assert "composer.found" not in unproven
+    assert cc.snapshot_unproven(RAW_SNAPSHOT) == []
+    current = json.loads(json.dumps(RAW_SNAPSHOT))
+    fresh["composers"]["hidden"] = 1
+    fresh["uploads"]["primary_found"] = True
+    fresh["page"]["login"] = True
+    assert cc.snapshot_drift(fresh, current) == [
+        "composers.hidden",
+        "uploads.primary_found",
+        "page.login",
+    ]
+
+
+def test_find_composer_s_message_carries_the_page_facts(monkeypatch) -> None:
+    """The three mornings of "logged out or challenged" (2026-09-29 to
+    10-01) now end with what the page is: no challenge, no login route, how
+    many composers the selector matched and whether the controls are there."""
+    fp.install(monkeypatch)
+    page = fp.Page()
+    page.url = "https://chatgpt.com/"
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    raw = json.loads(json.dumps(RAW_SNAPSHOT))
+    raw["composer"] = {"found": False, "count": 0, "matched": []}
+    raw["composers"] = {"total": 0, "visible": 0, "hidden": 0}
+    raw["controls"] = {"attach_menu": False, "picker": False, "remove_chips": 0}
+    page.set_evaluate_result("page_snapshot", raw)
+    with pytest.raises(cc.TransportError) as excinfo:
+        cc.find_composer(page, timeout_ms=5)
+    message = str(excinfo.value)
+    assert "(logged out or challenged)" in message
+    assert message.endswith(
+        "[page: challenge=no, login=no, composers=0 (0 hidden), toggle=yes, "
+        "attach-menu=no, picker=no, title=chatgpt]"
+    )
+    # a page that gives no facts keeps the plain message
+    plain = fp.Page()
+    plain.url = "https://chatgpt.com/"
+    plain.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    with pytest.raises(cc.TransportError) as plain_exc:
+        cc.find_composer(plain, timeout_ms=5)
+    assert "[page:" not in str(plain_exc.value)
 
 
 def test_snapshot_document_wraps_turns_and_composer_without_text_nodes() -> None:

@@ -1463,6 +1463,42 @@ def test_browser_composer_check_warns_and_names_the_drift_from_the_fixture(
     assert c["fix"] == preflight.SNAPSHOT_FIX
 
 
+def test_browser_composer_check_names_the_facts_a_stale_fixture_lacks(
+    tmp_path: Path,
+) -> None:
+    """A fixture promoted before SNAPSHOT_DRIFT_KEYS grew (2026-10-01
+    evening) compares nothing for the new facts; the ok row says which, and
+    how to close the gap, instead of reading as a full match."""
+    fixture = tmp_path / "composer.json"
+    fixture.write_text(json.dumps(SNAPSHOT_FACTS), encoding="utf-8")
+    cc = SimpleNamespace(BrowserSender=_FakeSenderSnapshot)
+    c = preflight.browser_composer_check(
+        cc, "chrome", snapshot_dir=str(tmp_path / "dom"), fixture=fixture
+    )
+    assert c["state"] == "ok"
+    assert "matches the fixture recorded 2026-09-27T12:00:00Z" in c["detail"]
+    assert "newer fact(s) not in the fixture yet" in c["detail"]
+    assert "composers.visible" in c["detail"] and "page.challenge" in c["detail"]
+    assert "make refresh-dom-fixtures" in c["detail"]
+
+
+class _FakeSenderBlockedWithFacts(_FakeSenderBlocked):
+    def probe_composer(self) -> str:
+        raise RuntimeError(
+            "composer did not appear at https://chatgpt.com/ (logged out or "
+            "challenged) [page: challenge=no, login=no, composers=2 (2 hidden), "
+            "toggle=yes, attach-menu=yes, picker=yes, title=chatgpt]"
+        )
+
+
+def test_browser_composer_check_keeps_the_page_facts_in_a_block_detail() -> None:
+    cc = SimpleNamespace(BrowserSender=_FakeSenderBlockedWithFacts)
+    c = preflight.browser_composer_check(cc, "chrome")
+    assert c["state"] == "block"
+    assert c["detail"].endswith("picker=yes, title=chatgpt]")
+    assert c["fix"] == preflight.LOGIN_FIX
+
+
 def test_browser_composer_check_is_ok_with_a_snapshot_and_no_fixture_yet(
     tmp_path: Path,
 ) -> None:

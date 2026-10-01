@@ -42,7 +42,13 @@ def test_every_fixture_is_scrubbed_of_the_account_s_identity() -> None:
     """
     offenders = {
         str(path.relative_to(FIXTURES)): problems
-        for path in sorted([*FIXTURES.glob("*.json"), *FIXTURES.glob("http/*.json")])
+        for path in sorted(
+            [
+                *FIXTURES.glob("*.json"),
+                *FIXTURES.glob("http/*.json"),
+                *FIXTURES.glob("send/*.json"),
+            ]
+        )
         if (problems := leaks_in(path.read_text(encoding="utf-8")))
     }
     assert not offenders, offenders

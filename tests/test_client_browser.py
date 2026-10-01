@@ -1555,6 +1555,57 @@ def test_a_missing_composer_on_a_logged_in_page_starts_the_cooldown(make_sender)
     assert record["kind"] == "composer-missing"
 
 
+def test_a_composer_missing_event_carries_the_page_facts_and_writes_them(
+    make_sender,
+):
+    """2026-10-01 evening: beside the screenshot, the page's facts
+    (attributes only, no markup) as chatgpt-composer-missing.json, and the
+    compact ones in the event, so a morning mail or the heal evidence can
+    tell a challenge from a login page from a changed page."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    page.url = fp.sequence("https://chatgpt.com/")
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    page.set_evaluate_result(
+        "page_snapshot",
+        {
+            "url": "https://chatgpt.com/",
+            "composer": {"found": False, "count": 0, "matched": []},
+            "composers": {"total": 2, "visible": 0, "hidden": 2},
+            "surface": {"found": True, "buttons": 2, "pressed": ["true", "false"]},
+            "controls": {"attach_menu": True, "picker": False, "remove_chips": 0},
+            "page": {"title_kind": "chatgpt", "challenge": False, "login": False},
+            "html": {"composer": "<form><p>secret</p></form>", "turns": []},
+        },
+    )
+
+    with pytest.raises(cc.TransportError, match="logged out or challenged"):
+        sender._probe_composer()
+
+    event = _events()[-1]
+    assert event["kind"] == "composer-missing"
+    assert event["page"] == {
+        "challenge": False,
+        "login": False,
+        "composers": 2,
+        "hidden": 2,
+        "toggle": True,
+        "attach_menu": True,
+        "picker": False,
+        "title": "chatgpt",
+    }
+    written = Path(os.environ["RP_SCREENSHOT_DIR"]) / "chatgpt-composer-missing.json"
+    record = json.loads(written.read_text(encoding="utf-8"))
+    assert record["composers"] == {"total": 2, "visible": 0, "hidden": 2}
+    assert "html" not in record and "secret" not in written.read_text()
+    assert record["recorded_at"]
+
+
 def test_a_chat_page_without_a_composer_records_no_refusal(make_sender):
     sender = make_sender()
     page = fp.Page()

@@ -1775,6 +1775,22 @@ CHALLENGE_REASON = "Cloudflare's 'Verify you are human' challenge is on the page
 # recording cannot keep (href is dropped), so this selector is excused from
 # tier R by name.
 LOGGED_IN_SELECTOR = 'a[href^="/c/"]'
+# Page facts a snapshot records beyond the composer, so a page that changed
+# is named as such instead of "logged out or challenged" (the owner's ask of
+# 2026-10-01 evening, after three mornings of that line). Attributes only.
+ATTACH_MENU_SELECTOR = (
+    'button[aria-label="Add files and more"], button[data-testid="composer-plus-btn"]'
+)
+PICKER_SELECTOR = (
+    'button[aria-label="Select ChatGPT model"], '
+    'button[data-testid="model-switcher-dropdown-button"]'
+)
+# A logged-out page's way in. Best effort: no logged-out page is recorded, so
+# the selector is the login route's own path and the welcome buttons' ids.
+LOGIN_SELECTOR = (
+    'a[href^="/auth/login"], button[data-testid="login-button"], '
+    'button[data-testid="welcome-login-button"]'
+)
 REFUSED_REASON = (
     "the page is logged in (its sidebar lists conversations) but the composer "
     "never rendered; the page's own requests are being refused"
@@ -1876,8 +1892,42 @@ SNAPSHOT_JS = """
     const turnRoots = articles.length ? articles : all(spec.user_turn);
     const group = document.querySelector(spec.surface_group);
     const groupButtons = group ? Array.from(group.querySelectorAll('button')) : [];
+    const composers = all(spec.composer);
+    const shown = (el) => {
+        const box = el.getBoundingClientRect();
+        return box.width > 0 && box.height > 0
+            && getComputedStyle(el).visibility !== 'hidden';
+    };
+    const visibleComposers = composers.filter(shown).length;
+    const fileInputs = Array.from(document.querySelectorAll('input[type="file"]'));
+    const accepts = fileInputs.map((i) => i.getAttribute('accept') || '').sort();
+    const removeChips = Array.from(document.querySelectorAll('button[aria-label]'))
+        .filter((b) => (b.getAttribute('aria-label') || '').startsWith('Remove '))
+        .length;
+    const title = document.title || '';
     return {
         url: location.href,
+        composers: {
+            total: composers.length,
+            visible: visibleComposers,
+            hidden: composers.length - visibleComposers,
+        },
+        uploads: {
+            inputs: fileInputs.length,
+            primary_found: Boolean(document.querySelector(spec.upload_primary)),
+            any_file: accepts.filter((a) => a === '').length,
+            accepts: accepts,
+        },
+        controls: {
+            attach_menu: Boolean(document.querySelector(spec.attach_menu)),
+            picker: Boolean(document.querySelector(spec.picker)),
+            remove_chips: removeChips,
+        },
+        page: {
+            title_kind: title ? (/chatgpt/i.test(title) ? 'chatgpt' : 'other') : null,
+            challenge: Boolean(document.querySelector(spec.challenge)),
+            login: Boolean(document.querySelector(spec.login)),
+        },
         composer: {
             found: Boolean(composer),
             count: all(spec.composer).length,
@@ -2092,6 +2142,11 @@ def page_snapshot(page: Any) -> dict[str, Any]:
         "user_turn": list(USER_TURN_SELECTORS),
         "chat_turn": list(CHAT_TURN_SELECTORS),
         "surface_group": SURFACE_GROUP_SELECTOR,
+        "upload_primary": UPLOAD_INPUT_SELECTOR,
+        "attach_menu": ATTACH_MENU_SELECTOR,
+        "picker": PICKER_SELECTOR,
+        "challenge": CHALLENGE_SELECTOR,
+        "login": LOGIN_SELECTOR,
     }
     raw = page.evaluate(SNAPSHOT_JS, spec)
     facts: dict[str, Any] = dict(raw) if isinstance(raw, dict) else {}
@@ -2112,11 +2167,80 @@ def page_snapshot(page: Any) -> dict[str, Any]:
         ],
         "surface": sanitize_html(surface_html) if isinstance(surface_html, str) else "",
     }
-    for group in ("composer", "send_button", "turns", "surface"):
+    for group in SNAPSHOT_GROUPS:
         if not isinstance(facts.get(group), dict):
             facts[group] = {}
     facts.setdefault("url", str(getattr(page, "url", "")))
     return facts
+
+
+# The fact groups a snapshot carries (every one a dict, empty when the page
+# did not answer). The last four arrived on 2026-10-01 evening.
+SNAPSHOT_GROUPS = (
+    "composer",
+    "send_button",
+    "turns",
+    "surface",
+    "composers",
+    "uploads",
+    "controls",
+    "page",
+)
+
+
+def page_facts_compact(facts: dict[str, Any]) -> dict[str, Any]:
+    """The few page facts worth an event or a line of a mail: whether the
+    challenge widget or a login route is on the page, how many composers
+    the selector matches and how many of them are hidden, whether the
+    Chat/Work toggle, the attach menu and the model picker are there, and
+    what kind of title the page has. Empty when ``facts`` has none of it
+    (a page that did not answer the snapshot script)."""
+    page = facts.get("page") if isinstance(facts.get("page"), dict) else {}
+    composers = (
+        facts.get("composers") if isinstance(facts.get("composers"), dict) else {}
+    )
+    surface = facts.get("surface") if isinstance(facts.get("surface"), dict) else {}
+    controls = facts.get("controls") if isinstance(facts.get("controls"), dict) else {}
+    if not page and not composers and not surface and not controls:
+        return {}
+    return {
+        "challenge": bool(page.get("challenge")),
+        "login": bool(page.get("login")),
+        "composers": int(composers.get("total") or 0),
+        "hidden": int(composers.get("hidden") or 0),
+        "toggle": bool(surface.get("found")),
+        "attach_menu": bool(controls.get("attach_menu")),
+        "picker": bool(controls.get("picker")),
+        "title": page.get("title_kind"),
+    }
+
+
+def page_facts_summary(facts: dict[str, Any]) -> str:
+    """``page_facts_compact`` as one short phrase for a message, or ""."""
+    compact = page_facts_compact(facts)
+    if not compact:
+        return ""
+    yes_no = lambda flag: "yes" if flag else "no"  # noqa: E731
+    return (
+        f"page: challenge={yes_no(compact['challenge'])}, "
+        f"login={yes_no(compact['login'])}, "
+        f"composers={compact['composers']} ({compact['hidden']} hidden), "
+        f"toggle={yes_no(compact['toggle'])}, "
+        f"attach-menu={yes_no(compact['attach_menu'])}, "
+        f"picker={yes_no(compact['picker'])}, "
+        f"title={compact['title'] or '-'}"
+    )
+
+
+def page_facts_for_message(page: Any) -> str:
+    """`` [page: ...]`` to append to a composer-missing message, or "" when
+    the page gave no facts. Never raises: it decorates an error, it does not
+    replace it."""
+    try:
+        summary = page_facts_summary(page_snapshot(page))
+    except Exception:
+        return ""
+    return f" [{summary}]" if summary else ""
 
 
 def snapshot_document(facts: dict[str, Any]) -> str:
@@ -2155,6 +2279,20 @@ SNAPSHOT_DRIFT_KEYS = (
     ("send_button", "testid"),
     ("send_button", "aria_label"),
     ("surface", "found"),  # the Chat/Work toggle group (since 2026-10-01)
+    # Since 2026-10-01 evening: the facts that changed on the page that day
+    # without any selector above noticing (a hidden second composer, the
+    # upload input renamed, the controls beside the composer), and the two
+    # that say what a page without a composer is instead.
+    ("composers", "visible"),
+    ("composers", "hidden"),
+    ("uploads", "inputs"),
+    ("uploads", "primary_found"),
+    ("uploads", "any_file"),
+    ("controls", "attach_menu"),
+    ("controls", "picker"),
+    ("controls", "remove_chips"),
+    ("page", "challenge"),
+    ("page", "login"),
 )
 
 
@@ -2162,7 +2300,9 @@ def snapshot_drift(recorded: dict[str, Any], fixture: dict[str, Any]) -> list[st
     """The names (``group.key``) of the ``SNAPSHOT_DRIFT_KEYS`` facts that
     differ between ``recorded`` (a fresh ``page_snapshot``) and ``fixture``
     (the committed one). Empty means the page still looks the way the
-    selectors were last proven against."""
+    selectors were last proven against. A fact the fixture never recorded
+    (one added to the keys after the fixture was promoted) is not drift --
+    ``snapshot_unproven`` names those, and a re-recording promotes them."""
     drift: list[str] = []
     for group, key in SNAPSHOT_DRIFT_KEYS:
         mine: dict[str, Any] = (
@@ -2171,9 +2311,22 @@ def snapshot_drift(recorded: dict[str, Any], fixture: dict[str, Any]) -> list[st
         theirs: dict[str, Any] = (
             fixture[group] if isinstance(fixture.get(group), dict) else {}
         )
+        if key not in theirs:
+            continue
         if mine.get(key) != theirs.get(key):
             drift.append(f"{group}.{key}")
     return drift
+
+
+def snapshot_unproven(fixture: dict[str, Any]) -> list[str]:
+    """The ``SNAPSHOT_DRIFT_KEYS`` facts ``fixture`` does not carry: compared
+    by nobody until the page is re-recorded and promoted."""
+    missing: list[str] = []
+    for group, key in SNAPSHOT_DRIFT_KEYS:
+        theirs = fixture.get(group) if isinstance(fixture.get(group), dict) else {}
+        if key not in theirs:
+            missing.append(f"{group}.{key}")
+    return missing
 
 
 def challenge_page(page: Any) -> bool:
@@ -2223,22 +2376,27 @@ def find_composer(page: Any, timeout_ms: int = 60_000) -> Any:
                 f"composer did not appear: the tab is on {str(page.url)!r}, not on "
                 f"chatgpt.com; {BOUNCED_REASON}"
             ) from None
+        # What the page is instead, in the message itself: the challenge
+        # widget, a login route, how many composers (hidden ones included),
+        # the toggle and the controls (page_facts_summary). Three mornings
+        # of "logged out or challenged" (2026-09-29 to 10-01) said none of it.
+        facts = page_facts_for_message(page)
         if challenge_page(page):
             raise TransportError(
                 f"composer did not appear at {page.url}: {CHALLENGE_REASON}; the "
-                "browser profile is what is challenged, not the account"
+                f"browser profile is what is challenged, not the account{facts}"
             ) from None
         if page_logged_in(page):
             if "/c/" in str(page.url):
                 raise TransportError(
-                    f"composer did not appear at {page.url}: {CHAT_PAGE_REASON}"
+                    f"composer did not appear at {page.url}: {CHAT_PAGE_REASON}{facts}"
                 ) from None
             raise TransportError(
                 f"composer did not appear at {page.url}: {REFUSED_REASON} "
-                "(references/failure-atlas.md, F-2026-10-01-23)"
+                f"(references/failure-atlas.md, F-2026-10-01-23){facts}"
             ) from None
         raise TransportError(
-            f"composer did not appear at {page.url} (logged out or challenged)"
+            f"composer did not appear at {page.url} (logged out or challenged){facts}"
         ) from None
     # The strict locators a send fills and clicks need exactly one match.
     # Give the hidden extra one a moment to go; if it stays, drive the
@@ -3458,23 +3616,64 @@ class BrowserSender:
             shot = self._screenshot("chatgpt-composer-missing.png")
             if BOUNCED_REASON in str(exc):
                 record_event("navigation-bounced", url=url, screenshot=shot)
-            elif CHALLENGE_REASON in str(exc):
-                record_event("challenge-page", url=url, screenshot=shot)
+                raise
+            # The page's facts beside the screenshot (attributes only), and
+            # the compact ones in the event, so the morning mail and the
+            # heal evidence can tell a challenge from a login page from a
+            # changed page without opening the screenshot.
+            page = self._page_facts("chatgpt-composer-missing.json")
+            if CHALLENGE_REASON in str(exc):
+                record_event("challenge-page", url=url, screenshot=shot, page=page)
                 note_refusal("challenge-page", url, str(exc))
             elif REFUSED_REASON in str(exc):
                 record_event(
-                    "composer-missing", url=url, logged_in=True, screenshot=shot
+                    "composer-missing",
+                    url=url,
+                    logged_in=True,
+                    screenshot=shot,
+                    page=page,
                 )
                 note_refusal("composer-missing", url, str(exc))
             elif CHAT_PAGE_REASON in str(exc):
                 record_event(
-                    "composer-missing", url=url, logged_in=True, screenshot=shot
+                    "composer-missing",
+                    url=url,
+                    logged_in=True,
+                    screenshot=shot,
+                    page=page,
                 )
             else:
                 record_event(
-                    "composer-missing", url=url, logged_in=False, screenshot=shot
+                    "composer-missing",
+                    url=url,
+                    logged_in=False,
+                    screenshot=shot,
+                    page=page,
                 )
             raise
+
+    def _page_facts(self, name: str) -> dict[str, Any]:
+        """Owner thread only. Write the page's snapshot facts (no markup,
+        ``page_snapshot`` minus ``html``) as ``name`` beside the screenshots
+        and return the compact facts for the event; {} and nothing written
+        when the page gave none. Never raises."""
+        try:
+            facts = page_snapshot(self.page)
+        except Exception:
+            return {}
+        compact = page_facts_compact(facts)
+        if not compact:
+            return {}
+        record = {key: value for key, value in facts.items() if key != "html"}
+        record["recorded_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        path = self.screenshot_dir / name
+        with contextlib.suppress(OSError, TypeError, ValueError):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(record, indent=2, sort_keys=True, default=str) + "\n",
+                encoding="utf-8",
+            )
+        return compact
 
     # Uploading the prompt instead of pasting it looked like the answer to slow
     # ProseMirror rendering, and the upload itself works: the file arrives and

@@ -70,7 +70,7 @@ import probe_send_gates as psg
 import profile_context as pc
 import review_topic as rt
 from _common import ensure_venv
-from chatgpt_client import snapshot_drift
+from chatgpt_client import snapshot_drift, snapshot_unproven
 
 GROUP_ORDER = ("host", "link", "account", "run", "browser")
 
@@ -886,7 +886,10 @@ def browser_composer_check(
                 except Exception as exc:  # the probe passed; the record is extra
                     snapshot_error = str(exc)[:200]
     except Exception as exc:
-        detail = str(exc)[:200]
+        # 360, not 200: the message now ends with the page's facts
+        # ("[page: challenge=..., login=..., composers=...]"), which is the
+        # part a morning mail needs most.
+        detail = str(exc)[:360]
         fix = None
         if "logged out or challenged" in detail:
             fix = LOGIN_FIX
@@ -941,21 +944,32 @@ def snapshot_verdict(
             ],
         )
     recorded_at = fixture.get("recorded_at", "?") if isinstance(fixture, dict) else "?"
-    drift = snapshot_drift(facts, fixture if isinstance(fixture, dict) else {})
+    committed = fixture if isinstance(fixture, dict) else {}
+    drift = snapshot_drift(facts, committed)
+    unproven = snapshot_unproven(committed)
+    # Facts the keys gained after the fixture was promoted are compared by
+    # nobody until the page is re-recorded and promoted; say so in the ok
+    # row, so a stale fixture is a known gap rather than a silent one.
+    gap = (
+        f"; {len(unproven)} newer fact(s) not in the fixture yet "
+        f"({', '.join(unproven)}): re-record and promote (make refresh-dom-fixtures)"
+        if unproven
+        else ""
+    )
     if drift:
         return check(
             "browser",
             "composer",
             "warn",
             f"{detail}; the page differs from the fixture recorded {recorded_at} "
-            f"in {', '.join(drift)}",
+            f"in {', '.join(drift)}{gap}",
             SNAPSHOT_FIX,
         )
     return check(
         "browser",
         "composer",
         "ok",
-        f"{detail}; the page matches the fixture recorded {recorded_at}",
+        f"{detail}; the page matches the fixture recorded {recorded_at}{gap}",
     )
 
 
