@@ -96,6 +96,14 @@ and the refusal record keep the answers); `binnacle-jobs`, which failed
 every send on 2026-09-30 for the reasons above and now gets a fast,
 named failure plus the cool-down instead of eleven retries.
 
+Probe after the change, 11:21-11:23 (one fresh window each): `preflight.py
+--browser` GO (the page and its composer load), then one real send into the
+sandbox refused in 40 s with the reason named -- `403 on conversation/init,
+403 on sentinel/chat-requirements/prepare, 403 on conversation/init`, no
+`f/conversation` request -- and the cool-down set until 11:53. So at 11:23
+the browser send path is still refused on this host while every HTTP path
+works; the client now says so at once instead of after five minutes.
+
 ## What the owner decides
 
 - Whether to delete `/tmp/rp-browser-profile.stale-20261001`.
