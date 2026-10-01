@@ -225,18 +225,23 @@ def cmd_status(args: argparse.Namespace) -> int:
 
 
 def cmd_stop(args: argparse.Namespace, kill: Any = os.kill) -> int:
+    """SIGTERM the profile's browser and wait for the port to close; a
+    Chrome that is still answering after STOP_WAIT_SECONDS gets SIGKILL
+    (measured 2026-10-01: one SIGTERM left the window up past 15 s, a second
+    ended it; the login lives on disk, so a kill loses nothing)."""
     pids = profile_pids(args.profile)
     if not pids and not version(args.port):
         print("not running")
         return 0
-    for pid in pids:
-        with contextlib.suppress(OSError):
-            kill(pid, signal.SIGTERM)
-    if wait_for(args.port, up=False, seconds=STOP_WAIT_SECONDS):
-        print(f"stopped {len(pids)} process(es) on {args.profile}")
-        return 0
+    for sig, label in ((signal.SIGTERM, "stopped"), (signal.SIGKILL, "killed")):
+        for pid in pids:
+            with contextlib.suppress(OSError):
+                kill(pid, sig)
+        if wait_for(args.port, up=False, seconds=STOP_WAIT_SECONDS):
+            print(f"{label} {len(pids)} process(es) on {args.profile}")
+            return 0
     print(
-        f"still answering at {endpoint(args.port)} after {STOP_WAIT_SECONDS:.0f} s",
+        f"still answering at {endpoint(args.port)} after SIGTERM and SIGKILL",
         file=sys.stderr,
     )
     return 1

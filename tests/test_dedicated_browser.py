@@ -277,6 +277,21 @@ def test_stop_is_fine_with_nothing_running_and_fails_when_the_port_stays(
     assert "still answering" in capsys.readouterr().err
 
 
+def test_stop_escalates_to_sigkill_when_sigterm_is_ignored(
+    monkeypatch, tmp_path, capsys
+):
+    """2026-10-01: one SIGTERM left the hand-started window up past 15 s;
+    the login lives on disk, so a kill loses nothing."""
+    monkeypatch.setattr(db, "profile_pids", lambda profile: [20])
+    answers = iter([ALIVE, None])  # after SIGTERM: still up; after SIGKILL: gone
+    monkeypatch.setattr(db, "version", lambda port: next(answers, None))
+    monkeypatch.setattr(db, "STOP_WAIT_SECONDS", 0.0)
+    signals: list = []
+    assert db.cmd_stop(_args(tmp_path), kill=lambda pid, sig: signals.append(sig)) == 0
+    assert signals == [db.signal.SIGTERM, db.signal.SIGKILL]
+    assert "killed 1 process(es)" in capsys.readouterr().out
+
+
 def test_unit_text_names_the_script_the_port_and_the_profile(tmp_path) -> None:
     text = db.unit_text(9222, tmp_path / "p")
     assert "ExecStart=/usr/bin/python3 " in text
