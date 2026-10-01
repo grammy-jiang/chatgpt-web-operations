@@ -150,6 +150,17 @@ Working rule 2 applies to every repository, not only research-pipeline.
 3. **No challenge is ever solved or evaded by this skill.** A challenge in
    the dedicated window is answered by the owner, in that window; until
    then a send reports the refusal and waits.
+4. **The account's default effort is the preset one position below Pro**
+   (the owner's rule, 2026-10-01 evening): Pro has a limited quota, so the
+   highest thinking preset below it -- "Extra High", `gpt-5-6-thinking` /
+   `max`, today -- is the default. The rule is derived from the catalog each
+   time, never named (`model_settings.below_pro_preset`);
+   `model_settings.py --default below-pro --apply` sets it the way the
+   slider does, and preflight warns when the record drifts.
+5. **The dedicated window runs no extensions** (`--disable-extensions`,
+   2026-10-01 evening): what Chrome sync put into its profile stays inert;
+   removing it is the owner's step, with the sync trap named
+   (F-2026-10-01-32).
 
 ## Historical decisions
 

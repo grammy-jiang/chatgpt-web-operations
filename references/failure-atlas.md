@@ -788,7 +788,19 @@ The rules that came out of them are in `worker-rounds.md`.
   lists the profile's Web Store extensions with the advice. What the
   skill does not do is fight the extension: the dedicated profile should
   carry none, which is the owner's setting to make (sign the profile out
-  of Chrome, not out of chatgpt.com, or remove them).
+  of Chrome, not out of chatgpt.com, or remove them). The same evening the
+  owner chose removal, and the window stopped running them meanwhile:
+  `dedicated_browser.py` launches Chrome with `--disable-extensions`
+  (restarted 16:34 through its unit, port back in 12 s; the debugging
+  endpoint listed no extension target where it had listed 11, three browser
+  preflights in a row found the composer, the picker and the login kept),
+  `status` reports `extensions_disabled`, and the removal advice names the
+  sync trap: sign the profile out of Chrome first, or removing a synced
+  extension removes it from the owner's own Chrome too. On the way, `stop`
+  at 16:30 missed the browser: a running Chrome rewrites its own
+  `/proc/<pid>/cmdline` into one space-joined string, which
+  `argv_tokens` now splits (the first `stop` of the day had run against a
+  young process whose cmdline was still NUL-separated).
 - **(F-2026-10-01-31) A pinned effort is ignored when the body carries the
   page's one-off model override.** The morning's `--effort standard` through
   the dedicated window recorded no effort, and the recorded body was read
@@ -841,6 +853,27 @@ The page names the body's fields in its bundle
 and `client_contextual_info.app_surface` reads `codex_browser` in the
 dedicated window; which `juices` surface a send without any pin inherits
 there is not measured, and a pinned send does not depend on it.
+
+The owner then set the default: "Extra High" for the web surface
+(`PATCH ...user_last_used_model_config?model_slug=gpt-5-6-thinking&thinking_effort=max`
+over HTTP at 16:19, 200; `settings/user` read `web` and `default` = `max`
+after, `windows_app` kept `extended`; a probe tab's picker read "Extra
+High"), with the rule behind it recorded in the skill: one preset below Pro
+(`model_settings.below_pro_preset`, `--default below-pro --apply`,
+preflight's drift warning; SKILL.md, "Reasoning effort").
+
+Seen, not measured: right after the window's restart at 16:34 the T3
+upload dry run failed twice (16:36, 16:40) and `attach_files` through the
+client once more at 16:41, each with no "Remove" chip and no send button
+after the upload; from 16:43 every probe through a plain tab, a tab with the
+client's routes, and the client's own `attach_files` (16:50: `POST
+/backend-api/files` 200, the blob `PUT`, `process_upload_stream`, the chip
+in 8.4 s) worked, and T3 passed at 16:52. The composer's `input#upload-files`
+is gone; the generic fallback (`input[type="file"]:not([accept*="image"])`)
+finds the third of three inputs, which is the right one. Whether the first
+minutes after a Chrome start, or a 429 the console showed at 16:43, made
+the three uploads fail is not known; `_upload_files` still reports nothing
+when a chip never appears, which is the next thing to make loud.
 
 What the morning's evidence said, before anything was changed, in the
 order it was read:

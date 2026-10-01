@@ -173,9 +173,21 @@ account's record read before and after each and unchanged
 | fix removed (worktree at the previous commit) | the new rewrite test fails, as the ledger requires. |
 | offline gates with the fix | lint clean; 2,497 passed; replay 40; loopback 43. |
 
+### The owner's default and the window's extensions, 16:19-16:52
+
+| Step | Result |
+| --- | --- |
+| the web default set to "Extra High" | `PATCH /backend-api/settings/user_last_used_model_config?model_slug=gpt-5-6-thinking&thinking_effort=max` over HTTP at 16:19: 200 `{"success": true}`; `settings/user` then read `web` and `default` = `max` (`ios_app` already `max`, `windows_app` kept `extended`); a probe tab in the dedicated window read "Extra High" in its picker. |
+| `model_settings.py` | the report ends "rule 'below-pro' (one preset below Pro): preset 'Extra High' (model=gpt-5-6-thinking effort=max); the record matches it". |
+| the rule in the skill | `below_pro_preset`, `--default below-pro [--apply]`, preflight's warn on drift; unit tests over the recorded catalog and hand-built presets (a renamed Pro found by lane, an effort-less neighbour skipped); T1 `test_model_settings_resolves_the_account_s_preset` and `test_run_group_resolves_what_a_send_inherits`: 2 passed. |
+| the window restarted without extensions | `dedicated_browser.py stop` at 16:34 (the 16:30 attempt had missed the browser: Chrome's rewritten one-string cmdline, fixed by `argv_tokens`), the unit's restart 1, port back in 12 s; `status`: `extensions_disabled` true, 23 Web Store extensions in the profile; `/json`: 0 extension targets (11 before); picker "Extra High"; `preflight --browser` three times: composer appeared, no bounce. |
+| `make live-browser` (T3) | 1 passed, 1 failed at 16:36 and again at 16:40 (the upload dry run: no chip, no send button); 2 passed at 16:52. The client's own `attach_files` at 16:50 showed the upload requests and the chip in 8.4 s (atlas, "Seen, not measured"). |
+| offline gates | lint clean; 2,515 passed once the slider's write endpoint was excused from the recorded-shapes rule; replay 40; loopback 43. |
+
 ## What the owner decides
 
 - `/tmp/rp-browser-profile.stale-20261001` (174 MB) was deleted at the owner's request, 2026-10-01 15:4x.
+- Removing the 23 synced extensions from the dedicated profile for good: sign the profile out of Chrome first, then remove them in that window. The window no longer runs them meanwhile (`--disable-extensions`).
 - When to retry `make live-send` and the browser acceptance sends: after a
   quiet period, one window at a time, with `preflight.py --browser` first.
 

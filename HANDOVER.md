@@ -160,8 +160,16 @@ window's picker sat on "Instant", whose body carries a one-off model
 override that makes the server ignore a pinned level; the rewrite now drops
 it (F-2026-10-01-31), and `make live-send`'s effort test passes. The slider
 itself writes `PATCH /backend-api/settings/user_last_used_model_config`,
-which the skill never calls. Results: `VERIFICATION.md`, "The dedicated
-browser window" and "The effort pin, the same evening".
+which `model_settings.py --default ... --apply` now sends on request. The
+owner's two decisions of the evening: the web default is the preset one
+below Pro -- "Extra High" now -- set at 16:19 and kept by the rule in
+`model_settings.py` and preflight (ROADMAP.md, decisions 4 and 5); the
+dedicated window runs no extensions (`--disable-extensions`, restarted
+16:34), the removal being the owner's step with the sync trap named. Seen
+once, not measured: the T3 upload dry run failed twice right after that
+restart and passed from 16:50 on (atlas, "Seen, not measured"). Results:
+`VERIFICATION.md`, "The dedicated browser window", "The effort pin, the
+same evening" and "The owner's default and the window's extensions".
 
 ## Entry point, 2026-09-25
 
@@ -488,7 +496,7 @@ current one; a T0 test fails if that table and `scripts/*.py` disagree, so
 | `probe_account.py` | HTTP | auth, `/backend-api/me`, one listing; exit 0 when reads work |
 | `probe_cookies.py` | local | which chatgpt.com cookies decrypt; never prints a value |
 | `probe_send_gates.py` | HTTP | proof-of-work, Turnstile, `so` status from the sentinel; **has no argparse, so `--help` runs the probe** |
-| `model_settings.py` | HTTP + local cookie | new: the Power slider's presets, the API's effort levels per model, the profile's cookie resolved to a preset |
+| `model_settings.py` | HTTP | the Power slider's presets, the API's effort levels per model, the account's record resolved to a preset and checked against the owner's rule (one preset below Pro); `--default below-pro --apply` sets it the way the slider does (2026-10-01) |
 | `profile_context.py` | HTTP + local cookie | added 2026-09-20 (Stage 1 item 1): custom instructions, memory usage, model + effort from cookie and server, one project's instructions and files; `--json PATH` for a run's archive |
 | `list_chats.py` | HTTP | extended: `--match`, `--pinned`, `--archived`, `--no-project-chats`, a flags column (project / pinned / archived / temporary) |
 | `list_projects.py` | HTTP | projects, instructions, chats inside one |

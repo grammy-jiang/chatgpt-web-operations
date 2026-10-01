@@ -114,7 +114,7 @@ use POST; HTTP method alone does not determine whether an operation writes.
 | `probe_account.py` | Does the account answer at all? Auth, `/me`, one listing, plan window and credits. | 0 reads work |
 | `probe_cookies.py` | Which cookies decrypt, and when the session token expires (this probe does not renew cookies; session creation can renew the keyring copy). Never prints a value. `--json PATH` for a caller that wants the number. | 0 session cookie readable |
 | `probe_send_gates.py` | What a send requires right now: proof-of-work, Turnstile, `so`. | 0 no browser needed |
-| `model_settings.py` | Which model and effort a send will use: the Power slider's presets, the API levels, and the account's `last_used_model_config` resolved to a preset. | 0 record resolves |
+| `model_settings.py` | Which model and effort a send will use: the Power slider's presets, the API levels, the account's `last_used_model_config` resolved to a preset, and whether it is the rule's preset (one below Pro). `--default below-pro [--apply]` sets it the way the slider does (`PATCH settings/user_last_used_model_config`); a preset title or `model:effort` names another position. | 0 record resolves, or default applied / already held; 1 no preset, PATCH or read-back failed; 2 names no position |
 | `profile_context.py` | The hidden inputs of a run: custom instructions, memory usage, model and effort from cookie and server, one project's instructions and files. `--json` keeps them beside a run. | 0 every read answered |
 | `list_chats.py` | Recent conversations by title substring; `--pinned`, `--archived`, `--no-project-chats`; flags project / pinned / archived. | 0 always |
 | `search_chats.py` | Global search by content, not just title (`list_chats.py --match` cannot see inside a chat): `--limit` (server cap 40), `--pages` follows the `cursor`, `--json PATH`. Conversations only, never project or library sources. | 0 at least one hit, 1 no hit or a page failed, 2 bad argument |
@@ -467,6 +467,15 @@ Cloudflare refuses at the time of writing, so preflight's host check
 "dedicated browser" blocks when the window is down; `off` never attaches; a
 URL names another endpoint.
 
+The window runs no extensions. `dedicated_browser.py` launches Chrome with
+`--disable-extensions`, so whatever Chrome sync put into the profile
+(below, F-2026-10-01-32) stays installed but inert: measured 2026-10-01
+16:34 after the restart, the debugging endpoint listed no extension target
+and three browser preflights in a row found the composer without a bounce.
+`status` reports `extensions_disabled` with the names, and a window started
+before the switch existed says "restart it" (`dedicated_browser.py stop`;
+the unit starts it again).
+
 Limits. The window has to exist, on the desktop of this machine's only user
 (another workspace is fine); the login expires like any other and is
 renewed by hand in that window; a tab appears and disappears per send; the
@@ -483,9 +492,13 @@ Store extensions arrived on 2026-10-01 after the login), and a duplicate-tab blo
 bounced every new tab opened on the home page, the address the owner's own
 tab holds (F-2026-10-01-32): `preflight --browser`, `health --browser` and
 `measure_window` then fail with "the tab is on 'about:blank'", while sends
-into a project work. `dedicated_browser.py status` lists the profile's Web
-Store extensions; keep the profile signed out of Chrome (not out of
-chatgpt.com), or remove them. A fresh profile's picker sits on "Instant",
+into a project work. Since the same evening the window runs none of them
+(`--disable-extensions`, above); `dedicated_browser.py status` lists them
+and says whether the running window has them disabled. Removing them for
+good is the owner's step, in this order: sign the profile out of Chrome
+first (Settings > You and Google; not out of chatgpt.com), because removing
+a synced extension removes it from the owner's own Chrome too, then remove
+them in that window. A fresh profile's picker sits on "Instant",
 whose body carries a one-off model override that makes the server ignore a
 pinned level; the rewrite drops it, so `--effort` takes there too
 (F-2026-10-01-31, "Reasoning effort" below). Chrome 136 and later ignore the debugging
@@ -523,13 +536,25 @@ re-measured on 2026-10-01 through the dedicated window:
   reply whose metadata says `thinking_effort: standard`,
   `search_result_groups` filled and a cited answer, where two sends before
   it had posted `max` and no search.
-- **The slider writes the record; the skill never does.** Moving the Power
-  slider fires `PATCH
+- **The default is one preset below Pro (the owner's rule, 2026-10-01).**
+  The Pro lane has a limited quota, so the account's default is the highest
+  thinking preset below it: "Extra High" (`gpt-5-6-thinking` / `max`,
+  position 4 of 5) in the catalog of 2026-10-01. Names and versions change;
+  the rule does not: `model_settings.below_pro_preset` derives the preset
+  from the catalog's `intelligence_presets` every time (Pro by its `pro`
+  lane, then the last preset below it that carries a `thinking_effort`).
+  `model_settings.py` ends its report with the rule and whether the record
+  matches; preflight's "model and effort" check warns when it does not and
+  names the command. Set on 2026-10-01 16:19 over HTTP; the dedicated
+  window's picker read "Extra High" on its next load.
+- **The slider writes the record, and so does `model_settings.py --default
+  ... --apply`, on request only.** Moving the Power slider fires `PATCH
   /backend-api/settings/user_last_used_model_config?model_slug=<slug>&thinking_effort=<level>`
   (empty body; measured 2026-10-01), which is what fills
   `last_used_model_config` and what the picker reads back after a reload.
-  That is the place the effort is configured for the account; a pinned
-  send leaves it alone (read before and after every test send).
+  `--default below-pro --apply` sends the same request and reads the record
+  back (a dry run without `--apply`; "already holds it" sends nothing). A
+  pinned send never touches it (read before and after every test send).
 - **A one-off model override cancels the level.** When the picker holds a
   model other than the account's default -- the "Instant" position a fresh
   profile starts on -- the page builds `model: "gpt-5-6"`,

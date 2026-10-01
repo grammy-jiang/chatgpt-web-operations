@@ -768,7 +768,7 @@ next change can be told from this one.
 | `GET /backend-api/celsius/ws/user`, `GET /backend-api/profiles/me`, `GET /backend-api/amphora/notifications?limit=20`, `POST /backend-api/amphora/clear_settings_cache`, `GET /backend-api/user_granular_consent`, `GET /backend-api/pageConfigs/billing`, `GET /backend-api/subscriptions?account_id=...` | account and notification reads made on load | no |
 | `POST /backend-api/sentinel/chat-requirements/finalize` | made on load now, before any message | no |
 | `POST /backend-api/conversation/init` | fired twice when the toggle is pressed | no |
-| `PATCH /backend-api/settings/user_last_used_model_config?model_slug=<slug>&thinking_effort=<level>` | the Power slider's save (the page's `save-chat-last-used-model` mutation, empty body, account id in headers); what writes `last_used_model_config`; the picker reads it back after a reload (2026-10-01 evening) | no: a send pins in flight and never touches the record |
+| `PATCH /backend-api/settings/user_last_used_model_config?model_slug=<slug>&thinking_effort=<level>` | the Power slider's save (the page's `save-chat-last-used-model` mutation, empty body, account id in headers); what writes `last_used_model_config`; the picker reads it back after a reload (2026-10-01 evening) | yes, on request: `model_settings.py --default ... --apply` sends it (2026-10-01 16:19, the web default set to "Extra High"); a send never does |
 
 `GET /backend-api/settings/user` gained `tpp_work_mode_quick_send_by_default`
 (false here), `codex_training_allowed`, `developer_mode` and
