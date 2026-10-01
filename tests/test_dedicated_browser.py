@@ -442,6 +442,45 @@ def test_status_names_the_profile_s_extensions(monkeypatch, tmp_path, capsys) ->
     assert doc["extensions_disabled"] is False
 
 
+def test_tab_in_use_names_the_tab_a_send_would_drive(monkeypatch) -> None:
+    """status answers "which tab": the remembered own tab when open, the
+    first tab under a url: prefix, or why the next send makes its own."""
+    pages = [
+        {"id": "T-owner", "type": "page", "url": "https://chatgpt.com/"},
+        {"id": "T-own", "type": "page", "url": "https://chatgpt.com/c/abc"},
+        {"id": "SW", "type": "service_worker", "url": "https://chatgpt.com/sw.js"},
+    ]
+    monkeypatch.setattr(db.cc, "TAB_MODE", "own")
+    monkeypatch.setattr(db.cc, "tab_record", lambda: {"target_id": "T-own"})
+    own = db.tab_in_use(pages)
+    assert own["open"] is True and own["url"] == "https://chatgpt.com/c/abc"
+    assert "own tab is open at https://chatgpt.com/c/abc" in own["detail"]
+    monkeypatch.setattr(db.cc, "tab_record", lambda: {"target_id": "T-gone"})
+    assert "is gone; the next send makes one" in db.tab_in_use(pages)["detail"]
+    monkeypatch.setattr(db.cc, "tab_record", lambda: {})
+    assert "no tab of its own yet" in db.tab_in_use(pages)["detail"]
+    monkeypatch.setattr(db.cc, "TAB_MODE", "url:https://chatgpt.com/")
+    by_url = db.tab_in_use(pages)
+    assert by_url["open"] is True and by_url["url"] == "https://chatgpt.com/"
+    monkeypatch.setattr(db.cc, "TAB_MODE", "url:https://example.invalid/")
+    assert "no open tab starts with" in db.tab_in_use(pages)["detail"]
+    monkeypatch.setattr(db.cc, "TAB_MODE", "new")
+    assert db.tab_in_use(pages)["detail"] == "one tab per send, closed at its end"
+
+
+def test_status_prints_the_tab_mode_line(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setattr(db, "version", lambda port: ALIVE)
+    monkeypatch.setattr(db, "tabs", lambda port: [])
+    monkeypatch.setattr(db.cc, "TAB_MODE", "own")
+    monkeypatch.setattr(db.cc, "tab_record", lambda: {})
+    record = tmp_path / "status.json"
+    assert db.cmd_status(_args(tmp_path, json=str(record))) == 0
+    out = capsys.readouterr().out
+    assert "RP_BROWSER_TAB=own: no tab of its own yet" in out
+    doc = json.loads(record.read_text())
+    assert doc["tab_mode"] == "own" and doc["tab"]["open"] is False
+
+
 def test_status_says_no_extension_runs_in_a_window_started_with_the_switch(
     monkeypatch, tmp_path, capsys
 ) -> None:

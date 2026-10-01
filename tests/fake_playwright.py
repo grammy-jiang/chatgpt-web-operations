@@ -425,6 +425,7 @@ class Page:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
         self._url: Any = "about:blank"
+        self.target_id = "TARGET-1"  # what new_cdp_session answers for this tab
         self.last_goto_url: str | None = None
         self.goto_raises: BaseException | None = None
         self.reload_raises: BaseException | None = None
@@ -515,6 +516,10 @@ class Page:
     def close(self) -> None:
         self.calls.append(("page", "close", (), {}))
         self.closed = True
+
+    def bring_to_front(self) -> None:
+        """``Page.bring_to_front``: a kept tab is raised, never closed."""
+        self.calls.append(("page", "bring_to_front", (), {}))
 
     def on(self, event: str, handler: Any) -> None:
         self.calls.append(("page", "on", (event,), {}))
@@ -652,10 +657,11 @@ class BrowserContext:
         self.calls.append(("context", "close", (), {}))
 
     def new_cdp_session(self, page: Page) -> CDPSession:
-        """``BrowserContext.new_cdp_session``: the attached path reads its
-        tab's target id through it."""
+        """``BrowserContext.new_cdp_session``: the attached path reads a
+        tab's target id through it (``Page.target_id``, "TARGET-1" unless a
+        test names another, so two tabs can be told apart)."""
         self.calls.append(("context", "new_cdp_session", (), {}))
-        return CDPSession()
+        return CDPSession(getattr(page, "target_id", "TARGET-1"))
 
     def trigger_route(
         self, url: str, method: str = "GET", post_data: str | None = None

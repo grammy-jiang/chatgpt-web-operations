@@ -9,7 +9,8 @@
 
 Since 2026-10-01 a send attaches over CDP to a Chrome the owner launched
 normally -- its own profile directory, a debugging port on 127.0.0.1, logged
-in to chatgpt.com once by hand -- and opens one tab in it (SKILL.md,
+in to chatgpt.com once by hand -- and drives one tab in it, its own kept
+tab by default (``RP_BROWSER_TAB``; SKILL.md,
 "Sending through the dedicated browser window"; the client's ``cdp_endpoint``
 and ``BrowserSender._open_attached``). The scripted Xvfb window stays as
 the fallback when nothing answers at the port. Only what needs a browser
@@ -260,6 +261,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     chatgpt_tabs = [t for t in pages if "chatgpt.com" in str(t.get("url", ""))]
     extensions = profile_extensions(args.profile)
     disabled = extensions_disabled(args.profile) if info else None
+    tab = tab_in_use(pages)
     record = {
         "endpoint": endpoint(args.port),
         "running": bool(info),
@@ -269,6 +271,8 @@ def cmd_status(args: argparse.Namespace) -> int:
         "mode": cc.CDP_MODE,
         "extensions": extensions,
         "extensions_disabled": disabled,
+        "tab_mode": cc.TAB_MODE,
+        "tab": tab,
     }
     if args.json:
         Path(args.json).write_text(
@@ -282,6 +286,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         f"{record['tabs']} tab(s), {record['chatgpt_tabs']} on chatgpt.com; "
         f"RP_BROWSER_CDP={record['mode']}"
     )
+    print(f"RP_BROWSER_TAB={record['tab_mode']}: {tab['detail']}")
     if extensions:
         names = f"{', '.join(extensions[:4])}{', ...' if len(extensions) > 4 else ''}"
         runs = (
@@ -297,6 +302,64 @@ def cmd_status(args: argparse.Namespace) -> int:
             "extension removes it from the owner's own Chrome too (F-2026-10-01-32)"
         )
     return 0
+
+
+def tab_in_use(pages: list[dict[str, Any]]) -> dict[str, Any]:
+    """Which tab of the window a send would drive, from the open targets
+    and ``RP_BROWSER_TAB`` (``chatgpt_client.tab_mode_parts``): for "url"
+    the first page whose address starts with the prefix, for "own" the
+    remembered tab when it is still open; ``open`` False with the reason
+    when the next send would make a tab of its own."""
+    kind, prefix = cc.tab_mode_parts()
+    open_pages = [p for p in pages if p.get("type") == "page"]
+    if kind == "new":
+        return {
+            "kind": kind,
+            "open": False,
+            "url": "",
+            "detail": "one tab per send, closed at its end",
+        }
+    if kind == "url":
+        for p in open_pages:
+            if str(p.get("url", "")).startswith(prefix):
+                return {
+                    "kind": kind,
+                    "open": True,
+                    "url": str(p["url"]),
+                    "detail": f"drives the open tab at {p['url']}",
+                }
+        return {
+            "kind": kind,
+            "open": False,
+            "url": "",
+            "detail": (
+                f"no open tab starts with {prefix}; the next send uses the "
+                "skill's own tab"
+            ),
+        }
+    record = cc.tab_record()
+    wanted = str(record.get("target_id") or "")
+    for p in open_pages:
+        if wanted and p.get("id") == wanted:
+            return {
+                "kind": kind,
+                "open": True,
+                "url": str(p.get("url", "")),
+                "detail": f"the skill's own tab is open at {p.get('url', '')}",
+            }
+    if wanted:
+        return {
+            "kind": kind,
+            "open": False,
+            "url": "",
+            "detail": "the skill's own tab is gone; the next send makes one",
+        }
+    return {
+        "kind": kind,
+        "open": False,
+        "url": "",
+        "detail": "no tab of its own yet; the first send makes one and keeps it",
+    }
 
 
 def cmd_stop(args: argparse.Namespace, kill: Any = os.kill) -> int:

@@ -124,6 +124,9 @@ def _isolated_recording_environment(
     monkeypatch.setenv(
         "RP_REFUSAL_FILE", str(tmp_path / "rp-evidence" / "browser-refusal.json")
     )
+    monkeypatch.setenv(
+        "RP_TAB_FILE", str(tmp_path / "rp-evidence" / "dedicated-tab.json")
+    )
 
 
 @pytest.fixture(autouse=True)

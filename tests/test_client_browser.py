@@ -1656,9 +1656,11 @@ def test_open_attaches_to_the_dedicated_browser_and_opens_one_tab(
     """2026-10-01: when the dedicated browser answers, a send attaches to it
     over CDP, takes the window's own context (no cookie injected, no
     display started, no process of ours to kill), opens one tab, routes on
-    that tab only, and on exit closes the tab and disconnects -- the
-    owner's window and tabs stay."""
+    that tab only, and -- with RP_BROWSER_TAB=new, the daytime behaviour --
+    on exit closes the tab and disconnects; the owner's window and tabs
+    stay."""
     monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "http://127.0.0.1:9222")
+    monkeypatch.setattr(cc, "TAB_MODE", "new")
     ctx = fp.BrowserContext()
     browser = fp.Browser()
     browser.contexts = [ctx]
@@ -1680,10 +1682,161 @@ def test_open_attaches_to_the_dedicated_browser_and_opens_one_tab(
         ]
         assert ctx.pages == [page]
         assert sender._target_id == "TARGET-1"
+        assert sender.tab_how == "new"
 
     assert page.closed is True
     assert browser.closed is True
     assert _events() == []
+    assert cc.tab_record() == {}  # a per-window tab is never remembered
+
+
+def _attached(fake_pw, monkeypatch, pages=()):
+    """A dedicated browser whose default context already holds ``pages``."""
+    monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "http://127.0.0.1:9222")
+    ctx = fp.BrowserContext()
+    for url in pages:
+        page = fp.Page()
+        page.url = url
+        ctx.pages.append(page)
+    browser = fp.Browser()
+    browser.contexts = [ctx]
+    fake_pw.chromium.connect_result = browser
+    return ctx, browser
+
+
+def test_open_keeps_a_tab_of_its_own_and_finds_it_again(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    """The default since 2026-10-01 evening (RP_BROWSER_TAB=own): the first
+    window makes a tab, remembers its target id and leaves it open; the
+    next window finds that tab by its id, raises it and drives it -- no tab
+    opened or closed per send, the owner's own tab never touched."""
+    ctx, browser = _attached(fake_pw, monkeypatch, pages=["https://chatgpt.com/"])
+    owners_tab = ctx.pages[0]
+    owners_tab.target_id = "T-owner"  # not the id the own tab will carry
+    first = make_sender(project="g-p-x")
+    with first:
+        made = first.page
+        assert first.tab_how == "own-made"
+        assert made is not owners_tab
+        assert ctx.pages == [owners_tab, made]
+    assert made.closed is False
+    assert owners_tab.closed is False
+    assert cc.tab_record()["target_id"] == "TARGET-1"
+    assert browser.closed is True
+
+    again = make_sender(project="g-p-x")
+    with again:
+        assert again.tab_how == "own"
+        assert again.page is made
+        assert ("page", "bring_to_front", (), {}) in made.calls
+        assert ctx.pages == [owners_tab, made]  # nothing new opened
+        assert [pattern for pattern, _ in made.routes][-2:] == [
+            "**/backend-api/**",
+            "**/ces/v1/**",
+        ]
+    assert made.closed is False
+    assert _events() == []
+
+
+def test_open_makes_a_new_own_tab_when_the_remembered_one_is_gone(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    """A remembered id no open tab carries (the owner closed it, or the
+    window restarted): a fresh own tab is made and remembered instead."""
+    ctx, _browser = _attached(fake_pw, monkeypatch, pages=["https://chatgpt.com/"])
+    cc.remember_tab("TARGET-9", "https://chatgpt.com/c/old")
+    sender = make_sender()
+    with sender:
+        assert sender.tab_how == "own-made"
+        assert sender.page is ctx.pages[-1]
+        assert len(ctx.pages) == 2
+    assert cc.tab_record()["target_id"] == "TARGET-1"
+
+
+def test_open_drives_the_tab_named_by_a_url_prefix(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    """RP_BROWSER_TAB=url:<prefix> is "specify which tab": the first open
+    tab whose address starts with the prefix is driven and kept; nothing is
+    opened or closed."""
+    monkeypatch.setattr(cc, "TAB_MODE", "url:https://chatgpt.com/")
+    ctx, _browser = _attached(
+        fake_pw,
+        monkeypatch,
+        pages=[
+            "https://example.invalid/",
+            "https://chatgpt.com/",
+            "https://chatgpt.com/c/x",
+        ],
+    )
+    sender = make_sender()
+    with sender:
+        assert sender.tab_how == "url"
+        assert sender.page is ctx.pages[1]
+        assert len(ctx.pages) == 3
+    assert ctx.pages[1].closed is False
+    assert cc.tab_record() == {}
+
+
+def test_open_falls_back_to_the_own_tab_when_no_tab_matches_the_prefix(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    monkeypatch.setattr(cc, "TAB_MODE", "url:https://chatgpt.com/")
+    ctx, _browser = _attached(fake_pw, monkeypatch, pages=["https://example.invalid/"])
+    sender = make_sender()
+    with sender:
+        assert sender.tab_how == "own-made"
+        assert len(ctx.pages) == 2
+    assert cc.tab_record()["target_id"] == "TARGET-1"
+
+
+def test_open_uses_a_fresh_tab_when_another_window_holds_the_kept_one(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    """Two windows never share one tab: the second finds the lock held,
+    opens a tab of its own and closes it at the end."""
+    import fcntl
+
+    ctx, _browser = _attached(fake_pw, monkeypatch, pages=["https://chatgpt.com/"])
+    lock_path = cc.tab_file().with_suffix(".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a+") as other:
+        fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        sender = make_sender()
+        with sender:
+            assert sender.tab_how == "busy"
+            fresh = sender.page
+            assert fresh is ctx.pages[-1] and len(ctx.pages) == 2
+        assert fresh.closed is True
+    assert cc.tab_record() == {}
+
+
+def test_tab_mode_parts_reads_own_new_and_a_url_prefix() -> None:
+    assert cc.tab_mode_parts("own") == ("own", "")
+    assert cc.tab_mode_parts("") == ("own", "")
+    assert cc.tab_mode_parts("NEW") == ("new", "")
+    assert cc.tab_mode_parts("url:https://chatgpt.com/") == (
+        "url",
+        "https://chatgpt.com/",
+    )
+    assert cc.tab_mode_parts("url:   ") == ("own", "")
+    assert cc.tab_mode_parts("whatever") == ("own", "")
+    assert cc.tab_mode_parts() == cc.tab_mode_parts(cc.TAB_MODE)
+
+
+def test_tab_record_and_lock_survive_a_missing_or_broken_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("RP_TAB_FILE", str(tmp_path / "nowhere" / "tab.json"))
+    assert cc.tab_record() == {}
+    cc.tab_file().parent.mkdir(parents=True)
+    cc.tab_file().write_text("not json")
+    assert cc.tab_record() == {}
+    with cc.tab_lock() as held:
+        assert held is True
+        with cc.tab_lock() as again:
+            assert again is False
+    with cc.tab_lock() as free_again:
+        assert free_again is True
 
 
 def test_sigterm_closes_the_attached_tab_and_leaves_through_systemexit(

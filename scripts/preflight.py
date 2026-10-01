@@ -328,7 +328,7 @@ def dedicated_browser_check(mode: str, url: str, probe: Any) -> dict[str, Any]:
             "dedicated browser",
             "ok",
             f"{version.get('Browser', 'a browser')} answers at {endpoint}; a send "
-            "attaches to it and opens one tab",
+            "attaches to it and drives one tab there (RP_BROWSER_TAB)",
         )
     return check(
         "host",

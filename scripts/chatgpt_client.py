@@ -702,7 +702,8 @@ PROFILE_DIR = profile_dir_from(os.environ.get("RP_BROWSER_PROFILE"))
 # The dedicated browser (2026-10-01): a Chrome the owner launches with its own
 # profile and a debugging port on 127.0.0.1, logs in to once by hand, and
 # keeps alive (scripts/dedicated_browser.py, its systemd user unit). A send
-# attaches to it over CDP and opens one tab, so the browser Cloudflare sees is
+# attaches to it over CDP and drives one tab there (its own, kept across
+# sends, by default: RP_BROWSER_TAB below), so the browser Cloudflare sees is
 # a normally launched one carrying a human's login, not a Playwright-launched
 # window: measured 2026-10-01 11:43, every handshake 200 and the reply in
 # 10 s, while the scripted window had every handshake refused the same hour.
@@ -718,6 +719,31 @@ DEDICATED_PROFILE_DIR = Path(
     or "~/.local/share/chatgpt-web-operations/chrome"
 ).expanduser()
 CDP_MODE = os.environ.get("RP_BROWSER_CDP", "").strip() or "auto"
+# RP_BROWSER_TAB: which tab of the dedicated window a send drives (the
+# owner's question of 2026-10-01 evening, "why can't you specify which tab").
+# "own", the default since then, keeps one tab of the skill's own across
+# sends -- remembered by its target id in tab_file(), made when missing,
+# never closed at the end -- so no tab is opened and closed per send and the
+# owner's own tab is never touched. "url:<prefix>" drives the first existing
+# tab whose address starts with the prefix (the owner's chatgpt.com tab for
+# "url:https://chatgpt.com/") and falls back to the own tab when none does.
+# "new" opens a tab per window and closes it at the end (the behaviour of
+# 2026-10-01 daytime). A kept tab is held under tab_lock() while in use; a
+# second window finding it held opens a tab of its own and closes it
+# afterwards, so two sends never share one tab.
+TAB_MODE = os.environ.get("RP_BROWSER_TAB", "").strip() or "own"
+
+
+def tab_mode_parts(mode: str | None = None) -> tuple[str, str]:
+    """``("own", "")``, ``("new", "")`` or ``("url", "<prefix>")`` from
+    ``RP_BROWSER_TAB`` (``TAB_MODE`` by default); anything unknown, and a
+    bare ``url:``, read as "own"."""
+    chosen = (TAB_MODE if mode is None else mode).strip()
+    if chosen.lower() == "new":
+        return "new", ""
+    if chosen.lower().startswith("url:") and chosen[4:].strip():
+        return "url", chosen[4:].strip()
+    return "own", ""
 
 
 def dedicated_browser_version(
@@ -2376,6 +2402,77 @@ def refusal_file() -> Path:
     ).expanduser()
 
 
+def tab_file() -> Path:
+    """Where the skill's own tab in the dedicated window is remembered
+    (``RP_TAB_FILE`` or the default): its CDP target id and last address.
+    Its ``.lock`` sibling is the advisory lock a window holds on the kept
+    tab while driving it (``tab_lock``)."""
+    return Path(
+        os.environ.get("RP_TAB_FILE") or STATE_DIR / "dedicated-tab.json"
+    ).expanduser()
+
+
+def tab_record() -> dict[str, Any]:
+    """The remembered own tab (``target_id``, ``url``, ``since``), or {};
+    never raises."""
+    try:
+        data = json.loads(tab_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def remember_tab(target_id: str, url: str) -> None:
+    """Write the own tab's target id and address; never raises."""
+    path = tab_file()
+    with contextlib.suppress(OSError):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"target_id": target_id, "url": url, "since": time.time()}),
+            encoding="utf-8",
+        )
+
+
+@contextlib.contextmanager
+def tab_lock() -> Generator[bool, None, None]:
+    """Hold the kept tab's advisory lock for the window: yields True holding
+    it, False -- holding nothing -- when another process has it or the lock
+    file cannot be made. Released when the ``with`` block ends."""
+    import fcntl
+
+    path = tab_file().with_suffix(".lock")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(path, "a+")  # noqa: SIM115  # held for the window
+    except OSError:
+        yield False
+        return
+    try:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            yield False
+            return
+        yield True
+    finally:
+        with contextlib.suppress(OSError):
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        handle.close()
+
+
+def page_target_id(ctx: Any, page: Any) -> str:
+    """A tab's CDP target id, read through a short-lived session, or ""."""
+    try:
+        session = ctx.new_cdp_session(page)
+        info = session.send("Target.getTargetInfo")
+        target = str((info.get("targetInfo") or {}).get("targetId") or "")
+        with contextlib.suppress(Exception):
+            session.detach()
+        return target
+    except Exception:
+        return ""
+
+
 def note_refusal(kind: str, url: str, detail: str) -> str:
     """Record that Cloudflare refused a scripted window just now (``kind``
     is the event kind). Never raises; returns the path written, or ""."""
@@ -2656,6 +2753,11 @@ class BrowserSender:
         # thread (close_tab_from_outside); and the SIGTERM disposition this
         # window replaced, restored on exit.
         self._target_id: str = ""
+        # How the attached window got its tab (tab_mode_parts, _pick_tab):
+        # "own" / "url" for a kept tab found, "own-made" for a kept tab just
+        # made, "new" for a tab per window, "busy" for a fresh tab because
+        # the kept one is held by another window; "" for a scripted window.
+        self.tab_how: str = ""
         self._previous_sigterm: Any = None
         self._stack = contextlib.ExitStack()
         self.page: Any = None
@@ -2817,14 +2919,45 @@ class BrowserSender:
             endpoint,
             getattr(browser, "version", "?"),
         )
-        self.page = ctx.new_page()
-        self._stack.callback(self.page.close)
-        with contextlib.suppress(Exception):
-            session = ctx.new_cdp_session(self.page)
-            info = session.send("Target.getTargetInfo")
-            self._target_id = str((info.get("targetInfo") or {}).get("targetId") or "")
-            session.detach()
+        self.page, self.tab_how = self._pick_tab(ctx)
+        self._target_id = page_target_id(ctx, self.page)
+        if self.tab_how == "own-made":
+            remember_tab(self._target_id, str(self.page.url))
+        if self.tab_how in ("new", "busy"):
+            self._stack.callback(self.page.close)
+        else:
+            with contextlib.suppress(Exception):
+                self.page.bring_to_front()
+        logger.info("tab: %s (%s)", self.tab_how, self.page.url)
         block_unused(self.page, allow_project=bool(self.project), rewrite_send=rewrite)
+
+    def _pick_tab(self, ctx: Any) -> tuple[Any, str]:
+        """Owner thread only. The tab this window drives, per
+        ``RP_BROWSER_TAB`` (``tab_mode_parts``), and how it got it: a kept
+        tab -- "url" for the first tab whose address starts with the prefix,
+        "own" for the remembered own tab, "own-made" for an own tab made now
+        -- is locked for the window and never closed by it (only
+        ``close_tab_from_outside`` on SIGTERM closes it); "new" and "busy"
+        name a tab of this window's own that closes with it, "busy" because
+        another window holds the kept tab."""
+        kind, prefix = tab_mode_parts()
+        if kind == "new":
+            return ctx.new_page(), "new"
+        if not self._stack.enter_context(tab_lock()):
+            logger.warning(
+                "the kept tab is held by another window; this one opens its own"
+            )
+            return ctx.new_page(), "busy"
+        if kind == "url":
+            for page in list(ctx.pages):
+                if str(page.url).startswith(prefix):
+                    return page, "url"
+        wanted = str(tab_record().get("target_id") or "")
+        if wanted:
+            for page in list(ctx.pages):
+                if page_target_id(ctx, page) == wanted:
+                    return page, "own"
+        return ctx.new_page(), "own-made"
 
     def _open_scripted(self, sync_playwright: Any, rewrite: Any) -> None:
         """Owner thread only. A window of our own on an Xvfb display, with
