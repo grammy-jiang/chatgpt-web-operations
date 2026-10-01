@@ -730,6 +730,44 @@ account), `GET /backend-api/ps/plugins/workspace/template-instances`, `GET
 /backend-api/ps/plugins/<plugin-id>/skills/<skill-name>`, and `GET
 /backend-api/ps/plugins/home` (the public directory's sections).
 
+## Seen on 2026-10-01: the Work surface and the home page
+
+Read in the user's own Chrome through Claude in Chrome's network log while
+the home page loaded on the Chat surface and while the Chat/Work toggle was
+pressed to Work and back; the same day's `health.py --record-shapes`
+recorded 22 read endpoints with no field the commands read changed and 52
+new fields. Nothing below is used by a command; the rows are here so the
+next change can be told from this one.
+
+| Endpoint | What it does | Used |
+|----------|--------------|------|
+| `GET /backend-api/conversations?conversation_origin=tpp&...` and `...?exclude_conversation_origin=tpp&...` | the main list is split by origin: `tpp` is the **Work** surface's chats (21 on this account), the rest the Chat surface's; `list_chats.py` sends neither parameter and gets both | no |
+| `GET /backend-api/tpp/models/?iim=false&include_icons=false` | the Work surface's model catalog (the `-wm` slugs: `gpt-6.1-sol-wm`, `gpt-6-astra-wm`, ...; the picker there read "GPT-6.1 Sol / Light"); the Chat surface keeps `GET /backend-api/models` and its five presets | no |
+| `GET /backend-api/tpp/default-tab-recommendation` | which surface to open on; `null` for this account | no |
+| `GET /backend-api/composer/items?limit=3&entrypoint=chat` (and `entrypoint=work`) | the suggestion cards under the composer (`task_suggestions`, `prefill_composer`); `POST /backend-api/composer/items/interactions` answered 503 three times on load | no |
+| `GET /backend-api/system_hints?exclude_logo=true&mode=basic`, `...mode=custom_agents`, `...mode=plugins` | the "+" menu's catalog, now in three modes; `send_prompt.py --system-hint` still takes any id from the basic one | no |
+| `GET /backend-api/gizmos/snorlax/sidebar?conversations_per_gizmo=5&limit=20&owned_only=false`, then `?conversations_per_gizmo=0&cursor=...` | the sidebar's projects with five chats each; `list_projects.py` keeps `owned_only=true&limit=50` | no |
+| `GET /backend-api/pins?item_type=conversation|project|gizmo|feature`, `GET /backend-api/pins/pages?...` | pins by kind; `pin_chat.py` and `list_chats.py --pinned` still read `GET /backend-api/pins` | no |
+| `GET /backend-api/spaces/v2?limit=100...`, `GET /backend-api/pages?surface=private&limit=50...`, `GET /backend-api/tbo?limit=25`, `GET /backend-api/tbo/primary` | spaces and pages (a documents surface) and "tbo"; paged with cursors | no |
+| `GET /backend-api/wham/tasks/list?limit=20&task_filter=current`, `GET /backend-api/wham/accounts/check`, `GET /backend-api/wham/sites/access`, `GET /backend-api/wham/github/connections` | the Work surface's tasks and access checks; `wham/usage` is unchanged and still read | no |
+| `GET /backend-api/beacons/home?product=chatgpt&web_frontend=codex_webview...` and `...product=work_tab...` | fired on load and on the toggle; the page calls itself `codex_webview` | no |
+| `GET /backend-api/celsius/ws/user`, `GET /backend-api/profiles/me`, `GET /backend-api/amphora/notifications?limit=20`, `POST /backend-api/amphora/clear_settings_cache`, `GET /backend-api/user_granular_consent`, `GET /backend-api/pageConfigs/billing`, `GET /backend-api/subscriptions?account_id=...` | account and notification reads made on load | no |
+| `POST /backend-api/sentinel/chat-requirements/finalize` | made on load now, before any message | no |
+| `POST /backend-api/conversation/init` | fired twice when the toggle is pressed | no |
+
+`GET /backend-api/settings/user` gained `tpp_work_mode_quick_send_by_default`
+(false here), `codex_training_allowed`, `developer_mode` and
+`show_legacy_models`; `last_used_model_config` still carries the `web`
+surface's model and effort, and `model_settings.py` resolved it to the
+"High" preset as before. The surface is also written client-side: the
+cookie `oai-chat-surface-mode` and the localStorage key
+`oai/apps/tpp/chat-surface-mode` both read `work` in the user's own Chrome
+while its page opened on Chat, so neither predicts the surface; the page's
+toggle (`div[role="group"][aria-label="Composer mode"]`, two
+`button[aria-pressed]`) and the composer's label ("Ask ChatGPT" / "Work
+with ChatGPT") do, and that is what `chatgpt_client.ensure_chat_surface`
+reads (atlas F-2026-10-01-20).
+
 ## Re-run this when
 
 - a send starts failing in a way `probe_account.py` says is not the account

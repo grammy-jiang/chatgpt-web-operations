@@ -104,6 +104,35 @@ live guard refuses any plugin creation. The first T2 run found two defects
 the offline tests could not see (F-2026-09-29-17 and 18); both are fixed,
 and T1 and T2 pass. `Session.call` gained `binary=True` for the archive.
 
+**State at 2026-10-01.** The owner asked for a re-validation after
+ChatGPT's page changed. What had broken while every suite stayed green:
+the home page opened on the new **Work** surface for the shared browser
+profile and every send of 2026-09-30 typed into it and never posted (the
+Chat/Work toggle is no longer a radio; atlas F-2026-10-01-20), and the
+shared profile `/tmp/rp-browser-profile` was challenged by Cloudflare on
+every open from 2026-09-29 to 2026-10-01 while fresh profiles passed (the
+daily check read it as "logged out or challenged" for three mornings;
+F-2026-10-01-21). The client now reads the surface from the composer's
+label, presses Chat first and refuses a page that stays on Work; the
+composer wait names the challenge page; `page_snapshot` records the toggle;
+the daily comparison warns on the composer's label and the toggle. The
+composer fixture was re-recorded on a fresh profile and promoted, with a
+hand-written Work page beside it. Every live tier of this day ran with
+`RP_BROWSER_PROFILE=`; the shared profile was left for the owner to reset
+or retire (the daily and weekly wrappers still use it). Then the fresh
+profiles were refused as well: from 10:05 every scripted send's handshake
+(sentinel, `conversation/init`, `f/conversation/prepare`) was answered 403
+while the page still drew the bubble, so T4 failed and the client took the
+bubble for a post; it now stops with `handshake-refused`
+(F-2026-10-01-23), reads its failure evidence on the owner thread
+(F-2026-10-01-24), and the teardown skips `local-chatgpt:` placeholders
+(F-2026-10-01-25). The user's own Chrome sent and received normally in the
+same minute. HTTP: every tier and command passed (T1, T2, TL, L, the
+tunnel CRUD, the connector lifecycle). Browser: T3 passed; T4 and the
+browser-dependent acceptance sends are **not verified** today and are the
+first thing to run when a scripted window gets through again. Results and
+remaining limits: `VERIFICATION.md`, "Re-validation 2026-10-01".
+
 ## Entry point, 2026-09-25
 
 For first use or missing access, read `references/setup.md` and the

@@ -37,9 +37,25 @@ rule that prevents it is written next to it.
 - **Use a fresh browser profile per window when windows run in parallel:**
   `RP_BROWSER_PROFILE=` (empty). On 2026-09-29 the shared profile
   `/tmp/rp-browser-profile` stayed in a Cloudflare Turnstile loop and the
-  user's clicks on the check did not help; fresh profiles sent at once. The
-  shared profile is safe only with `RP_MAX_BROWSERS=1`. Never try to solve
-  the check automatically.
+  user's clicks on the check did not help; fresh profiles sent at once. From
+  2026-09-29 to 2026-10-01 the shared profile was challenged on every open,
+  three daily checks running, while fresh profiles passed every tier
+  (`failure-atlas.md`, F-2026-10-01-21); a `challenge-page` event in the
+  events file names it. The shared profile is safe only with
+  `RP_MAX_BROWSERS=1`. Never try to solve the check automatically.
+- **A `handshake-refused` event means the window, not the account.** On
+  2026-10-01 every scripted send on fresh profiles had its handshake
+  (sentinel, `conversation/init`, `f/conversation/prepare`) answered 403
+  while the user's own Chrome and the skill's HTTP reads worked; the page
+  still drew the bubble. The send now stops with that event instead of a
+  placeholder id (atlas F-2026-10-01-23). Do not retry in a loop; wait,
+  check `probe_account.py`, and send again later with one window.
+- **A send belongs to the Chat surface.** Since 2026-10-01 the client
+  presses Chat on the page's Chat/Work toggle before it fills, and refuses a
+  page that stays on Work (`work-surface` event, atlas F-2026-10-01-20). On
+  2026-09-30 every send on the shared profile typed into Work and reported
+  "not posted" with no request; a `surface-switched` event in the events
+  file says the page had opened on Work and was switched.
 - `RP_MAX_BROWSERS=3 RP_BROWSER_WAIT_SECONDS=3600` let three sends run while
   another session held slots. With the default cap a send waited forever
   behind the other session.

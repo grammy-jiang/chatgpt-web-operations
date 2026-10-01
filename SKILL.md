@@ -163,6 +163,20 @@ of a dedicated script does not mean they cannot be invoked. Mode-specific
 completion, artifact download, scheduling changes, and cleanup need their
 own verification; the ordinary reply collector handles assistant text.
 
+**Only the Chat surface is in scope.** Since 2026-10-01 the home page has a
+Chat/Work toggle (a `div[role="group"][aria-label="Composer mode"]` of two
+`aria-pressed` buttons; until 2026-09-27 a radio group). Work is the
+Codex-style `tpp` surface: its chats list under
+`conversations?conversation_origin=tpp`, its models are the `-wm` slugs,
+and a message typed there never posts through `f/conversation`, so a send
+made there reads as "not posted" with no request at all (that is what every
+send of 2026-09-30 did; `references/failure-atlas.md`, F-2026-10-01-20).
+The composer's label says which surface the page is on ("Ask ChatGPT" on
+Chat, "Work with ChatGPT" on Work), and every path that loads a composer
+presses Chat first (`chatgpt_client.ensure_chat_surface`); a page that
+stays on Work is refused with the surface named (event `work-surface`).
+Nothing here drives the Work surface, Sites or Codex.
+
 There is no dedicated CLI for moving an existing chat into a project,
 renaming a project, editing account-wide memory/custom instructions,
 temporary chats, message edits/regeneration/branches, voice, or sharing.
@@ -373,6 +387,16 @@ anti-automation control rather than speaking a protocol. Say so plainly, and
 answer the memory question instead, which is the real reason anyone asks.
 Re-check with `probe_send_gates.py` rather than trusting this paragraph.
 
+**The scripted window's profile can be challenged on its own.** From
+2026-09-29 to 2026-10-01 the shared profile `/tmp/rp-browser-profile` met
+Cloudflare's "Verify you are human" page on every open while HTTP reads,
+a fresh profile (`RP_BROWSER_PROFILE=`, one per window) and the user's own
+Chrome all passed. `find_composer` names that page when it is what the
+composer wait ran into (event `challenge-page`), and `preflight.py
+--browser` then offers the profile fix. Nothing in this skill solves, waits
+out or evades the challenge, and nothing will; switching to a fresh profile
+or removing the shared one is the operator's decision.
+
 **A send is judged by its own request.** The sender counts a message as
 posted when the page's `f/conversation` POST is answered 2xx, when a new
 chat's address becomes a real `/c/<id>`, or when one more user turn appears
@@ -383,6 +407,14 @@ line in the events file is a real post the count missed: its screenshot
 shows whether the user-turn markup changed. "Message was not posted" now
 means no request was answered 2xx; before sending again, reading the chat
 (`read_chat.py`) or the list (`list_chats.py`) still costs nothing.
+Since 2026-10-01 the page's own handshake counts too: when its sentinel,
+`conversation/init` or `f/conversation/prepare` POSTs are refused and no
+`f/conversation` request follows, the send stops with a `handshake-refused`
+event naming the statuses, because the page draws the user's bubble and a
+`local-chatgpt:` address anyway and the turn count alone would read as a
+post (F-2026-10-01-23). That shape means Cloudflare is refusing the
+scripted window's requests, not that the account is blocked: the skill's
+HTTP reads and the user's own Chrome worked in the same minute.
 
 ## Reasoning effort is a setting; know which one a send will use
 

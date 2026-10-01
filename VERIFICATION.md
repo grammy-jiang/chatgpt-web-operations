@@ -1,3 +1,99 @@
+# Re-validation after ChatGPT's page change — 2026-10-01
+
+The owner asked for every feature to be re-checked after ChatGPT changed its
+site. Measured on this Raspberry Pi 5 against the same Pro account, tree
+`0b44c42` plus this day's fixes, between 09:37 and 10:40 local time. The
+2026-09-25 record below stays the acceptance baseline; this section records
+what changed since, what was re-run, and what was found.
+
+## What the page change did to the skill
+
+Two things had broken while every suite stayed green, both found by reading
+the daily check's evidence before changing anything (the order and the
+sources are in `references/failure-atlas.md`, "Re-validation after the Work
+surface, 2026-10-01"):
+
+| Found | Evidence | Fixed by |
+|-------|----------|----------|
+| The home page can open on the new **Work** surface, and a send typed there never posts: every send of 2026-09-30 on the shared profile reported "not posted" with no `f/conversation` request. The Chat/Work toggle the client pressed since 2026-09-27 (a radio named "Chat") is now a group of `aria-pressed` buttons, so the press found nothing | the 2026-09-30 18:35 failure screenshot (Work pressed, "What should we work on?", model "GPT-6.1 Sol Light"); `events.jsonl` (`post_requests: 0`); the user's own Chrome through Claude in Chrome (toggle DOM, composer labels "Ask ChatGPT" / "Work with ChatGPT", the requests a switch fires) | `chatgpt_client.ensure_chat_surface`, run by every path that loads a composer; events `surface-switched` and `work-surface`; preflight's `WORK_FIX`; `page_snapshot` records the toggle and the daily comparison warns on `composer.aria_label` and `surface.found` (F-2026-10-01-20) |
+| The daily browser check read "composer did not appear (logged out or challenged)" on 2026-09-29, 09-30 and 10-01 while the page was Cloudflare's "Verify you are human" interstitial; the shared profile `/tmp/rp-browser-profile` was challenged on every open, a fresh profile was not | the composer-missing screenshot; `preflight.py --browser` on the shared profile (challenged, 09:42) and with `RP_BROWSER_PROFILE=` (GO, 09:44); HTTP reads ok in the same runs; the user's Chrome not challenged | `find_composer` names the challenge page (`challenge_page`), event `challenge-page`, preflight's `CHALLENGE_FIX`; nothing solves or evades it (F-2026-10-01-21) |
+| The first promotion of a page carrying the toggle was refused by the fixture hygiene rule for the "@" in a Tailwind class | `make refresh-dom-fixtures` | `sanitize_html` drops class tokens that start with "@" (F-2026-10-01-22) |
+
+Everything else the selectors read is unchanged on 2026-10-01: the composer
+(`div.ProseMirror[contenteditable][role=textbox]`, in a form), the user-turn
+bubble, the three file inputs (only the "Attach files" one has no image
+filter), the send button appearing only once text is in the composer, and
+the upload chip's "Remove <name>" label. The five Power presets, the four
+effort levels, the three send gates and the server's `last_used_model_config`
+read exactly as on 2026-09-25; the Work surface's own model catalog
+(`tpp/models/`, the `-wm` slugs) is separate and out of scope. The new
+endpoints the page calls are listed in `references/endpoint-discovery.md`,
+"Seen on 2026-10-01".
+
+Each fix was removed once in a throwaway worktree of `0b44c42` with the new
+tests copied in: the 17 named tests failed there (`tests/findings.json`,
+`removed_and_failed`).
+
+## What was run
+
+| Check | Result |
+| --- | --- |
+| `make lint` | Ruff clean, 132 files. |
+| `make test` (T0 and the coverage gate) | 2,425 passed, every module above its gate (95 % core / 90 % other); 2,407 before this day's tests. |
+| `make replay` (tier R) | 40 passed, on the re-recorded `composer` fixture (home page, Chat pressed, the toggle in the markup) and the hand-written `composer-work-synthetic` page. |
+| `make loopback` (tier L) | 43 passed. |
+| `make live-local` (TL) | 4 passed. |
+| `make live-read` (T1) | 39 passed in 166 s. |
+| `make live-write` (T2) | 4 passed in 67 s: project create/delete, instructions and memory-scope round trips, the sandbox plugin's new release (0.1.1790814504), install, skill switch, uninstall. |
+| `make live-browser` (T3, fresh profile) | 1 passed in 20 s: one upload, the chip's "Remove rp-test-…" label, the send button enabled; `composer-attached` recorded with the new facts (composer "New chat in rp-test-sandbox", no toggle on a project page). |
+| `make live-send` (T4, fresh profiles) | **2 failed, 1 error in 814 s.** Every send's handshake was refused and the client took the page's bubble for a post (F-2026-10-01-23); the teardown then PATCHed a placeholder (F-2026-10-01-25). Both fixed; the tier was not re-run, see below. |
+| HTTP probes by hand | `probe_account.py` CLEAR (`/me` 200); `probe_send_gates.py` three gates required; `model_settings.py` five presets and the server record unchanged; `probe_cookies.py` 33 of 33 cookies readable, session 90 days. |
+| `manage_tunnels.py` by hand | dry run, create (`tunnel_6abda946ace88191a4006cee9715830e`), get, update preview, update `--apply` (read back), delete preview, delete `--confirm` (verified), get 404. The original tunnel untouched. |
+| Connector commands by hand | `create_connector.py` dry run and create (`asdk_app_6abda94ec61c8191929b85ccb2723511` on the existing tunnel); `connect_connector.py` (`link_6abda95c…`, six tools, `full_access`); `list_connectors.py --match` (1 link, 1 app); `refresh_connector.py` (six tools); `delete_connector.py` dry run and `--confirm` (link, then app); the listing and the plugin list empty afterwards. |
+| Other reads by hand | `profile_context.py --project`, `project_settings.py --show`, `manage_plugins.py list` (6), `list_chats.py --match`, `list_projects.py --id --chats`, `list_automations.py --filter all` (31), `list_skills.py --apps` (3 skills, 22 apps), `search_chats.py` (0 hits for a minute-old marker: the indexing lag of 2026-09-25 again). |
+| `preflight.py --browser` by hand | shared profile: challenged (the interstitial), 09:42; `RP_BROWSER_PROFILE=`: GO at 09:44 and 09:58, the second recording promoted as `tests/fixtures/dom/composer.*`. |
+| Scripted sends by hand | 10:19 one logged send (`--record-send-body`): 120 s waiting for a reply stream, no `f/conversation` request; 10:23 an instrumented send: `sentinel/chat-requirements/prepare` 403, `conversation/init` 403 twice, `f/conversation/prepare` 403, the bubble drawn, "Unknown error" under it; 10:33 one more on a fresh profile: the sidebar rendered, the composer never did (`composer-missing`). Cloudflare refuses the scripted window's requests in every shape it has today. |
+| The user's own Chrome | one send into the sandbox at 10:24 (`f/conversation` 503, then the page's retry), the reply in 8 s; the chat was deleted by the T2 sandbox sweep at 10:28. |
+
+**Not verified today, because every scripted window's requests were
+refused:** the batch send (two prompts, one window), a continuation with
+two attachments, `--search`, `--effort` and `--model` pins with the recorded
+body and stream, a connector tool call through `--system-hint`, Deep
+research start/status/fetch/export, `round_status.py --collect` on a live
+reply, `measure_window.py`, `discover_endpoints.py` and `health.py
+--browser`. All of them passed on 2026-09-25, their code did not change
+except for the surface and handshake checks above, and their offline tests
+pass. Run them when a scripted window gets through again (one window at a
+time, `RP_BROWSER_PROFILE=`), in this order: `make live-send`, then the
+sends of `SKILL.md`'s "Combining them" with `--json` records, then Deep
+research, then `measure_window.py`, `discover_endpoints.py` and `health.py
+--browser --record-shapes`, then `clean_chats.py --project <sandbox>
+--delete --backup DIR --apply`.
+
+## What the owner decides
+
+- The shared profile `/tmp/rp-browser-profile` has been challenged on every
+  open since 2026-09-29. Removing it, or exporting `RP_BROWSER_PROFILE=` in
+  `~/.local/bin/chatgpt-ops-check.sh` and `chatgpt-ops-send-check.sh`, is
+  the operator's call; this session changed neither, and the daily browser
+  check will keep reading ALERT until one of them happens or Cloudflare's
+  opinion of the profile changes.
+- Fresh profiles were refused too from 10:05 on, after seven scripted
+  windows in forty minutes; whether that is a per-window score or a per-host
+  one is not established. The client now reports it exactly
+  (`handshake-refused`, `challenge-page`, `work-surface`), and nothing in
+  it solves, waits out or evades a challenge.
+- `binnacle-jobs` (the other consumer on this host) failed every send on
+  2026-09-30 for the two reasons above; it was not changed.
+
+Raw evidence (logs, the instrumented send's request log and screenshots,
+the recordings before promotion) was kept in the session's scratchpad under
+`/tmp/claude-1000/…/scratchpad/`, which the host clears; the committed
+facts are in `references/failure-atlas.md`, the events file
+`~/.local/state/chatgpt-web-operations/events.jsonl` and the screenshots
+beside it.
+
+
 # Verification record — 2026-09-25
 
 The original 28 public commands were exercised on the installed Raspberry Pi 5 skill.
