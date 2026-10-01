@@ -70,6 +70,10 @@ LIVE_COVERAGE: dict[str, str] = {
     "connect_connector.py": "manual-acceptance",
     "create_connector.py": "manual-acceptance",
     "create_project.py": PROJECT_LIFECYCLE,
+    "dedicated_browser.py": (
+        "live/test_browser_dedicated.py::"
+        "test_dedicated_browser_status_answers_and_a_window_attaches"
+    ),
     "deep_research.py": "manual-acceptance",
     "delete_connector.py": "manual-acceptance",
     "delete_project.py": PROJECT_LIFECYCLE,

@@ -423,6 +423,13 @@ class Page:
         self._script_results: dict[str, Any] = {}
         self._event_handlers: dict[str, list] = {}
         self._pending_responses: list[Response] = []
+        self.routes: list[tuple[str, Any]] = []
+
+    def route(self, pattern: str, handler: Any) -> None:
+        """``Page.route``: the attached-browser path routes on the page, never
+        on the owner's context."""
+        self.routes.append((pattern, handler))
+        self.calls.append(("page", "route", (pattern,), {}))
 
     # -- navigation ----------------------------------------------------
     @property
@@ -651,6 +658,10 @@ class Browser:
         self.calls: list[tuple] = []
         self.closed = False
         self.new_context_result: BrowserContext | None = None
+        # A browser connected over CDP exposes the window's default context
+        # here; a launched one has none until new_context().
+        self.contexts: list[BrowserContext] = []
+        self.version = "154.0.8037.92"
 
     def new_context(self, **kw: Any) -> BrowserContext:
         self.calls.append(("browser", "new_context", (), kw))
@@ -674,6 +685,17 @@ class BrowserType:
         self.launch_persistent_context_result: BrowserContext | None = None
         self.launch_raises: BaseException | None = None
         self.launch_persistent_context_raises: BaseException | None = None
+        self.connect_over_cdp_calls: list[str] = []
+        self.connect_result: Browser | None = None
+        self.connect_raises: BaseException | None = None
+
+    def connect_over_cdp(self, endpoint_url: str, **kw: Any) -> Browser:
+        """``pw.chromium.connect_over_cdp``: attach to a running browser."""
+        self.connect_over_cdp_calls.append(endpoint_url)
+        if self.connect_raises is not None:
+            raise self.connect_raises
+        self.connect_result = self.connect_result or Browser()
+        return self.connect_result
 
     def launch(self, **kw: Any) -> Browser:
         self.launch_calls.append(kw)

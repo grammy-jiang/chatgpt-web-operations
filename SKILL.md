@@ -90,7 +90,7 @@ skill does not import it.
 
 ## The commands
 
-There are 32 command scripts and six support modules. `clean_chats.py`,
+There are 33 command scripts and six support modules. `clean_chats.py`,
 `project_settings.py`, `pin_chat.py` and `delete_project.py` need `--apply`.
 `create_project.py`, `create_connector.py` and `connect_connector.py` act
 unless `--dry-run` is supplied. `delete_connector.py` and `delete_skill.py`
@@ -141,6 +141,7 @@ use POST; HTTP method alone does not determine whether an operation writes.
 | `review_topic.py` | A finished topic, offline: six integrity checks, a seventh warning about the profile snapshot, review verdicts, gaps, and cost. | 0 nothing wrong |
 | `measure_window.py` | What a send window costs in memory and fill time. | 0 always |
 | `discover_endpoints.py` | Record what endpoints the page calls, and with `--bodies` what they sent. | 0 always |
+| `dedicated_browser.py` | The browser window a send attaches to since 2026-10-01: `start`, `run` (foreground, for its systemd user unit), `status [--json PATH]`, `stop`, `unit [--install]`. A separate Chrome profile with a debugging port on 127.0.0.1, logged in once by hand; only sends, Deep research's start and the browser diagnostics use it, everything else stays HTTP. | 0 done, 1 the browser did not start, answer or stop, 2 bad arguments |
 
 `_common.py` holds only session bootstrap, table formatting and the
 name-or-substring lookup the commands that take a name share.
@@ -396,7 +397,9 @@ composer wait ran into (event `challenge-page`), and `preflight.py
 --browser` then offers the profile fix. Nothing in this skill solves, waits
 out or evades the challenge, and nothing will.
 
-Since 2026-10-01 a fresh profile per window is the default
+Since 2026-10-01 a send attaches to the dedicated browser window first
+("Sending through the dedicated browser window"); what follows is the
+scripted fallback. A fresh profile per window is its default
 (`RP_BROWSER_PROFILE=<dir>` keeps a persistent one, which saves the bundle
 fetch between windows), and after any refusal no scripted window opens for
 `RP_BROWSER_COOLDOWN_SECONDS` (1800 s; 0 disables): `BrowserSender` reports
@@ -428,6 +431,51 @@ event naming the statuses, because the page draws the user's bubble and a
 post (F-2026-10-01-23). That shape means Cloudflare is refusing the
 scripted window's requests, not that the account is blocked: the skill's
 HTTP reads and the user's own Chrome worked in the same minute.
+
+## Sending through the dedicated browser window
+
+Since 2026-10-01 a send does not open a window of its own first. It
+attaches over Chrome's debugging protocol to the **dedicated browser**: a
+Chrome on this machine with its own profile
+(`~/.local/share/chatgpt-web-operations/chrome`) and a debugging port on
+`127.0.0.1:9222`, started like any other program, logged in to chatgpt.com
+once by hand, and kept alive by a systemd user unit. Cloudflare then sees a
+normally launched browser carrying a human's login, not a Playwright-launched
+window: measured 2026-10-01 11:43, every handshake 200 and the reply in 10 s,
+while the scripted window had every handshake refused the same hour
+(`VERIFICATION.md`; `references/failure-atlas.md`, F-2026-10-01-23). Only
+what needs a browser goes this way: a send, Deep research's `start`, and the
+browser diagnostics (`preflight --browser`, `measure_window`,
+`discover_endpoints`, `health --browser`). Every read and every other write
+stays HTTP, as before.
+
+```bash
+python3 $S/dedicated_browser.py start            # one window on chatgpt.com; log in once
+python3 $S/dedicated_browser.py status           # Chrome/154 at 127.0.0.1:9222, its tabs
+python3 $S/dedicated_browser.py unit --install   # keep it alive (systemd --user)
+python3 $S/preflight.py --browser                # "... through the dedicated browser at ..."
+```
+
+What a send does there: one new tab; the composer filled, the button
+clicked, the handshake and `f/conversation` watched exactly as before; the
+tab closed at the end. The window and the owner's own tab stay. No cookie is
+injected (the profile holds the login) and no display is started. Routes
+(the request blocking and the effort/model rewrite) go on the send's own
+tab only. `RP_BROWSER_CDP` chooses: unset or `auto` attaches when the window
+answers and falls back to the scripted Xvfb window otherwise -- which
+Cloudflare refuses at the time of writing, so preflight's host check
+"dedicated browser" blocks when the window is down; `off` never attaches; a
+URL names another endpoint.
+
+Limits. The window has to exist, on the desktop of this machine's only user
+(another workspace is fine); the login expires like any other and is
+renewed by hand in that window; a tab appears and disappears per send; the
+window is driven for nothing else. Chrome 136 and later ignore the debugging
+switches on the default profile, which is why this is a separate profile
+and never the owner's own Chrome. Nothing here solves or evades a
+challenge: if Cloudflare asks the dedicated window to prove a human, the
+owner answers in it, and until then a send reports `challenge-page` or
+`handshake-refused` as before.
 
 ## Reasoning effort is a setting; know which one a send will use
 
@@ -614,6 +662,7 @@ probe script run by hand is how a second window appears.
     RP_MAX_BROWSERS=1  RP_BROWSER_MAX_SECONDS=1500
     RP_MIN_AVAILABLE_MB=4000  RP_BROWSER_WAIT_SECONDS=900
     RP_BROWSER_PROFILE=  RP_BROWSER_COOLDOWN_SECONDS=1800
+    RP_BROWSER_CDP=auto  RP_DEDICATED_PORT=9222
 
 Refusing to open is correct: a window opened into swap makes every Playwright
 call time out, so the send fails anyway and the host suffers. The lifetime
@@ -622,8 +671,10 @@ blocks its owner thread. Only processes carrying one of the skill's own
 markers (Playwright's temporary profile path, or the profile named by
 `RP_BROWSER_PROFILE`) are ever killed.
 
-**The window never appears on your desktop.** A send draws its window on an
-Xvfb display nobody looks at: inside the send `DISPLAY` names that server,
+**The scripted window never appears on your desktop** (the dedicated browser
+window does, by design; see "Sending through the dedicated browser
+window"). A scripted send draws its window on an Xvfb display nobody looks
+at: inside the send `DISPLAY` names that server,
 the Wayland and GTK variables are removed or pinned to X11, and Chrome is
 launched with `--ozone-platform=x11`, so it cannot pick the desktop's
 compositor. Right after launch the sender checks where the window went and

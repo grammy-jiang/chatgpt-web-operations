@@ -307,6 +307,39 @@ def browser_cooldown_check(
     )
 
 
+def dedicated_browser_check(mode: str, url: str, probe: Any) -> dict[str, Any]:
+    """The dedicated browser a send attaches to (``cc.cdp_endpoint``; SKILL.md,
+    "Sending through the dedicated browser window"). ``mode`` is
+    ``cc.CDP_MODE`` ("off", "auto" or a URL), ``url`` the default endpoint,
+    ``probe`` ``cc.dedicated_browser_version``."""
+    chosen = mode.strip()
+    if chosen.lower() == "off":
+        return check(
+            "host",
+            "dedicated browser",
+            "ok",
+            "RP_BROWSER_CDP=off: sends use the scripted window",
+        )
+    endpoint = url if chosen.lower() == "auto" else chosen
+    version = probe(endpoint)
+    if version:
+        return check(
+            "host",
+            "dedicated browser",
+            "ok",
+            f"{version.get('Browser', 'a browser')} answers at {endpoint}; a send "
+            "attaches to it and opens one tab",
+        )
+    return check(
+        "host",
+        "dedicated browser",
+        "block",
+        f"nothing answers at {endpoint}; a send would use the scripted window, "
+        "which Cloudflare refused on 2026-10-01",
+        DEDICATED_FIX,
+    )
+
+
 def host_checks(cc: Any, workdir: Path | None) -> list[dict[str, Any]]:
     checks = [
         memory_check(cc.available_mb(), cc.MIN_AVAILABLE_MB),
@@ -323,6 +356,9 @@ def host_checks(cc: Any, workdir: Path | None) -> list[dict[str, Any]]:
         ),
         fetch_keyring_bus(cc),
         browser_cooldown_check(*cc.cooldown_remaining(), cc.COOLDOWN_SECONDS),
+        dedicated_browser_check(
+            cc.CDP_MODE, cc.DEDICATED_URL, cc.dedicated_browser_version
+        ),
     ]
     if workdir is not None:
         free = shutil.disk_usage(_existing_ancestor(workdir)).free
@@ -746,6 +782,12 @@ REFUSED_FIX = (
     "loads: not the account (probe_account.py reads), not the login. Wait for the "
     "cool-down, then one window at a time; never solve or evade the check"
 )
+DEDICATED_FIX = (
+    "start the dedicated browser: python3 scripts/dedicated_browser.py start, "
+    "then log in to chatgpt.com in its window once (or enable its systemd user "
+    "unit: dedicated_browser.py unit --install); until then a send uses the "
+    "scripted window, which Cloudflare refused on 2026-10-01"
+)
 WORK_FIX = (
     "the page opened on the Work surface and the Chat/Work toggle could not "
     "switch it back: open chatgpt.com in this machine's own browser, press Chat, "
@@ -808,6 +850,7 @@ def browser_composer_check(
     try:
         with cc.BrowserSender(browser) as sender:
             url = sender.probe_composer()
+            attached = getattr(sender, "attached_to", "")
             if snapshot_dir:
                 try:
                     facts = sender.snapshot_page(snapshot_dir)
@@ -827,9 +870,10 @@ def browser_composer_check(
         elif "Work surface" in detail:
             fix = WORK_FIX
         return check("browser", "composer", "block", detail, fix)
+    where = f" through the dedicated browser at {attached}" if attached else ""
     detail = (
-        f"the composer appeared at {url}; a send would not be blocked by a "
-        "logged-out or challenged session"
+        f"the composer appeared at {url}{where}; a send would not be blocked by "
+        "a logged-out or challenged session"
     )
     if not snapshot_dir:
         return check("browser", "composer", "ok", detail)

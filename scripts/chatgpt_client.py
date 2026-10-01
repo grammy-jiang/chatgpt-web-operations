@@ -655,6 +655,60 @@ def profile_dir_from(value: str | None) -> Path | None:
 
 
 PROFILE_DIR = profile_dir_from(os.environ.get("RP_BROWSER_PROFILE"))
+
+# The dedicated browser (2026-10-01): a Chrome the owner launches with its own
+# profile and a debugging port on 127.0.0.1, logs in to once by hand, and
+# keeps alive (scripts/dedicated_browser.py, its systemd user unit). A send
+# attaches to it over CDP and opens one tab, so the browser Cloudflare sees is
+# a normally launched one carrying a human's login, not a Playwright-launched
+# window: measured 2026-10-01 11:43, every handshake 200 and the reply in
+# 10 s, while the scripted window had every handshake refused the same hour.
+# Only what needs a browser goes this way -- a send, Deep research's start,
+# the browser diagnostics; every read and every other write stays HTTP.
+# RP_BROWSER_CDP: unset or "auto" attaches when the dedicated browser answers
+# and uses the scripted window otherwise; "off" never attaches; a URL names
+# another debugging endpoint.
+DEDICATED_PORT = int(os.environ.get("RP_DEDICATED_PORT", "9222"))
+DEDICATED_URL = f"http://127.0.0.1:{DEDICATED_PORT}"
+DEDICATED_PROFILE_DIR = Path(
+    os.environ.get("RP_DEDICATED_PROFILE_DIR")
+    or "~/.local/share/chatgpt-web-operations/chrome"
+).expanduser()
+CDP_MODE = os.environ.get("RP_BROWSER_CDP", "").strip() or "auto"
+
+
+def dedicated_browser_version(
+    url: str = DEDICATED_URL, timeout: float = 3.0
+) -> dict[str, Any] | None:
+    """``GET <url>/json/version`` of a Chrome debugging endpoint on this
+    machine (``Browser``, ``User-Agent``, ...), or None when nothing answers
+    there. Local only; never a credential."""
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(
+            f"{url.rstrip('/')}/json/version", timeout=timeout
+        ) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def cdp_endpoint(mode: str | None = None, probe: Any = None) -> str:
+    """The debugging endpoint a send attaches to, or "" for the scripted
+    window. ``mode`` defaults to ``CDP_MODE``: "off" never attaches, "auto"
+    attaches when ``probe`` (default ``dedicated_browser_version``) finds
+    the dedicated browser at ``DEDICATED_URL``, anything else is a URL."""
+    chosen = (CDP_MODE if mode is None else mode).strip()
+    if chosen.lower() == "off":
+        return ""
+    if chosen.lower() == "auto":
+        check = dedicated_browser_version if probe is None else probe
+        return DEDICATED_URL if check(DEDICATED_URL) else ""
+    return chosen
+
+
 DISK_CACHE_BYTES = int(os.environ.get("RP_DISK_CACHE_BYTES", str(256 * 1024**2)))
 PAGE_LOAD_MS = int(os.environ.get("RP_PAGE_LOAD_MS", "150000"))
 # Playwright launches Chrome with its own temporary profile. Matching on that
@@ -2498,6 +2552,9 @@ class BrowserSender:
         # own click, like the two above.
         self._handshake_refusals: list[tuple[str, int]] = []
         self._watched_page: Any = None
+        # The debugging endpoint this window is attached to (cdp_endpoint),
+        # or "" when it is a scripted window of our own.
+        self.attached_to: str = ""
         self._stack = contextlib.ExitStack()
         self.page: Any = None
         # Playwright's sync objects may only be used from the thread that
@@ -2572,6 +2629,56 @@ class BrowserSender:
     def _open(self) -> None:
         from playwright.sync_api import sync_playwright
 
+        # rewrite_send_body only has work to do when one of these is set;
+        # block_unused must not be handed a hook otherwise, or every send
+        # (even one pinning nothing) would pay the extra JSON round trip.
+        rewrites = bool(self.effort or self.model or self.search or self.hints)
+        rewrite = self._rewrite_send_route if rewrites else None
+        endpoint = cdp_endpoint()
+        if endpoint:
+            self._open_attached(sync_playwright, endpoint, rewrite)
+        else:
+            self._open_scripted(sync_playwright, rewrite)
+        if self.record_send_body:
+            self.page.on("request", self._record_request)
+
+    def _open_attached(self, sync_playwright: Any, endpoint: str, rewrite: Any) -> None:
+        """Owner thread only. One tab in the dedicated browser (SKILL.md,
+        "Sending through the dedicated browser window"): attach over CDP,
+        take its default context -- the owner's own profile and login, so
+        no cookie is injected and no display is started -- and open one
+        page. Closing disconnects and closes that one tab; the owner's
+        window and its tabs stay, and the watchdog has no process of ours to
+        kill (``_own_pids`` stays empty). Routes go on the page, never on the
+        context, so the owner's own tab in that window is never blocked or
+        rewritten."""
+        pw = self._stack.enter_context(sync_playwright())
+        browser = pw.chromium.connect_over_cdp(endpoint)
+        # Browser.close on a connected browser disconnects; it never closes
+        # the window it was attached to.
+        self._stack.callback(browser.close)
+        contexts = list(browser.contexts)
+        ctx = (
+            contexts[0]
+            if contexts
+            else browser.new_context(
+                viewport={"width": self.WIDTH, "height": self.HEIGHT}
+            )
+        )
+        self.attached_to = endpoint
+        logger.info(
+            "attached to the dedicated browser at %s (Chrome %s)",
+            endpoint,
+            getattr(browser, "version", "?"),
+        )
+        self.page = ctx.new_page()
+        self._stack.callback(self.page.close)
+        block_unused(self.page, allow_project=bool(self.project), rewrite_send=rewrite)
+
+    def _open_scripted(self, sync_playwright: Any, rewrite: Any) -> None:
+        """Owner thread only. A window of our own on an Xvfb display, with
+        the owner's Chrome cookies injected: the path every send took until
+        2026-10-01, and the fallback when no dedicated browser answers."""
         cs = _helpers()
         if str(HELPERS) not in sys.path:
             sys.path.insert(0, str(HELPERS))
@@ -2581,9 +2688,8 @@ class BrowserSender:
         # The exported jar reaches the context unchanged: effort, model and
         # search never touch a cookie here (measured 2026-09-20: rewriting
         # oai-last-model-config pinned neither the send nor the composer's
-        # own label). What pins them is the route registered below, only
-        # when one of the three is set, which rewrites the f/conversation
-        # POST body in flight (rewrite_send_body / _rewrite_send_route).
+        # own label). What pins them is the route registered below
+        # (rewrite_send_body / _rewrite_send_route).
         cookies = chatgpt_cookies.export(cs.pick_browser(self.browser))
         self._stack.enter_context(virtual_display(self.visible))
         pw = self._stack.enter_context(sync_playwright())
@@ -2594,18 +2700,8 @@ class BrowserSender:
         self._own_pids = scripted_browser_pids() - before
         self._desktop_check()
         ctx.add_cookies(cookies)
-        # rewrite_send_body only has work to do when one of these is set;
-        # block_unused must not be handed a hook otherwise, or every send
-        # (even one pinning nothing) would pay the extra JSON round trip.
-        rewrites = bool(self.effort or self.model or self.search or self.hints)
-        block_unused(
-            ctx,
-            allow_project=bool(self.project),
-            rewrite_send=self._rewrite_send_route if rewrites else None,
-        )
+        block_unused(ctx, allow_project=bool(self.project), rewrite_send=rewrite)
         self.page = ctx.new_page()
-        if self.record_send_body:
-            self.page.on("request", self._record_request)
 
     def _desktop_check(self) -> None:
         """Right after launch: is this window where it belongs, on the Xvfb

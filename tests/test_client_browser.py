@@ -1623,6 +1623,85 @@ def test_enter_opens_no_window_during_the_cooldown(
     assert fake_pw.chromium.launch_persistent_context_calls == []
 
 
+def test_open_attaches_to_the_dedicated_browser_and_opens_one_tab(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    """2026-10-01: when the dedicated browser answers, a send attaches to it
+    over CDP, takes the window's own context (no cookie injected, no
+    display started, no process of ours to kill), opens one tab, routes on
+    that tab only, and on exit closes the tab and disconnects -- the
+    owner's window and tabs stay."""
+    monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "http://127.0.0.1:9222")
+    ctx = fp.BrowserContext()
+    browser = fp.Browser()
+    browser.contexts = [ctx]
+    fake_pw.chromium.connect_result = browser
+    sender = make_sender(project="g-p-x")
+
+    with sender:
+        assert fake_pw.chromium.connect_over_cdp_calls == ["http://127.0.0.1:9222"]
+        assert fake_pw.chromium.launch_calls == []
+        assert fake_pw.chromium.launch_persistent_context_calls == []
+        assert sender.attached_to == "http://127.0.0.1:9222"
+        assert sender._own_pids == set()
+        assert ctx.cookies is None
+        assert ctx.routes == []
+        page = sender.page
+        assert [pattern for pattern, _ in page.routes] == [
+            "**/backend-api/**",
+            "**/ces/v1/**",
+        ]
+        assert ctx.pages == [page]
+
+    assert page.closed is True
+    assert browser.closed is True
+    assert _events() == []
+
+
+def test_open_uses_a_new_context_when_the_attached_browser_offers_none(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "http://127.0.0.1:9222")
+    browser = fp.Browser()
+    fake_pw.chromium.connect_result = browser
+    sender = make_sender()
+    with sender:
+        assert browser.calls[0][1] == "new_context"
+        assert sender.page is browser.new_context_result.pages[0]
+
+
+def test_open_falls_back_to_the_scripted_window_when_nothing_answers(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "")
+    sender = make_sender()
+    with sender:
+        assert fake_pw.chromium.connect_over_cdp_calls == []
+        opened = len(fake_pw.chromium.launch_calls) + len(
+            fake_pw.chromium.launch_persistent_context_calls
+        )
+        assert opened == 1
+        assert sender.attached_to == ""
+
+
+def test_cdp_endpoint_reads_off_auto_and_a_url() -> None:
+    alive = {"Browser": "Chrome/154.0.8037.92"}
+    assert cc.cdp_endpoint("off", probe=lambda url: alive) == ""
+    assert cc.cdp_endpoint("auto", probe=lambda url: alive) == cc.DEDICATED_URL
+    assert cc.cdp_endpoint("auto", probe=lambda url: None) == ""
+    assert cc.cdp_endpoint(" OFF ", probe=lambda url: alive) == ""
+    assert (
+        cc.cdp_endpoint("http://127.0.0.1:9333", probe=lambda url: None)
+        == "http://127.0.0.1:9333"
+    )
+
+
+def test_dedicated_browser_version_is_none_when_nothing_answers() -> None:
+    """The T0 socket guard refuses the connection; a refused or absent
+    endpoint is None, never an error."""
+    assert cc.dedicated_browser_version("http://127.0.0.1:1", timeout=0.2) is None
+
+
 def test_a_missing_composer_behind_the_challenge_is_its_own_event(make_sender):
     """The three-day ALERT of 2026-09-29 to 2026-10-01: the page was
     Cloudflare's challenge, recorded as ``composer-missing`` like a logged
