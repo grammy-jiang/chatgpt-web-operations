@@ -284,5 +284,22 @@
       "test_live_cleanup_wiring.py::test_a_provisional_id_is_never_deleted"
     ],
     "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-26",
+    "title": "the shared browser profile kept Cloudflare's refusal alive and nothing stopped the next window from running into it",
+    "atlas": "A shared browser profile kept the refusal alive",
+    "fix": "93e0f17",
+    "tests": [
+      "test_client_browser.py::test_profile_dir_from_reads_unset_and_empty_as_a_fresh_profile",
+      "test_client_browser.py::test_the_cooldown_is_noted_read_back_and_expires",
+      "test_client_browser.py::test_the_cooldown_is_off_at_zero_and_ignores_a_damaged_record",
+      "test_client_browser.py::test_enter_opens_no_window_during_the_cooldown",
+      "test_client_browser.py::test_a_missing_composer_on_a_logged_in_page_starts_the_cooldown",
+      "test_preflight.py::test_browser_cooldown_check_blocks_while_the_cooldown_runs",
+      "test_preflight.py::test_browser_composer_check_names_the_cooldown_and_its_end",
+      "test_page_snapshot.py::test_find_composer_names_the_refused_requests_on_a_logged_in_page"
+    ],
+    "removed_and_failed": "2026-10-01"
   }
 ]

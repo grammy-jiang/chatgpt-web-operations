@@ -70,21 +70,37 @@ research, then `measure_window.py`, `discover_endpoints.py` and `health.py
 --browser --record-shapes`, then `clean_chats.py --project <sandbox>
 --delete --backup DIR --apply`.
 
+## The follow-up, same day (F-2026-10-01-26)
+
+The owner asked for the shared-profile problem to be fixed. What changed,
+committed the same day:
+
+- A fresh profile per window is the default; `RP_BROWSER_PROFILE=<dir>` opts
+  into a persistent one. The daily and weekly wrappers in `~/.local/bin` set
+  no profile, so they follow the default without a change. The stale shared
+  profile was renamed `/tmp/rp-browser-profile.stale-20261001` (174 MB; the
+  owner may delete it).
+- After a refusal (`challenge-page`, `handshake-refused`, or a logged-in
+  page whose composer never renders) no scripted window opens for
+  `RP_BROWSER_COOLDOWN_SECONDS` (1800 s; 0 disables). `BrowserSender`
+  refuses with the time the cool-down ends and status 429; `preflight.py`
+  and `health.py` report it as the host check "browser cool-down"; the
+  record is `~/.local/state/chatgpt-web-operations/browser-refusal.json`.
+- `find_composer` names the third shape of the refusal, a logged-in page
+  without a composer, instead of "logged out or challenged".
+
+Not changed, and still the owner's: whether Cloudflare's refusal of this
+host's scripted Chrome is per window or per host (one `preflight.py
+--browser` after a quiet hour, then one a day, settles it: the events file
+and the refusal record keep the answers); `binnacle-jobs`, which failed
+every send on 2026-09-30 for the reasons above and now gets a fast,
+named failure plus the cool-down instead of eleven retries.
+
 ## What the owner decides
 
-- The shared profile `/tmp/rp-browser-profile` has been challenged on every
-  open since 2026-09-29. Removing it, or exporting `RP_BROWSER_PROFILE=` in
-  `~/.local/bin/chatgpt-ops-check.sh` and `chatgpt-ops-send-check.sh`, is
-  the operator's call; this session changed neither, and the daily browser
-  check will keep reading ALERT until one of them happens or Cloudflare's
-  opinion of the profile changes.
-- Fresh profiles were refused too from 10:05 on, after seven scripted
-  windows in forty minutes; whether that is a per-window score or a per-host
-  one is not established. The client now reports it exactly
-  (`handshake-refused`, `challenge-page`, `work-surface`), and nothing in
-  it solves, waits out or evades a challenge.
-- `binnacle-jobs` (the other consumer on this host) failed every send on
-  2026-09-30 for the two reasons above; it was not changed.
+- Whether to delete `/tmp/rp-browser-profile.stale-20261001`.
+- When to retry `make live-send` and the browser acceptance sends: after a
+  quiet period, one window at a time, with `preflight.py --browser` first.
 
 Raw evidence (logs, the instrumented send's request log and screenshots,
 the recordings before promotion) was kept in the session's scratchpad under

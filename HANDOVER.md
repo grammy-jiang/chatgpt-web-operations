@@ -118,8 +118,10 @@ composer wait names the challenge page; `page_snapshot` records the toggle;
 the daily comparison warns on the composer's label and the toggle. The
 composer fixture was re-recorded on a fresh profile and promoted, with a
 hand-written Work page beside it. Every live tier of this day ran with
-`RP_BROWSER_PROFILE=`; the shared profile was left for the owner to reset
-or retire (the daily and weekly wrappers still use it). Then the fresh
+`RP_BROWSER_PROFILE=`; later the same day a fresh profile per window became
+the default, a refusal starts a cool-down of 1800 s, the logged-in
+no-composer shape is named, and the stale shared profile was renamed
+(F-2026-10-01-26; the wrappers set no profile and follow the default). The fresh
 profiles were refused as well: from 10:05 every scripted send's handshake
 (sentinel, `conversation/init`, `f/conversation/prepare`) was answered 403
 while the page still drew the bubble, so T4 failed and the client took the

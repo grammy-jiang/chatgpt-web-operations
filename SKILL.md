@@ -394,8 +394,21 @@ a fresh profile (`RP_BROWSER_PROFILE=`, one per window) and the user's own
 Chrome all passed. `find_composer` names that page when it is what the
 composer wait ran into (event `challenge-page`), and `preflight.py
 --browser` then offers the profile fix. Nothing in this skill solves, waits
-out or evades the challenge, and nothing will; switching to a fresh profile
-or removing the shared one is the operator's decision.
+out or evades the challenge, and nothing will.
+
+Since 2026-10-01 a fresh profile per window is the default
+(`RP_BROWSER_PROFILE=<dir>` keeps a persistent one, which saves the bundle
+fetch between windows), and after any refusal no scripted window opens for
+`RP_BROWSER_COOLDOWN_SECONDS` (1800 s; 0 disables): `BrowserSender` reports
+the time the cool-down ends with status 429, `preflight.py` shows it as the
+host check "browser cool-down", and the refusal is one record in
+`~/.local/state/chatgpt-web-operations/browser-refusal.json`
+(F-2026-10-01-26). The refusal has three shapes, each its own event: the
+challenge page (`challenge-page`), a refused send handshake
+(`handshake-refused`, F-2026-10-01-23), and a logged-in page whose composer
+never renders (`composer-missing` with `logged_in: true`). In every shape
+the account is fine: `probe_account.py` reads, and the user's own Chrome
+sends. Wait for the cool-down, then one window at a time.
 
 **A send is judged by its own request.** The sender counts a message as
 posted when the page's `f/conversation` POST is answered 2xx, when a new
@@ -600,13 +613,14 @@ probe script run by hand is how a second window appears.
 
     RP_MAX_BROWSERS=1  RP_BROWSER_MAX_SECONDS=1500
     RP_MIN_AVAILABLE_MB=4000  RP_BROWSER_WAIT_SECONDS=900
+    RP_BROWSER_PROFILE=  RP_BROWSER_COOLDOWN_SECONDS=1800
 
 Refusing to open is correct: a window opened into swap makes every Playwright
 call time out, so the send fails anyway and the host suffers. The lifetime
 ceiling is enforced by SIGKILL, not `close()`, because a hung Playwright call
 blocks its owner thread. Only processes carrying one of the skill's own
-markers (Playwright's temporary profile path, or the shared profile
-`/tmp/rp-browser-profile`) are ever killed.
+markers (Playwright's temporary profile path, or the profile named by
+`RP_BROWSER_PROFILE`) are ever killed.
 
 **The window never appears on your desktop.** A send draws its window on an
 Xvfb display nobody looks at: inside the send `DISPLAY` names that server,

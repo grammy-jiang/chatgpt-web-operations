@@ -34,8 +34,9 @@ rule that prevents it is written next to it.
 
 - One `send_prompt.py` call per chat:
   `--project g-p-<id> --effort extended --no-wait --attach ... --json <file>`.
-- **Use a fresh browser profile per window when windows run in parallel:**
-  `RP_BROWSER_PROFILE=` (empty). On 2026-09-29 the shared profile
+- **A fresh browser profile per window is the default since 2026-10-01**
+  (`RP_BROWSER_PROFILE=<dir>` opts into a persistent one; atlas
+  F-2026-10-01-26). On 2026-09-29 the shared profile
   `/tmp/rp-browser-profile` stayed in a Cloudflare Turnstile loop and the
   user's clicks on the check did not help; fresh profiles sent at once. From
   2026-09-29 to 2026-10-01 the shared profile was challenged on every open,
@@ -48,8 +49,10 @@ rule that prevents it is written next to it.
   (sentinel, `conversation/init`, `f/conversation/prepare`) answered 403
   while the user's own Chrome and the skill's HTTP reads worked; the page
   still drew the bubble. The send now stops with that event instead of a
-  placeholder id (atlas F-2026-10-01-23). Do not retry in a loop; wait,
-  check `probe_account.py`, and send again later with one window.
+  placeholder id (atlas F-2026-10-01-23), and no scripted window opens for
+  the next `RP_BROWSER_COOLDOWN_SECONDS` (1800 s): a send then fails at
+  once with the time the cool-down ends. Do not retry in a loop; check
+  `probe_account.py`, and send again after the cool-down with one window.
 - **A send belongs to the Chat surface.** Since 2026-10-01 the client
   presses Chat on the page's Chat/Work toggle before it fills, and refuses a
   page that stays on Work (`work-surface` event, atlas F-2026-10-01-20). On

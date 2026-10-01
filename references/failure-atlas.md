@@ -702,6 +702,30 @@ The rules that came out of them are in `worker-rounds.md`.
   `WEB:` ids; the T4 tests of 2026-10-01 handed it the page's own
   placeholder, and the guard refused the PATCH ("outside the sandbox") on
   top of the real failure. It skips both placeholders now.
+- **(F-2026-10-01-26) A shared browser profile kept the refusal alive, and
+  nothing kept the next window from running into it.** The shared profile
+  `/tmp/rp-browser-profile` was the default from 2026-09-20 (one bundle
+  fetch per night instead of one per window) and carried its state across
+  windows: the Turnstile loop of 2026-09-28, the Work surface of 2026-09-30,
+  the challenge page of 2026-09-29 to 2026-10-01. Fresh profiles carried
+  none of it; on 2026-10-01 they were refused only after seven windows in
+  forty minutes, and binnacle-jobs had retried eleven times into the same
+  wall on 2026-09-30. What changed: a fresh profile per window is the
+  default (`RP_BROWSER_PROFILE=<dir>` opts into a persistent one, and the
+  daily and weekly wrappers set none, so they follow the default); after a
+  refusal (`challenge-page`, `handshake-refused`, or a logged-in page whose
+  composer never renders, `composer-missing` with `logged_in`) no scripted
+  window is opened for `RP_BROWSER_COOLDOWN_SECONDS` (1800 s; 0 disables):
+  `BrowserSender` refuses with the time the cool-down ends and status 429,
+  preflight's host group reports "browser cool-down", and the refusal is one
+  record in `~/.local/state/chatgpt-web-operations/browser-refusal.json`;
+  `find_composer` names the logged-in shape (`REFUSED_REASON`,
+  `LOGGED_IN_SELECTOR`). The stale shared profile was renamed
+  `/tmp/rp-browser-profile.stale-20261001`, not reused. The lesson: state
+  that outlives a window should not be shared by default, and after a
+  refusal the correct move is to stop, say until when, and not try again at
+  once. None of this makes a window acceptable to Cloudflare; it stops the
+  skill from making things worse and names what happened.
 
 ## Re-validation after the Work surface, 2026-10-01
 
