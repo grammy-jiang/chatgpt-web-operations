@@ -496,6 +496,11 @@ EFFORTS = ("min", "standard", "extended", "max")
 # ``last_used_model_config.web``, the "Medium"/"High"/"Extra High" presets)
 # takes every level in EFFORTS. ``--model`` still wins when given.
 EFFORT_MODEL = "gpt-5-6-thinking"
+# The two body fields the page sets together when its picker holds a model
+# other than the account's default ("one-off override"). The server ignores
+# a ``thinking_effort`` on a body that carries ``one_off_model_override:
+# true`` (measured 2026-10-01, F-2026-10-01-31), so a pin removes both.
+ONE_OFF_FIELDS = ("requested_default_model", "one_off_model_override")
 
 
 def takes_effort(model: str) -> bool:
@@ -557,11 +562,26 @@ def rewrite_send_body(
     for Deep research. Returns ``body`` itself, unchanged, when ``effort``,
     ``model``, ``search`` and ``hints`` are all blank/false/empty: nothing to
     rewrite, so nothing is copied.
+
+    An effort or model pin also drops the page's ``requested_default_model``
+    and ``one_off_model_override`` (``ONE_OFF_FIELDS``). The page sets the
+    two together when its picker holds a model other than the account's
+    default -- the "Instant" position a fresh dedicated profile starts on
+    builds ``model: "gpt-5-6"``, ``requested_default_model:
+    "gpt-5-6-thinking"``, ``one_off_model_override: true`` and no
+    ``thinking_effort`` at all. Measured 2026-10-01 through the dedicated
+    window (F-2026-10-01-31): the same body with ``thinking_effort``
+    pinned came back with no effort recorded while the two fields were on
+    it, and with the pinned level once they were not. A search or a hint
+    alone leaves them, because the page's own model is then what is sent.
     """
     hint_list = list(hints)
     if not effort and not model and not search and not hint_list:
         return body
     out = dict(body)
+    if effort or model:
+        for field in ONE_OFF_FIELDS:
+            out.pop(field, None)
     if effort:
         out["thinking_effort"] = effort
         # An effort on a model that takes none is dropped by the server

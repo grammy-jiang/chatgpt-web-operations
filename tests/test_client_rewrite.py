@@ -117,6 +117,39 @@ def test_effort_on_a_model_that_takes_none_moves_the_model_too() -> None:
     assert untouched["model"] == "gpt-5-6"
 
 
+def test_a_pin_drops_the_page_s_one_off_override_fields() -> None:
+    """2026-10-01, through the dedicated window (F-2026-10-01-31): a body
+    carrying ``one_off_model_override: true`` had its pinned
+    ``thinking_effort`` ignored (the reply recorded none), the same body
+    without ``requested_default_model`` / ``one_off_model_override``
+    recorded the level. An effort or model pin drops both; a search or hint
+    alone leaves them, since the page's own model is then what is sent."""
+    instant = _body(
+        model="gpt-5-6",
+        requested_default_model="gpt-5-6-thinking",
+        one_off_model_override=True,
+    )
+    del instant["thinking_effort"]
+    pinned = cc.rewrite_send_body(instant, effort="standard", model="", search=False)
+    assert "requested_default_model" not in pinned
+    assert "one_off_model_override" not in pinned
+    assert pinned["model"] == cc.EFFORT_MODEL
+    assert pinned["thinking_effort"] == "standard"
+    by_model = cc.rewrite_send_body(
+        instant, effort="", model="gpt-5-6-instant", search=False
+    )
+    assert "requested_default_model" not in by_model
+    assert "one_off_model_override" not in by_model
+    assert by_model["model"] == "gpt-5-6-instant"
+    searched = cc.rewrite_send_body(instant, effort="", model="", search=True)
+    assert searched["one_off_model_override"] is True
+    assert searched["requested_default_model"] == "gpt-5-6-thinking"
+    # the page's own body is never mutated
+    assert instant["one_off_model_override"] is True
+    assert instant["requested_default_model"] == "gpt-5-6-thinking"
+    assert cc.ONE_OFF_FIELDS == ("requested_default_model", "one_off_model_override")
+
+
 def test_takes_effort_knows_the_catalog_s_shapes() -> None:
     assert cc.takes_effort("gpt-5-6-thinking")
     assert cc.takes_effort("gpt-6-pro")
