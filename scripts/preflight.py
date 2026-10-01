@@ -592,11 +592,24 @@ def account_checks(session: Any) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
+DEFAULT_RULE_FIX = (
+    "python3 scripts/model_settings.py --default below-pro --apply sets the "
+    "account's web default to the preset one position below Pro (the owner's "
+    'rule of 2026-10-01; SKILL.md, "Reasoning effort")'
+)
+
+
 def model_effort_check(
-    config: dict[str, str], preset: dict[str, Any] | None, total_presets: int
+    config: dict[str, str],
+    preset: dict[str, Any] | None,
+    total_presets: int,
+    rule: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Always ok: informational, and this is what a send inherits when
-    nothing pins an explicit --effort/--model."""
+    """What a send inherits when nothing pins an explicit --effort/--model.
+    Informational, except that ``rule`` -- the preset the owner's rule picks
+    (``model_settings.below_pro_preset``) -- turns it into a warn when the
+    record has drifted from it, with the command that sets it back. Never a
+    block: a send still works at any preset."""
     model = config.get("model") or "-"
     effort = config.get("effort") or "-"
     where = (
@@ -604,12 +617,26 @@ def model_effort_check(
         if preset
         else "matches no preset"
     )
+    detail = (
+        f"model={model} effort={effort} -> {where}; a send without "
+        "--effort/--model inherits this"
+    )
+    if rule is None:
+        return check("run", "model and effort", "ok", detail)
+    wanted = f"{rule['title']!r} ({rule['model']}/{rule['effort']})"
+    if ms.matches(config, rule):
+        return check(
+            "run",
+            "model and effort",
+            "ok",
+            f"{detail}; = the rule's preset {wanted}, one below Pro",
+        )
     return check(
         "run",
         "model and effort",
-        "ok",
-        f"model={model} effort={effort} -> {where}; a send without "
-        "--effort/--model inherits this",
+        "warn",
+        f"{detail}; the rule (one preset below Pro) wants {wanted}",
+        DEFAULT_RULE_FIX,
     )
 
 
@@ -621,7 +648,9 @@ def fetch_model_effort(session: Any) -> dict[str, Any]:
     presets = ms.presets_of(models)
     config = ms.server_config(settings)
     preset = ms.resolve_preset(presets, config["model"], config["effort"])
-    return model_effort_check(config, preset, len(presets))
+    return model_effort_check(
+        config, preset, len(presets), ms.below_pro_preset(presets)
+    )
 
 
 def instructions_memory_check(

@@ -83,8 +83,11 @@ def test_run_group_resolves_what_a_send_inherits(live_session: Any) -> None:
         "custom instructions and memory",
     ]
     model = checks[0]
-    assert model["state"] == "ok"
+    # ok when the account's record is the rule's preset (one below Pro),
+    # warn with the command that sets it when the owner moved the slider
+    assert model["state"] in ("ok", "warn"), model["detail"]
     assert "model=" in model["detail"] and "effort=" in model["detail"]
+    assert "rule" in model["detail"], model["detail"]
     # The account's own record must land on a preset the slider offers; if
     # this ever fails, the presets changed under us (SKILL.md, "Reasoning
     # effort") and model_settings.py is the place to look.

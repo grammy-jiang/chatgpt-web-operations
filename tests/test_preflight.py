@@ -1027,6 +1027,50 @@ def test_model_effort_check_reports_no_match_without_blocking() -> None:
     assert "matches no preset" in c["detail"]
 
 
+def test_model_effort_check_is_ok_when_the_record_is_the_rule_s_preset() -> None:
+    extra_high = {
+        "position": 4,
+        "title": "Extra High",
+        "model": "gpt-5-6-thinking",
+        "effort": "max",
+        "lane": "thinking",
+    }
+    c = preflight.model_effort_check(
+        {"model": "gpt-5-6-thinking", "effort": "max"}, extra_high, 5, extra_high
+    )
+    assert c["state"] == "ok"
+    assert "= the rule's preset 'Extra High'" in c["detail"]
+    assert c["fix"] is None
+
+
+def test_model_effort_check_warns_when_the_record_drifted_from_the_rule() -> None:
+    """The owner's rule (2026-10-01): the default is one preset below Pro.
+    A record elsewhere is a warn with the command that sets it, never a
+    block -- a send works at any preset."""
+    medium = {
+        "position": 2,
+        "title": "Medium",
+        "model": "gpt-5-6-thinking",
+        "effort": "standard",
+        "lane": "thinking",
+    }
+    extra_high = {
+        "position": 4,
+        "title": "Extra High",
+        "model": "gpt-5-6-thinking",
+        "effort": "max",
+        "lane": "thinking",
+    }
+    c = preflight.model_effort_check(
+        {"model": "gpt-5-6-thinking", "effort": "standard"}, medium, 5, extra_high
+    )
+    assert c["state"] == "warn"
+    assert "preset 'Medium'" in c["detail"]
+    assert "wants 'Extra High' (gpt-5-6-thinking/max)" in c["detail"]
+    assert c["fix"] == preflight.DEFAULT_RULE_FIX
+    assert "--default below-pro --apply" in c["fix"]
+
+
 def test_fetch_model_effort_resolves_the_servers_own_record() -> None:
     backend = _Backend(
         {
@@ -1037,6 +1081,8 @@ def test_fetch_model_effort_resolves_the_servers_own_record() -> None:
     c = preflight.fetch_model_effort(_FakeSession(backend))
     assert c["state"] == "ok"
     assert "Extra High" in c["detail"]
+    # the rule is applied too: Extra High is the last effort preset here
+    assert "= the rule's preset 'Extra High'" in c["detail"]
 
 
 def test_fetch_model_effort_tolerates_a_non_dict_response() -> None:

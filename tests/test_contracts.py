@@ -115,6 +115,21 @@ def test_preset_5_changes_the_model_and_carries_no_effort() -> None:
     assert presets[4]["effort"] == ""
 
 
+def test_the_default_rule_picks_the_preset_one_below_pro_on_the_recorded_catalog() -> (
+    None
+):
+    """The owner's rule of 2026-10-01 on the recorded catalog: Pro is the
+    last position (lane ``pro``) and the default is the one before it,
+    "Extra High", the thinking model at ``max``."""
+    presets = model_settings.presets_of(MODELS)
+    assert presets[-1]["lane"] == "pro"
+    rule = model_settings.below_pro_preset(presets)
+    assert rule is not None
+    assert rule["title"] == "Extra High"
+    assert rule["position"] == presets[-1]["position"] - 1
+    assert (rule["model"], rule["effort"]) == (presets[1]["model"], "max")
+
+
 def test_effort_levels_of_lists_the_shared_thinking_model_with_four_levels() -> None:
     presets = model_settings.presets_of(MODELS)
     thinking_model = presets[1]["model"]

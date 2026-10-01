@@ -985,6 +985,115 @@ def test_server_config_effort_is_empty_when_the_web_slug_has_none_remembered() -
     }
 
 
+def test_below_pro_preset_is_the_last_thinking_preset_before_pro() -> None:
+    """The owner's rule (2026-10-01): Pro has a limited quota, so the default
+    is the preset one position below it -- "Extra High" on this catalog."""
+    presets = model_settings.presets_of(MODELS_PAYLOAD)
+    rule = model_settings.below_pro_preset(presets)
+    assert rule is not None
+    assert (rule["title"], rule["model"], rule["effort"]) == (
+        "Extra High",
+        "gpt-5-6-thinking",
+        "max",
+    )
+
+
+def test_below_pro_preset_finds_pro_by_lane_and_skips_an_effortless_neighbour() -> None:
+    """A renamed Pro is found by its lane, and a preset without an effort
+    sitting right below it is skipped: the rule names a level, not a slot."""
+    presets = [
+        {
+            "position": 1,
+            "title": "Instant",
+            "model": "x-instant",
+            "effort": "",
+            "lane": "instant",
+        },
+        {
+            "position": 2,
+            "title": "Medium",
+            "model": "x-thinking",
+            "effort": "standard",
+            "lane": "thinking",
+        },
+        {
+            "position": 3,
+            "title": "Heavy",
+            "model": "x-thinking",
+            "effort": "max",
+            "lane": "thinking",
+        },
+        {
+            "position": 4,
+            "title": "Flash",
+            "model": "x-flash",
+            "effort": "",
+            "lane": "instant",
+        },
+        {
+            "position": 5,
+            "title": "Professional",
+            "model": "x-pro",
+            "effort": "",
+            "lane": "pro",
+        },
+    ]
+    rule = model_settings.below_pro_preset(presets)
+    assert rule is not None and rule["title"] == "Heavy"
+
+
+def test_below_pro_preset_without_pro_takes_the_last_effort_preset_or_none() -> None:
+    no_pro = model_settings.presets_of(MODELS_PAYLOAD)[:-1]
+    assert model_settings.below_pro_preset(no_pro)["title"] == "Extra High"
+    effortless = [
+        {"position": 1, "title": "Instant", "model": "x", "effort": "", "lane": ""},
+        {"position": 2, "title": "Pro", "model": "y", "effort": "", "lane": "pro"},
+    ]
+    assert model_settings.below_pro_preset(effortless) is None
+    assert model_settings.below_pro_preset([]) is None
+
+
+def test_choose_default_names_the_rule_a_title_or_a_model_effort_pair() -> None:
+    presets = model_settings.presets_of(MODELS_PAYLOAD)
+    assert model_settings.choose_default("below-pro", presets)["title"] == "Extra High"
+    assert (
+        model_settings.choose_default(" Extra HIGH ", presets)["title"] == "Extra High"
+    )
+    assert (
+        model_settings.choose_default("gpt-5-6-thinking:standard", presets)["title"]
+        == "Medium"
+    )
+    assert model_settings.choose_default("gpt-5-6-thinking:ultra", presets) is None
+    assert model_settings.choose_default("nothing", presets) is None
+
+
+def test_matches_set_default_path_and_rule_line() -> None:
+    presets = model_settings.presets_of(MODELS_PAYLOAD)
+    instant, extra_high = presets[0], presets[2]
+    assert model_settings.matches(
+        {"model": "gpt-5-6-thinking", "effort": "max"}, extra_high
+    )
+    assert not model_settings.matches(
+        {"model": "gpt-5-6-thinking", "effort": "standard"}, extra_high
+    )
+    assert model_settings.matches({"model": "gpt-5-6-instant", "effort": ""}, instant)
+    assert model_settings.set_default_path(extra_high) == (
+        model_settings.SET_DEFAULT + "?model_slug=gpt-5-6-thinking&thinking_effort=max"
+    )
+    assert model_settings.set_default_path(instant) == (
+        model_settings.SET_DEFAULT + "?model_slug=gpt-5-6-instant"
+    )
+    held = model_settings.rule_line(
+        extra_high, {"model": "gpt-5-6-thinking", "effort": "max"}
+    )
+    assert "preset 'Extra High'" in held and "the record matches it" in held
+    drift = model_settings.rule_line(
+        extra_high, {"model": "gpt-5-6-thinking", "effort": "standard"}
+    )
+    assert "the record differs" in drift and "--default below-pro --apply" in drift
+    assert "no preset below Pro" in model_settings.rule_line(None, {})
+
+
 # ---------------------------------------------------------------------------
 # list_chats filters -- pinned is is_starred, project chats hide with snorlax
 # ---------------------------------------------------------------------------

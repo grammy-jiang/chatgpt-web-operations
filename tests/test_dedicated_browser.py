@@ -46,6 +46,7 @@ def test_chrome_args_name_the_profile_the_port_and_the_start_page(tmp_path):
     assert args[1] == f"--user-data-dir={tmp_path / 'p'}"
     assert "--remote-debugging-port=9222" in args
     assert "--no-first-run" in args
+    assert "--disable-extensions" in args  # F-2026-10-01-32
     assert args[-1] == "https://chatgpt.com/"
 
 
@@ -137,6 +138,56 @@ def test_profile_pids_name_the_browser_process_only(monkeypatch, tmp_path) -> No
         ),
     )
     assert db.profile_pids(profile) == [20]
+
+
+def test_browser_processes_read_chrome_s_rewritten_one_string_cmdline(
+    monkeypatch, tmp_path
+) -> None:
+    """A running Chrome rewrites /proc/<pid>/cmdline into one space-joined
+    string (2026-10-01 16:30); the browser is still ours, a renderer in the
+    same shape still is not, and the switch is still seen."""
+    profile = tmp_path / "p"
+    marker = f"--user-data-dir={profile}"
+    browser = (
+        f"/opt/google/chrome/chrome {marker} --remote-debugging-port=9222 "
+        "--disable-extensions --new-window https://chatgpt.com/"
+    )
+    renderer = (
+        f"/opt/google/chrome/chrome --type=renderer {marker} "
+        "--remote-debugging-port=9222"
+    )
+    monkeypatch.setattr(
+        db.cc,
+        "_process_argvs",
+        lambda: iter([(40, [browser, ""]), (41, [renderer, ""])]),
+    )
+    assert db.profile_pids(profile) == [40]
+    assert db.extensions_disabled(profile) is True
+    assert db.argv_tokens(["/usr/bin/google-chrome", marker]) == [
+        "/usr/bin/google-chrome",
+        marker,
+    ]
+
+
+def test_extensions_disabled_reads_the_browser_s_own_argv(
+    monkeypatch, tmp_path
+) -> None:
+    """True when every browser process of ours carries --disable-extensions,
+    False for a window started before the switch existed, None when none of
+    ours runs (the owner's own Chrome never counts)."""
+    profile = tmp_path / "p"
+    marker = f"--user-data-dir={profile}"
+    ours = ["/usr/bin/google-chrome", marker, "--remote-debugging-port=9222"]
+
+    def argvs(rows):
+        monkeypatch.setattr(db.cc, "_process_argvs", lambda: iter(rows))
+
+    argvs([(10, ["/opt/google/chrome/chrome"]), (20, [*ours, "--disable-extensions"])])
+    assert db.extensions_disabled(profile) is True
+    argvs([(20, ours)])
+    assert db.extensions_disabled(profile) is False
+    argvs([(10, ["/opt/google/chrome/chrome", "--disable-extensions"])])
+    assert db.extensions_disabled(profile) is None
 
 
 def test_launch_starts_chrome_detached_with_the_desktop_env(
@@ -371,14 +422,36 @@ def test_profile_extensions_lists_web_store_extensions_only(tmp_path) -> None:
 
 
 def test_status_names_the_profile_s_extensions(monkeypatch, tmp_path, capsys) -> None:
+    """A window started before the switch existed still runs them: status
+    says so and names the restart; the removal advice carries the sync trap."""
     monkeypatch.setattr(db, "version", lambda port: ALIVE)
     monkeypatch.setattr(db, "tabs", lambda port: [])
     monkeypatch.setattr(
         db, "profile_extensions", lambda profile: ["AdBlock", "Clutter Free"]
     )
+    monkeypatch.setattr(db, "extensions_disabled", lambda profile: False)
     record = tmp_path / "status.json"
     assert db.cmd_status(_args(tmp_path, json=str(record))) == 0
     out = capsys.readouterr().out
     assert "2 Web Store extension(s) in the profile (AdBlock, Clutter Free)" in out
+    assert "this window runs them: restart it" in out
     assert "sign it out of Chrome" in out
-    assert json.loads(record.read_text())["extensions"] == ["AdBlock", "Clutter Free"]
+    assert "removes it from the owner's own Chrome too" in out
+    doc = json.loads(record.read_text())
+    assert doc["extensions"] == ["AdBlock", "Clutter Free"]
+    assert doc["extensions_disabled"] is False
+
+
+def test_status_says_no_extension_runs_in_a_window_started_with_the_switch(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    monkeypatch.setattr(db, "version", lambda port: ALIVE)
+    monkeypatch.setattr(db, "tabs", lambda port: [])
+    monkeypatch.setattr(db, "profile_extensions", lambda profile: ["AdBlock"])
+    monkeypatch.setattr(db, "extensions_disabled", lambda profile: True)
+    record = tmp_path / "status.json"
+    assert db.cmd_status(_args(tmp_path, json=str(record))) == 0
+    out = capsys.readouterr().out
+    assert "none of them runs in this window (--disable-extensions)" in out
+    assert "restart it" not in out
+    assert json.loads(record.read_text())["extensions_disabled"] is True

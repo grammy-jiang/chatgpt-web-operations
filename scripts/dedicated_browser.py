@@ -72,13 +72,20 @@ def chrome_binary() -> str:
 def chrome_args(port: int, profile: Path) -> list[str]:
     """The launch line: a non-default profile (Chrome 136+ ignores the
     debugging switches on the default one), the local debugging port, no
-    first-run prompts, one window on chatgpt.com."""
+    first-run prompts, no extensions, one window on chatgpt.com.
+
+    ``--disable-extensions`` since 2026-10-01 evening: a Google login in the
+    window signed Chrome in and synced the owner's extensions into the
+    profile, and a duplicate-tab blocker among them bounced the diagnostics'
+    tabs (F-2026-10-01-32). This window runs none of them; they stay
+    installed until the owner removes them, and ``status`` says both."""
     return [
         chrome_binary(),
         f"--user-data-dir={profile}",
         f"--remote-debugging-port={port}",
         "--no-first-run",
         "--no-default-browser-check",
+        "--disable-extensions",
         "--window-size=1100,900",
         "--new-window",
         START_PAGE,
@@ -157,22 +164,48 @@ def wait_for(port: int, *, up: bool, seconds: float, sleep: Any = time.sleep) ->
         sleep(1.0)
 
 
-def profile_pids(profile: Path) -> list[int]:
-    """PIDs of the Chrome browser process(es) started on ``profile``: the
-    ones whose arguments name its directory and the debugging port, never
-    the owner's own Chrome (a different directory, no such switch)."""
+def browser_processes(profile: Path) -> list[tuple[int, list[str]]]:
+    """``(pid, argv)`` of the Chrome browser process(es) started on
+    ``profile``: the ones whose arguments name its directory and the
+    debugging port, never the owner's own Chrome (a different directory, no
+    such switch) and never a renderer or other helper (``--type=``)."""
     marker = f"--user-data-dir={profile}"
-    found: list[int] = []
+    found: list[tuple[int, list[str]]] = []
     for pid, argv in cc._process_argvs():
-        ours = marker in argv and any(
-            a.startswith("--remote-debugging-port=") for a in argv
+        tokens = argv_tokens(argv)
+        ours = marker in tokens and any(
+            a.startswith("--remote-debugging-port=") for a in tokens
         )
-        helper = any(
-            a.startswith("--type=") for a in argv
-        )  # a renderer, not the browser
+        helper = any(a.startswith("--type=") for a in tokens)
         if ours and not helper:
-            found.append(pid)
+            found.append((pid, tokens))
     return found
+
+
+def argv_tokens(argv: list[str]) -> list[str]:
+    """``argv`` as switches. A running Chrome rewrites its own
+    ``/proc/<pid>/cmdline`` into one space-joined string (measured
+    2026-10-01 16:30: ``['/opt/google/chrome/chrome --user-data-dir=...
+    --remote-debugging-port=9222 ...', '']``), which ``stop`` and ``status``
+    then failed to recognise as ours; an element that carries switches
+    inside is split on whitespace, a plain element is kept whole."""
+    return [t for a in argv for t in (a.split() if " --" in a else [a])]
+
+
+def profile_pids(profile: Path) -> list[int]:
+    """PIDs of the Chrome browser process(es) started on ``profile``."""
+    return [pid for pid, _argv in browser_processes(profile)]
+
+
+def extensions_disabled(profile: Path) -> bool | None:
+    """Whether the browser running on ``profile`` was started with
+    ``--disable-extensions``; None when none of ours runs. A window started
+    before 2026-10-01 evening runs the profile's extensions until it is
+    restarted, which is what ``status`` tells apart."""
+    processes = browser_processes(profile)
+    if not processes:
+        return None
+    return all("--disable-extensions" in argv for _pid, argv in processes)
 
 
 def launch(port: int, profile: Path, *, detached: bool) -> subprocess.Popen[bytes]:
@@ -226,6 +259,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     pages = tabs(args.port) if info else []
     chatgpt_tabs = [t for t in pages if "chatgpt.com" in str(t.get("url", ""))]
     extensions = profile_extensions(args.profile)
+    disabled = extensions_disabled(args.profile) if info else None
     record = {
         "endpoint": endpoint(args.port),
         "running": bool(info),
@@ -234,6 +268,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         "chatgpt_tabs": len(chatgpt_tabs),
         "mode": cc.CDP_MODE,
         "extensions": extensions,
+        "extensions_disabled": disabled,
     }
     if args.json:
         Path(args.json).write_text(
@@ -248,11 +283,18 @@ def cmd_status(args: argparse.Namespace) -> int:
         f"RP_BROWSER_CDP={record['mode']}"
     )
     if extensions:
+        names = f"{', '.join(extensions[:4])}{', ...' if len(extensions) > 4 else ''}"
+        runs = (
+            "none of them runs in this window (--disable-extensions)"
+            if disabled
+            else "this window runs them: restart it (dedicated_browser.py stop; "
+            "the unit starts it again with --disable-extensions)"
+        )
         print(
-            f"{len(extensions)} Web Store extension(s) in the profile "
-            f"({', '.join(extensions[:4])}{', ...' if len(extensions) > 4 else ''}): "
-            "the dedicated profile should have none; sign it out of Chrome (not "
-            "out of chatgpt.com) or remove them (F-2026-10-01-32)"
+            f"{len(extensions)} Web Store extension(s) in the profile ({names}); "
+            f"{runs}. To remove them for good, sign it out of Chrome (not out of "
+            "chatgpt.com) first, or sync brings them back and removing a synced "
+            "extension removes it from the owner's own Chrome too (F-2026-10-01-32)"
         )
     return 0
 

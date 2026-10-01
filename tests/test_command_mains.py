@@ -466,34 +466,100 @@ def _settings_payload(model: str, effort: str) -> dict:
 
 
 class _FakeModelsBackend:
-    """``session.session.call`` over two payloads, matched by path prefix."""
+    """``session.session.call`` over two payloads, matched by path prefix.
+    A PATCH to the slider's endpoint is recorded and, when ``honour`` is
+    set, written into the settings payload the way the server does."""
 
-    def __init__(self, models: dict, settings: dict) -> None:
+    def __init__(
+        self,
+        models: dict,
+        settings: dict,
+        *,
+        honour: bool = True,
+        patch_status: int = 200,
+    ) -> None:
         self.models = models
         self.settings = settings
+        self.honour = honour
+        self.patch_status = patch_status
+        self.calls: list[tuple[str, str]] = []
 
-    def call(self, path: str) -> tuple[int, dict]:
+    def call(
+        self, path: str, method: str = "GET", payload=None, **_kw
+    ) -> tuple[int, dict]:
+        self.calls.append((method, path))
+        if path.startswith(model_settings.SET_DEFAULT):
+            if self.patch_status != 200:
+                return self.patch_status, {"error": "no"}
+            if self.honour:
+                query = dict(
+                    part.split("=", 1) for part in path.split("?", 1)[1].split("&")
+                )
+                model = query["model_slug"]
+                last = self.settings.setdefault("settings", {}).setdefault(
+                    "last_used_model_config", {"slugs": {}, "juices": {}}
+                )
+                last.setdefault("slugs", {})["web"] = model
+                juices = last.setdefault("juices", {}).setdefault("web", {})
+                if "thinking_effort" in query:
+                    juices[model] = query["thinking_effort"]
+                else:
+                    juices.pop(model, None)
+            return 200, {"success": True, "message": None}
         if path.startswith("/backend-api/settings/user"):
             return 200, self.settings
         return 200, self.models
 
 
 class _FakeModelsSession:
-    def __init__(self, models: dict, settings: dict) -> None:
-        self.session = _FakeModelsBackend(models, settings)
+    def __init__(self, models: dict, settings: dict, **kw) -> None:
+        self.session = _FakeModelsBackend(models, settings, **kw)
+
+
+_MODELS_WITH_MEDIUM = {
+    "versions": [
+        {
+            "id": "latest",
+            "intelligence_presets": [
+                {
+                    "id": 0,
+                    "title": "Instant",
+                    "model_slug": "gpt-5-6-instant",
+                    "lane": "instant",
+                },
+                {
+                    "id": 1,
+                    "title": "Medium",
+                    "model_slug": "gpt-5-6-thinking",
+                    "thinking_effort": "standard",
+                    "lane": "thinking",
+                },
+                {
+                    "id": 6,
+                    "title": "Extra High",
+                    "model_slug": "gpt-5-6-thinking",
+                    "thinking_effort": "max",
+                    "lane": "thinking",
+                },
+                {"id": 3, "title": "Pro", "model_slug": "gpt-6-pro", "lane": "pro"},
+            ],
+        }
+    ],
+    "models": _MODELS_PAYLOAD["models"],
+}
 
 
 class _FakeModelsClient:
     EFFORTS = ("min", "standard", "extended", "max")
 
 
-def _wire_model_settings(monkeypatch, *, settings: dict) -> None:
+def _wire_model_settings(
+    monkeypatch, *, settings: dict, models: dict | None = None, **kw
+) -> _FakeModelsSession:
+    fake = _FakeModelsSession(models or _MODELS_PAYLOAD, settings, **kw)
     monkeypatch.setattr(model_settings, "load_client", lambda: _FakeModelsClient())
-    monkeypatch.setattr(
-        model_settings,
-        "open_session",
-        lambda *a, **k: _FakeModelsSession(_MODELS_PAYLOAD, settings),
-    )
+    monkeypatch.setattr(model_settings, "open_session", lambda *a, **k: fake)
+    return fake
 
 
 def test_main_exits_0_and_names_the_preset_when_the_server_record_resolves(
@@ -525,3 +591,126 @@ def test_main_exits_1_when_the_server_record_matches_no_known_preset(
     )
     assert model_settings.main([]) == 1
     assert "matches no preset" in capsys.readouterr().out
+
+
+def test_main_reports_the_rule_and_whether_the_record_matches_it(
+    monkeypatch, capsys
+) -> None:
+    """The report ends with the owner's rule (one preset below Pro) and the
+    verdict on the record; a drift names the command that sets it."""
+    _wire_model_settings(
+        monkeypatch,
+        settings=_settings_payload("gpt-5-6-thinking", "max"),
+        models=_MODELS_WITH_MEDIUM,
+    )
+    assert model_settings.main([]) == 0
+    out = capsys.readouterr().out
+    assert "rule 'below-pro' (one preset below Pro): preset 'Extra High'" in out
+    assert "the record matches it" in out
+    _wire_model_settings(
+        monkeypatch,
+        settings=_settings_payload("gpt-5-6-thinking", "standard"),
+        models=_MODELS_WITH_MEDIUM,
+    )
+    assert model_settings.main([]) == 0
+    out = capsys.readouterr().out
+    assert "preset 'Medium'" in out
+    assert "the record differs; model_settings.py --default below-pro --apply" in out
+
+
+def test_default_dry_run_prints_the_patch_and_sends_nothing(
+    monkeypatch, capsys
+) -> None:
+    fake = _wire_model_settings(
+        monkeypatch,
+        settings=_settings_payload("gpt-5-6-thinking", "standard"),
+        models=_MODELS_WITH_MEDIUM,
+    )
+    assert model_settings.main(["--default", "below-pro"]) == 0
+    out = capsys.readouterr().out
+    assert "default 'below-pro' -> preset 'Extra High'" in out
+    assert (
+        "dry run; --apply would send PATCH /backend-api/settings/"
+        "user_last_used_model_config?model_slug=gpt-5-6-thinking&thinking_effort=max"
+    ) in out
+    assert not [c for c in fake.session.calls if c[0] == "PATCH"]
+
+
+def test_default_apply_patches_the_slider_s_endpoint_and_reads_back(
+    monkeypatch, capsys
+) -> None:
+    fake = _wire_model_settings(
+        monkeypatch,
+        settings=_settings_payload("gpt-5-6-thinking", "standard"),
+        models=_MODELS_WITH_MEDIUM,
+    )
+    assert model_settings.main(["--default", "below-pro", "--apply"]) == 0
+    out = capsys.readouterr().out
+    assert "applied and read back: model=gpt-5-6-thinking effort=max" in out
+    patches = [c for c in fake.session.calls if c[0] == "PATCH"]
+    assert patches == [
+        (
+            "PATCH",
+            "/backend-api/settings/user_last_used_model_config"
+            "?model_slug=gpt-5-6-thinking&thinking_effort=max",
+        )
+    ]
+    # the read-back is a fresh GET after the PATCH, not the earlier payload
+    assert fake.session.calls[-1] == ("GET", model_settings.SETTINGS)
+
+
+def test_default_apply_fails_when_the_record_does_not_follow_or_the_patch_fails(
+    monkeypatch, capsys
+) -> None:
+    _wire_model_settings(
+        monkeypatch,
+        settings=_settings_payload("gpt-5-6-thinking", "standard"),
+        models=_MODELS_WITH_MEDIUM,
+        honour=False,
+    )
+    assert model_settings.main(["--default", "below-pro", "--apply"]) == 1
+    assert "PATCH answered 200 but the record reads" in capsys.readouterr().out
+    _wire_model_settings(
+        monkeypatch,
+        settings=_settings_payload("gpt-5-6-thinking", "standard"),
+        models=_MODELS_WITH_MEDIUM,
+        patch_status=500,
+    )
+    assert model_settings.main(["--default", "below-pro", "--apply"]) == 1
+    assert "HTTP 500" in capsys.readouterr().out
+
+
+def test_default_already_held_sends_nothing_and_a_bad_name_exits_2(
+    monkeypatch, capsys
+) -> None:
+    fake = _wire_model_settings(
+        monkeypatch,
+        settings=_settings_payload("gpt-5-6-thinking", "max"),
+        models=_MODELS_WITH_MEDIUM,
+    )
+    assert model_settings.main(["--default", "below-pro", "--apply"]) == 0
+    assert "already holds it; nothing to send" in capsys.readouterr().out
+    assert not [c for c in fake.session.calls if c[0] == "PATCH"]
+    assert model_settings.main(["--default", "Ultra"]) == 2
+    assert "names no position of the Power slider" in capsys.readouterr().out
+
+
+def test_default_accepts_a_preset_title_or_a_model_effort_pair(
+    monkeypatch, capsys
+) -> None:
+    _wire_model_settings(
+        monkeypatch,
+        settings=_settings_payload("gpt-5-6-thinking", "max"),
+        models=_MODELS_WITH_MEDIUM,
+    )
+    assert model_settings.main(["--default", "medium"]) == 0
+    assert "-> preset 'Medium' (model=gpt-5-6-thinking effort=standard)" in (
+        capsys.readouterr().out
+    )
+    assert model_settings.main(["--default", "gpt-5-6-instant:"]) == 0
+    out = capsys.readouterr().out
+    assert "-> preset 'Instant' (model=gpt-5-6-instant effort=-)" in out
+    assert (
+        "PATCH /backend-api/settings/user_last_used_model_config"
+        "?model_slug=gpt-5-6-instant" in out
+    )
