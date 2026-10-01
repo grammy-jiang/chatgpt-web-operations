@@ -64,6 +64,34 @@ def test_the_cleanup_backs_up_then_deletes_through_the_guarded_session(
     assert [c[2] for c in patches] == [{"is_visible": False}]
 
 
+def test_a_provisional_id_is_never_deleted() -> None:
+    """F-2026-10-01-25: a send that never got its real id handed the page's
+    own ``local-chatgpt:`` placeholder to the teardown, which PATCHed it
+    and tripped the guard on top of the real failure. A placeholder names
+    no server conversation; only a real id is deleted."""
+    from live.minting import delete_sandbox_chat
+
+    calls: list = []
+
+    class Session:
+        def call(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return 200, {}
+
+    for provisional in (
+        "",
+        "WEB:0d4f1c2e-aaaa-4bbb-8ccc-000000000001",
+        "local-chatgpt:1db76ec1-0360-4d93-96c4-b692dcd7ce77",
+    ):
+        delete_sandbox_chat(Session(), provisional)
+    assert calls == []
+
+    delete_sandbox_chat(Session(), "6abda84e-2418-83ec-9644-1be4b7bb082c")
+    assert len(calls) == 1
+    assert calls[0][1]["method"] == "PATCH"
+    assert calls[0][1]["payload"] == {"is_visible": False}
+
+
 def test_a_chat_already_gone_is_not_an_error(tmp_path: Path) -> None:
     guarded = _Guarded()
     guarded.deleted = True

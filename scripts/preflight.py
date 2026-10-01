@@ -698,6 +698,20 @@ LOGIN_FIX = (
     "log in to chatgpt.com from this machine's own browser, or clear any "
     "Cloudflare challenge, then re-run with --browser"
 )
+# The scripted window's own profile is what Cloudflare challenges (2026-09-29
+# to 2026-10-01: the shared /tmp/rp-browser-profile met the challenge on every
+# open while a fresh profile passed); never a solver, never a copied clearance.
+CHALLENGE_FIX = (
+    "the scripted browser's profile is challenged, not the account: send with "
+    "RP_BROWSER_PROFILE= (a fresh profile per window) or remove the shared "
+    "profile directory (RP_BROWSER_PROFILE, default /tmp/rp-browser-profile), "
+    "then re-run with --browser"
+)
+WORK_FIX = (
+    "the page opened on the Work surface and the Chat/Work toggle could not "
+    "switch it back: open chatgpt.com in this machine's own browser, press Chat, "
+    "then re-run with --browser; a send on Work never posts"
+)
 # The committed DOM fixture a fresh snapshot is compared with (TESTING.md
 # section 6, P1). RP_SNAPSHOT_DIR turns the recording on; RP_SNAPSHOT_FIXTURE
 # points the comparison at another committed fixture.
@@ -762,7 +776,13 @@ def browser_composer_check(
                     snapshot_error = str(exc)[:200]
     except Exception as exc:
         detail = str(exc)[:200]
-        fix = LOGIN_FIX if "logged out or challenged" in detail else None
+        fix = None
+        if "logged out or challenged" in detail:
+            fix = LOGIN_FIX
+        elif "Verify you are human" in detail:
+            fix = CHALLENGE_FIX
+        elif "Work surface" in detail:
+            fix = WORK_FIX
         return check("browser", "composer", "block", detail, fix)
     detail = (
         f"the composer appeared at {url}; a send would not be blocked by a "

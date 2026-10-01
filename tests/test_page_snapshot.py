@@ -41,6 +41,13 @@ RAW_FORM = (
     "<!-- a comment --></FORM>"
 )
 
+RAW_SURFACE = (
+    '<div role="group" aria-label="Composer mode">'
+    '<button type="button" aria-pressed="true" data-state="closed">Chat</button>'
+    '<button type="button" aria-pressed="false" data-state="closed">Work</button>'
+    "</div>"
+)
+
 RAW_SNAPSHOT = {
     "url": "https://chatgpt.com/",
     "composer": {
@@ -65,9 +72,11 @@ RAW_SNAPSHOT = {
         "matched_user": [],
         "matched_any": [],
     },
+    "surface": {"found": True, "buttons": 2, "pressed": ["true", "false"]},
     "html": {
         "composer": RAW_FORM,
         "turns": ["<article data-testid='conversation-turn-1'>hi</article>"],
+        "surface": RAW_SURFACE,
     },
 }
 
@@ -174,12 +183,23 @@ def test_page_snapshot_sanitizes_the_markup_and_keeps_the_facts() -> None:
     assert facts["html"]["turns"] == [
         f'<article data-testid="conversation-turn-1">{stand_in}</article>'
     ]
+    # The Chat/Work toggle group (2026-10-01): its facts, and its markup with
+    # the buttons' text gone and the pressed state kept.
+    assert facts["surface"] == {
+        "found": True,
+        "buttons": 2,
+        "pressed": ["true", "false"],
+    }
+    assert "Chat" not in facts["html"]["surface"]
+    assert facts["html"]["surface"].count('aria-pressed="true"') == 1
+    assert facts["html"]["surface"].count('aria-pressed="false"') == 1
     js, spec = next(c[2] for c in page.calls if c[0] == "page" and c[1] == "evaluate")
     assert "page_snapshot" in js
     assert spec == {
         "composer": list(cc.COMPOSER_SELECTORS),
         "user_turn": list(cc.USER_TURN_SELECTORS),
         "chat_turn": list(cc.CHAT_TURN_SELECTORS),
+        "surface_group": cc.SURFACE_GROUP_SELECTOR,
     }
 
 
@@ -193,7 +213,8 @@ def test_page_snapshot_makes_an_empty_record_from_an_unusable_page(raw) -> None:
     assert facts["composer"] == {}
     assert facts["send_button"] == {}
     assert facts["turns"] == {}
-    assert facts["html"] == {"composer": "", "turns": []}
+    assert facts["surface"] == {}
+    assert facts["html"] == {"composer": "", "turns": [], "surface": ""}
     assert facts["url"] == "https://chatgpt.com/x"
 
 
@@ -210,6 +231,21 @@ def test_snapshot_document_wraps_turns_and_composer_without_text_nodes() -> None
     assert '<article id="t"></article>\n<form id="f"></form>' in doc
     assert not re.search(r">\s*[^<\s][^<]*<", doc)
     assert cc.snapshot_document({}).count("<main>") == 1
+    # The Chat/Work toggle group sits between the turns and the composer's
+    # form, the way the page lays them out; absent, it leaves no blank line.
+    with_surface = cc.snapshot_document(
+        {
+            "html": {
+                "composer": '<form id="f"></form>',
+                "turns": ['<article id="t"></article>'],
+                "surface": '<div role="group" id="s"></div>',
+            }
+        }
+    )
+    assert (
+        '<article id="t"></article>\n<div role="group" id="s"></div>\n'
+        '<form id="f"></form>'
+    ) in with_surface
 
 
 def test_snapshot_drift_names_only_the_facts_the_selectors_depend_on() -> None:
@@ -225,6 +261,18 @@ def test_snapshot_drift_names_only_the_facts_the_selectors_depend_on() -> None:
         "composer.matched",
         "send_button.aria_label",
     ]
+
+
+def test_snapshot_drift_names_the_composer_label_and_the_toggle_group() -> None:
+    """Since 2026-10-01 a send would behave differently on a page whose
+    composer says "Work with ChatGPT" (the Work surface) or that has lost
+    the Chat/Work toggle, so both are drift."""
+    fixture = json.loads(json.dumps(RAW_SNAPSHOT))
+    fresh = json.loads(json.dumps(RAW_SNAPSHOT))
+    fresh["composer"]["aria_label"] = "Work with ChatGPT"
+    fresh["surface"]["found"] = False
+    fresh["surface"]["pressed"] = ["false", "true"]  # not compared: churns
+    assert cc.snapshot_drift(fresh, fixture) == ["composer.aria_label", "surface.found"]
 
 
 def test_snapshot_drift_treats_a_missing_group_as_empty() -> None:
@@ -261,6 +309,47 @@ def test_find_composer_raises_the_send_s_logged_out_error_on_a_timeout(
     )
     with pytest.raises(cc.TransportError, match="logged out or challenged"):
         cc.find_composer(page, timeout_ms=5)
+
+
+def test_find_composer_names_the_cloudflare_challenge_when_its_widget_is_up(
+    monkeypatch,
+) -> None:
+    """The three-day ALERT of 2026-09-29 to 2026-10-01 read "logged out or
+    challenged" while the page was Cloudflare's "Verify you are human"
+    interstitial; the message now says which, and names the profile as
+    the thing to change, never the challenge."""
+    fp.install(monkeypatch)
+    page = fp.Page()
+    page.url = "https://chatgpt.com/"
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    page.set_locator(cc.CHALLENGE_SELECTOR, count=1)
+    with pytest.raises(cc.TransportError, match="Verify you are human") as excinfo:
+        cc.find_composer(page, timeout_ms=5)
+    assert cc.CHALLENGE_REASON in str(excinfo.value)
+    assert "RP_BROWSER_PROFILE=" in str(excinfo.value)
+    assert "logged out" not in str(excinfo.value)
+
+
+def test_challenge_page_reads_the_widget_or_the_notice_and_survives_a_dead_page():
+    assert cc.challenge_page(fp.Page()) is False
+    by_notice = fp.Page()
+    by_notice.set_locator(fp.key_for_text(cc.CHALLENGE_TEXT_RE), count=1)
+    assert cc.challenge_page(by_notice) is True
+    by_widget = fp.Page()
+    by_widget.set_locator(cc.CHALLENGE_SELECTOR, count=1)
+    assert cc.challenge_page(by_widget) is True
+
+    def gone() -> int:
+        raise RuntimeError("target closed")
+
+    dead = fp.Page()
+    dead.set_locator(cc.CHALLENGE_SELECTOR, count=gone)
+    dead.set_locator(fp.key_for_text(cc.CHALLENGE_TEXT_RE), count=gone)
+    assert cc.challenge_page(dead) is False
 
 
 def test_chat_load_failure_reads_the_notice_and_is_empty_without_it() -> None:
@@ -405,6 +494,23 @@ def test_the_selector_unions_are_the_joined_alternatives() -> None:
         '[data-message-author-role], [data-user-message-bubble="true"], '
         'article[data-testid^="conversation-turn"]'
     )
+
+
+def test_sanitize_drops_the_at_sign_class_tokens_the_hygiene_rule_refuses() -> None:
+    """The Chat/Work toggle's buttons (2026-10-01) carry Tailwind
+    container-query classes such as ``@max-xs/home-mode-toggle:px-2.5``;
+    the first promotion of a page with the toggle was refused for the "@"
+    (``tests/test_fixture_hygiene.py``). The token goes, the rest stays."""
+    out = cc.sanitize_html(
+        '<button class="rounded-full @max-xs/home-mode-toggle:px-2.5 px-10"'
+        ' aria-pressed="true">Chat</button>'
+    )
+    stand_in = '<br data-snapshot-text="">'
+    assert out == (
+        f'<button class="rounded-full px-10" aria-pressed="true">{stand_in}</button>'
+    )
+    assert "@" not in out
+    assert cc.sanitize_html('<div class="@container"></div>') == '<div class=""></div>'
 
 
 def test_sanitize_keeps_the_accept_attribute_a_selector_reads() -> None:

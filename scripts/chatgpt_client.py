@@ -1591,7 +1591,8 @@ def chat_load_backoff_ms(retry: int) -> int:
 # "Attach photos" and "Attach photos or videos"; only the first carries no
 # image accept filter). The busy indicators an upload shows while the
 # backend's process_upload_stream runs. The dialogs Escape may clear. The
-# Chat/Work surface toggle, left alone when absent. Every selector the client
+# Chat/Work surface toggle and Cloudflare's challenge page, below. Every
+# selector the client
 # hands to Playwright is one of these named constants (tests/test_dom_coverage.py
 # refuses a bare literal), so tier R can prove each one against a recorded
 # page or a reason has to be written down for why it cannot.
@@ -1601,7 +1602,30 @@ UPLOAD_BUSY_SELECTOR = (
     '[aria-label*="Uploading" i], [aria-busy="true"], [role="progressbar"]'
 )
 DIALOG_SELECTOR = '[role="dialog"], [role="alertdialog"]'
+# The Chat/Work surface toggle. A send belongs to the Chat surface: Work is
+# the Codex-style "tpp" surface (its chats list under
+# conversations?conversation_origin=tpp, its models are the "-wm" slugs), and
+# a message submitted there never posts through f/conversation. Until
+# 2026-09-27 the toggle was a radio group ("Chat"/"Work"); since 2026-10-01 it
+# is a group of aria-pressed buttons, and the composer itself says which
+# surface it is on: aria-label "Ask ChatGPT" on Chat, "Work with ChatGPT" on
+# Work. A profile last left on Work opens there (the shared profile did on
+# 2026-09-30: every send typed its text and none posted), so every path that
+# loads a composer presses Chat first (BrowserSender._ensure_chat_surface).
 CHAT_SURFACE_RADIO_RE = re.compile(r"^Chat$", re.I)
+SURFACE_GROUP_SELECTOR = '[role="group"][aria-label="Composer mode"]'
+SURFACE_PRESSED_SELECTOR = f'{SURFACE_GROUP_SELECTOR} button[aria-pressed="true"]'
+SURFACE_UNPRESSED_SELECTOR = f'{SURFACE_GROUP_SELECTOR} button[aria-pressed="false"]'
+WORK_COMPOSER_LABEL_RE = re.compile(r"^Work with ChatGPT$", re.I)
+# Cloudflare's Turnstile interstitial ("Verify you are human"): its widget
+# iframe and its notice. The scripted window met it on its shared profile
+# from 2026-09-29 to 2026-10-01 while a fresh profile (RP_BROWSER_PROFILE=)
+# and the user's own Chrome passed. A composer that never appears names it
+# (find_composer), so the report says which it was; nothing here interacts
+# with the challenge, and nothing ever will (SKILL.md, "The transport split").
+CHALLENGE_SELECTOR = 'iframe[src*="challenges.cloudflare.com"]'
+CHALLENGE_TEXT_RE = re.compile(r"verify you are human", re.I)
+CHALLENGE_REASON = "Cloudflare's 'Verify you are human' challenge is on the page"
 
 # What the composer shows after an upload, read from its own DOM. Scoped to
 # the composer's <form> when one is found (SEND_BUTTONS shows the send
@@ -1671,6 +1695,8 @@ SNAPSHOT_JS = """
         scope.querySelector('form button[type="submit"]');
     const articles = all(['article[data-testid^="conversation-turn"]']);
     const turnRoots = articles.length ? articles : all(spec.user_turn);
+    const group = document.querySelector(spec.surface_group);
+    const groupButtons = group ? Array.from(group.querySelectorAll('button')) : [];
     return {
         url: location.href,
         composer: {
@@ -1696,9 +1722,15 @@ SNAPSHOT_JS = """
             matched_user: matched(spec.user_turn),
             matched_any: matched(spec.chat_turn),
         },
+        surface: {
+            found: Boolean(group),
+            buttons: groupButtons.length,
+            pressed: groupButtons.map((b) => b.getAttribute('aria-pressed')),
+        },
         html: {
             composer: form ? form.outerHTML : null,
             turns: turnRoots.map((el) => el.outerHTML),
+            surface: group ? group.outerHTML : null,
         },
     };
 }
@@ -1819,6 +1851,12 @@ class _SnapshotSanitizer(HTMLParser):
                 SNAPSHOT_KEEP_PREFIXES
             ):
                 text = "" if value is None else str(value)[:SNAPSHOT_VALUE_LIMIT]
+                if name == "class":
+                    # Tailwind container-query variants ("@max-xs/...:px-2.5",
+                    # on the Chat/Work toggle since 2026-10-01) carry an "@"
+                    # the fixture hygiene rule reads as an address, and no
+                    # selector of ours names such a token.
+                    text = " ".join(t for t in text.split() if not t.startswith("@"))
                 kept.append(f' {name}="{_html_escape(text, quote=True)}"')
         self.parts.append(f"<{tag}{''.join(kept)}>")
 
@@ -1862,9 +1900,11 @@ def page_snapshot(page: Any) -> dict[str, Any]:
     markup they were read from: ``composer`` (found, count, which of
     ``COMPOSER_SELECTORS`` matched, tag, id, aria-label, in_form),
     ``send_button`` (found, testid, aria_label, disabled), ``turns`` (user,
-    any, articles, and which alternatives matched), ``url`` and ``html``
-    (``composer``: the composer's form; ``turns``: one string per turn),
-    every string already through ``sanitize_html``. Whatever the page
+    any, articles, and which alternatives matched), ``surface`` (the
+    Chat/Work toggle group: found, its button count, each button's
+    aria-pressed), ``url`` and ``html`` (``composer``: the composer's form;
+    ``turns``: one string per turn; ``surface``: the toggle group), every
+    string already through ``sanitize_html``. Whatever the page
     returned that is not a dict becomes an empty group, never an error:
     a snapshot is evidence, and evidence that cannot be gathered is an
     empty record, not a failed check."""
@@ -1872,6 +1912,7 @@ def page_snapshot(page: Any) -> dict[str, Any]:
         "composer": list(COMPOSER_SELECTORS),
         "user_turn": list(USER_TURN_SELECTORS),
         "chat_turn": list(CHAT_TURN_SELECTORS),
+        "surface_group": SURFACE_GROUP_SELECTOR,
     }
     raw = page.evaluate(SNAPSHOT_JS, spec)
     facts: dict[str, Any] = dict(raw) if isinstance(raw, dict) else {}
@@ -1880,6 +1921,7 @@ def page_snapshot(page: Any) -> dict[str, Any]:
     )
     composer_html = markup.get("composer")
     turns_html = markup.get("turns")
+    surface_html = markup.get("surface")
     facts["html"] = {
         "composer": sanitize_html(composer_html)
         if isinstance(composer_html, str)
@@ -1889,8 +1931,9 @@ def page_snapshot(page: Any) -> dict[str, Any]:
             for turn in (turns_html if isinstance(turns_html, list) else [])
             if isinstance(turn, str)
         ],
+        "surface": sanitize_html(surface_html) if isinstance(surface_html, str) else "",
     }
-    for group in ("composer", "send_button", "turns"):
+    for group in ("composer", "send_button", "turns", "surface"):
         if not isinstance(facts.get(group), dict):
             facts[group] = {}
     facts.setdefault("url", str(getattr(page, "url", "")))
@@ -1898,15 +1941,17 @@ def page_snapshot(page: Any) -> dict[str, Any]:
 
 
 def snapshot_document(facts: dict[str, Any]) -> str:
-    """The one HTML file a replay loads for a snapshot: the sanitized turns
-    and the composer's form inside a minimal document that carries no text
-    node at all (``tests/test_fixture_hygiene.py`` checks that)."""
+    """The one HTML file a replay loads for a snapshot: the sanitized turns,
+    the Chat/Work toggle group and the composer's form inside a minimal
+    document that carries no text node at all
+    (``tests/test_fixture_hygiene.py`` checks that)."""
     markup: dict[str, Any] = (
         facts["html"] if isinstance(facts.get("html"), dict) else {}
     )
     turns = [turn for turn in markup.get("turns") or [] if isinstance(turn, str)]
+    surface = str(markup.get("surface") or "")
     composer = str(markup.get("composer") or "")
-    body = "\n".join([*turns, composer]).strip()
+    body = "\n".join(part for part in (*turns, surface, composer) if part).strip()
     return (
         "<!doctype html>\n"
         '<html><head><meta charset="utf-8">'
@@ -1925,10 +1970,12 @@ SNAPSHOT_DRIFT_KEYS = (
     ("composer", "matched"),
     ("composer", "tag"),
     ("composer", "id"),
+    ("composer", "aria_label"),  # "Ask ChatGPT"; "Work with ChatGPT" is Work
     ("composer", "in_form"),
     ("send_button", "found"),
     ("send_button", "testid"),
     ("send_button", "aria_label"),
+    ("surface", "found"),  # the Chat/Work toggle group (since 2026-10-01)
 )
 
 
@@ -1950,20 +1997,93 @@ def snapshot_drift(recorded: dict[str, Any], fixture: dict[str, Any]) -> list[st
     return drift
 
 
+def challenge_page(page: Any) -> bool:
+    """Whether ``page`` shows Cloudflare's Turnstile interstitial instead of
+    ChatGPT: its widget iframe (``CHALLENGE_SELECTOR``) or its notice
+    (``CHALLENGE_TEXT_RE``). Read-only: nothing here touches the challenge,
+    and a page that cannot be read is simply not one."""
+    with contextlib.suppress(Exception):
+        if page.locator(CHALLENGE_SELECTOR).count():
+            return True
+    with contextlib.suppress(Exception):
+        if page.get_by_text(CHALLENGE_TEXT_RE).count():
+            return True
+    return False
+
+
 def find_composer(page: Any, timeout_ms: int = 60_000) -> Any:
     """Wait for the composer on ``page`` and return its locator. When it
-    never appears, raise the same ``TransportError`` a send raises ("logged
-    out or challenged"); the sender adds its screenshot around this."""
+    never appears, raise the same ``TransportError`` a send raises: naming
+    Cloudflare's challenge when that is what the page shows
+    (``CHALLENGE_REASON``; the browser profile is what is challenged, and a
+    fresh one, ``RP_BROWSER_PROFILE=``, passed on 2026-10-01 while the
+    shared one did not), else "logged out or challenged". The sender adds
+    its screenshot around this."""
     from playwright.sync_api import TimeoutError as PWTimeout
 
     composer = page.locator(COMPOSER_SELECTOR)
     try:
         composer.wait_for(state="visible", timeout=timeout_ms)
     except PWTimeout:
+        if challenge_page(page):
+            raise TransportError(
+                f"composer did not appear at {page.url}: {CHALLENGE_REASON}; the "
+                "browser profile is what is challenged, and a fresh profile "
+                "(RP_BROWSER_PROFILE=) passes"
+            ) from None
         raise TransportError(
             f"composer did not appear at {page.url} (logged out or challenged)"
         ) from None
     return composer
+
+
+def _composer_label(composer: Any) -> str:
+    """The composer's aria-label, or "" when it cannot be read."""
+    with contextlib.suppress(Exception):
+        return str(composer.first.get_attribute("aria-label") or "")
+    return ""
+
+
+def ensure_chat_surface(page: Any, composer: Any) -> str:
+    """Put ``page`` on the Chat surface, where a send posts through
+    ``f/conversation``: return ``"chat"`` when it already is there (or has
+    no toggle at all, like an existing chat's page), ``"switched"`` when
+    Chat had to be pressed, and raise ``TransportError`` naming the Work
+    surface when it could not be.
+
+    Which surface the page is on is read from the composer's own label
+    (``WORK_COMPOSER_LABEL_RE``). On Work the toggle's other button
+    (``SURFACE_UNPRESSED_SELECTOR``, the group of 2026-10-01) is pressed and
+    the label is read again for up to ten seconds. The radio of 2026-09-27
+    (``CHAT_SURFACE_RADIO_RE``), when present and unchecked, is pressed as
+    before. Module-level like ``find_composer``, so ``tests/replay`` can run
+    it on a recorded page; ``BrowserSender`` adds the event and the
+    screenshot around it (on 2026-09-30 every send on the shared profile
+    typed its text on Work and reported "not posted").
+    """
+    label = _composer_label(composer)
+    if not WORK_COMPOSER_LABEL_RE.match(label):
+        chat_toggle = page.get_by_role("radio", name=CHAT_SURFACE_RADIO_RE)
+        if chat_toggle.count() and chat_toggle.first.is_visible():
+            state = chat_toggle.first.get_attribute("aria-checked") or ""
+            if state != "true":
+                chat_toggle.first.click(timeout=3_000)
+                page.wait_for_timeout(500)
+                return "switched"
+        return "chat"
+    other = page.locator(SURFACE_UNPRESSED_SELECTOR)
+    if other.count() and other.first.is_visible():
+        other.first.click(timeout=3_000)
+        for _ in range(20):
+            page.wait_for_timeout(500)
+            label = _composer_label(composer)
+            if not WORK_COMPOSER_LABEL_RE.match(label):
+                return "switched"
+    raise TransportError(
+        f"the composer at {page.url} is on the Work surface ({label!r}) and the "
+        "Chat/Work toggle did not switch it back; a message typed there never "
+        "posts through f/conversation"
+    )
 
 
 def chat_load_failure(page: Any) -> str:
@@ -2015,11 +2135,15 @@ def text_taken(expected: str, actual: str) -> bool:
 STATE_DIR = Path("~/.local/state/chatgpt-web-operations").expanduser()
 EVENT_KINDS = (
     "composer-missing",  # the composer never appeared: logged out or challenged
+    "challenge-page",  # the composer never appeared: Cloudflare's challenge was up
+    "surface-switched",  # the page opened on the Work surface; Chat was pressed
+    "work-surface",  # the page stayed on the Work surface; the send was abandoned
     "composer-blocked",  # a modal covered it and Escape did not clear it politely
     "chat-load-failed",  # "Could not load this ChatGPT conversation", retries spent
     "fill-fallback",  # fill() was not read back; retyped through the keyboard
     "text-not-taken",  # the retype did not take either; the send was abandoned
     "not-posted",  # submitted, but nothing shows it reached ChatGPT (post_evidence)
+    "handshake-refused",  # the send handshake was refused and no message POST followed
     "post-unseen",  # posted (request or URL), but no new user turn was counted
     "posted-no-id",  # posted, but the new chat's /c/<id> never showed; resolved later
     "send-error",  # any other browser failure on the send path
@@ -2124,6 +2248,18 @@ class BrowserSender:
     UPLOAD_QUIET_MS = 15_000
     UPLOAD_MAX_MS = 180_000
     RECORD_ENDPOINT = "/backend-api/f/conversation"
+    # The page's own send handshake, made right after the click and before
+    # the message's POST: the sentinel pair, prepare, init. On 2026-10-01 the
+    # scripted window (a fresh profile) had every one of them answered 403
+    # while the user's own Chrome passed, and the page still showed the
+    # message's bubble, moved to a local-chatgpt: address and wrote "Unknown
+    # error" under it; the message never left the browser (F-2026-10-01-23).
+    HANDSHAKE_ENDPOINTS = (
+        "/backend-api/sentinel/chat-requirements/prepare",
+        "/backend-api/sentinel/chat-requirements/finalize",
+        "/backend-api/f/conversation/prepare",
+        "/backend-api/conversation/init",
+    )
 
     # This host is memory-tight and swaps under load. One scripted page for a
     # send cost about 1.65 GB with the first four flags alone, measured on the
@@ -2245,6 +2381,10 @@ class BrowserSender:
         # click (post_evidence).
         self._send_requests = 0
         self._send_statuses: list[int] = []
+        # The handshake answers that were not 2xx, as (path, status), in
+        # order (is_handshake_post); _send reads only what came after its
+        # own click, like the two above.
+        self._handshake_refusals: list[tuple[str, int]] = []
         self._watched_page: Any = None
         self._stack = contextlib.ExitStack()
         self.page: Any = None
@@ -2562,6 +2702,18 @@ class BrowserSender:
         path = url.split("?", 1)[0].split("#", 1)[0]
         return path.endswith(cls.RECORD_ENDPOINT)
 
+    @classmethod
+    def is_handshake_post(cls, method: str, url: str) -> str:
+        """The ``HANDSHAKE_ENDPOINTS`` path ``url`` is a POST to, else "".
+        Query and fragment stripped, like ``is_send_post``."""
+        if method != "POST":
+            return ""
+        path = url.split("?", 1)[0].split("#", 1)[0]
+        for endpoint in cls.HANDSHAKE_ENDPOINTS:
+            if path.endswith(endpoint):
+                return endpoint
+        return ""
+
     def _watch_send_posts(self, page: Any) -> None:
         """Hook ``page`` once: count each send POST and keep each answer's
         status, for ``post_evidence``. A second send on the same page adds
@@ -2585,6 +2737,40 @@ class BrowserSender:
             req = response.request
             if self.is_send_post(req.method, req.url):
                 self._send_statuses.append(int(response.status))
+            handshake = self.is_handshake_post(req.method, req.url)
+            if handshake and not 200 <= int(response.status) < 300:
+                self._handshake_refusals.append((handshake, int(response.status)))
+
+    def _handshake_refused(
+        self, page: Any, refused: list[tuple[str, int]], turns_before: int, chars: int
+    ) -> TransportError:
+        """The event and the error for a send whose handshake was refused
+        and whose message request never followed (F-2026-10-01-23): never
+        "not posted" with a retry hint, because the page's own bubble and
+        its local-chatgpt: address would make the next attempt read the
+        same, and never a provisional id, because no conversation exists."""
+        record_event(
+            "handshake-refused",
+            url=str(page.url),
+            refused=[f"{path} {status}" for path, status in refused],
+            turns_before=turns_before,
+            turns_after=page.locator(USER_TURN_SELECTOR).count(),
+            chars=chars,
+            screenshot=self._screenshot("chatgpt-send-fail.png"),
+        )
+        names = ", ".join(
+            f"{status} on {path.removeprefix('/backend-api/')}"
+            for path, status in refused[:4]
+        )
+        status = 429 if any(s == 429 for _, s in refused) else 0
+        return TransportError(
+            "message was not posted: ChatGPT's send handshake was refused "
+            f"({names}) and no f/conversation request followed; the bubble on "
+            "the page is the page's own optimism. This window's requests are "
+            "being refused, not the account (references/failure-atlas.md, "
+            "F-2026-10-01-23)",
+            status,
+        )
 
     def _record_send_stream(self, info: Any) -> None:
         """Write this send's own reply stream to a sibling ``.stream.txt``.
@@ -2756,12 +2942,22 @@ class BrowserSender:
         self._check_rate_limit_dialog()
         try:
             return find_composer(self.page)
-        except TransportError:
-            record_event(
-                "composer-missing",
-                url=str(self.page.url),
-                screenshot=self._screenshot("chatgpt-composer-missing.png"),
-            )
+        except TransportError as exc:
+            # Which it was is in the message (find_composer). The challenge
+            # page is its own event, so the weekly digest counts it apart
+            # from a logged-out session and the fix names the profile.
+            if CHALLENGE_REASON in str(exc):
+                record_event(
+                    "challenge-page",
+                    url=str(self.page.url),
+                    screenshot=self._screenshot("chatgpt-composer-missing.png"),
+                )
+            else:
+                record_event(
+                    "composer-missing",
+                    url=str(self.page.url),
+                    screenshot=self._screenshot("chatgpt-composer-missing.png"),
+                )
             raise
 
     # Uploading the prompt instead of pasting it looked like the answer to slow
@@ -2871,21 +3067,39 @@ class BrowserSender:
         except TransportError:
             raise
         except Exception as exc:  # playwright errors have no common base here
+            screenshot, limited = self._failure_evidence("chatgpt-send-error.png")
             record_event(
                 "send-error",
                 url=str(getattr(self.page, "url", "")),
                 error=str(exc)[:200],
-                screenshot=self._screenshot("chatgpt-send-error.png"),
+                screenshot=screenshot,
             )
             # Only now does the notice mean anything: the send was tried and
             # it failed. Before the attempt it may be stale history nagging,
             # and treating that as a block is what cost runs.
-            limited = self._rate_limited_now()
             if limited:
                 raise TransportError(
                     f"ChatGPT is rate-limiting this account: {limited}", 429
                 ) from exc
             raise TransportError(f"browser send failed: {exc}"[:300]) from exc
+
+    def _failure_evidence(self, name: str) -> tuple[str, str]:
+        """``(screenshot path, rate-limit notice)`` for a failed send, read
+        on the owner thread, from any thread. Playwright's sync objects
+        refuse another thread, and until 2026-10-01 ``send``'s error path
+        read both from the calling thread: the screenshot answered "Cannot
+        switch to a different thread" and the notice read as absent, every
+        time (F-2026-10-01-24). An owner thread that cannot answer gives
+        no evidence rather than a second failure."""
+
+        def read() -> tuple[str, str]:
+            return self._screenshot(name), self._rate_limited_now()
+
+        try:
+            return self._owner.submit(read).result(timeout=60)
+        except Exception as exc:  # the window may already be gone
+            logger.warning("no failure evidence: %s", str(exc)[:120])
+            return "", ""
 
     def probe_composer(self) -> str:
         """Load the page a send would compose on and wait for its composer;
@@ -2926,7 +3140,31 @@ class BrowserSender:
         )
         if url and "/c/" in url:
             self._await_chat(url)
-        return self._composer()
+        composer = self._composer()
+        self._ensure_chat_surface(composer)
+        return composer
+
+    def _ensure_chat_surface(self, composer: Any) -> None:
+        """Owner thread only. ``ensure_chat_surface`` on the page
+        ``_load_composer`` loaded, with the sender's own evidence: a page
+        that stays on Work is a ``work-surface`` event with a screenshot
+        before the ``TransportError`` goes up (a message typed there never
+        posts, so "not posted" and a retry would be the wrong answer); a
+        page that had to be switched is a ``surface-switched`` event, so
+        the weekly digest counts how often the page opens on Work."""
+        page = self.page
+        try:
+            outcome = ensure_chat_surface(page, composer)
+        except TransportError:
+            record_event(
+                "work-surface",
+                url=str(page.url),
+                screenshot=self._screenshot("chatgpt-work-surface.png"),
+            )
+            raise
+        if outcome == "switched":
+            record_event("surface-switched", url=str(page.url))
+            logger.info("composer: the page opened on the Work surface; Chat pressed")
 
     def _chat_load_failure(self) -> str:
         """The text of ChatGPT's "could not load this conversation" notice if
@@ -3150,13 +3388,6 @@ class BrowserSender:
         # belongs.
         composer = self._load_composer(url)
         logger.info("send: composer ready at %s", page.url)
-        # Chat surface only: leave the surface toggle alone when absent.
-        chat_toggle = page.get_by_role("radio", name=CHAT_SURFACE_RADIO_RE)
-        if chat_toggle.count() and chat_toggle.first.is_visible():
-            state = chat_toggle.first.get_attribute("aria-checked") or ""
-            if state != "true":
-                chat_toggle.first.click(timeout=3_000)
-                page.wait_for_timeout(500)
         turns_before = page.locator(USER_TURN_SELECTOR).count()
         new_chat = not chat
         self._watch_send_posts(page)
@@ -3195,6 +3426,7 @@ class BrowserSender:
         # Only what happens after this mark belongs to this send.
         requests_mark = self._send_requests
         statuses_mark = len(self._send_statuses)
+        refusals_mark = len(self._handshake_refusals)
 
         def evidence() -> tuple[str, ...]:
             return post_evidence(
@@ -3204,6 +3436,14 @@ class BrowserSender:
                 turns_now=page.locator(USER_TURN_SELECTOR).count(),
                 statuses=self._send_statuses[statuses_mark:],
             )
+
+        def refused_and_silent() -> list[tuple[str, int]]:
+            """The handshake answers refused since the click, while no
+            message request has followed them (F-2026-10-01-23). Empty once
+            an f/conversation POST went out: then its own status decides."""
+            if self._send_requests > requests_mark:
+                return []
+            return self._handshake_refusals[refusals_mark:]
 
         with capture as info:
             sent = self._click_send(page, budget)
@@ -3223,19 +3463,39 @@ class BrowserSender:
                 else:
                     self._focus_composer(composer)
                     page.keyboard.press("Enter")
+            # The page's handshake refused and no message request after it:
+            # the page shows the bubble anyway, so the turn count reads as a
+            # post, and the reply stream a recording waits for can never
+            # come. Give the page's own retry ten seconds (it retried init
+            # once, 1.4 s later, on 2026-10-01), then stop here.
+            if refused_and_silent():
+                for _ in range(10):
+                    page.wait_for_timeout(1_000)
+                    if not refused_and_silent():
+                        break
+                else:
+                    raise self._handshake_refused(
+                        page, refused_and_silent(), turns_before, len(text)
+                    )
         logger.info("send: submitted; confirming the post")
         # Confirm the post (post_evidence): the POST's own answer, a new
         # chat's real /c/ URL, or one more user turn; then wait for the
         # real /c/ URL a new chat is given.
         found: tuple[str, ...] = ()
-        for _ in range(90):
+        for i in range(90):
             page.wait_for_timeout(1_000)
             found = evidence()
             if found and "/c/" in page.url and not is_provisional(page.url):
                 break
+            if i >= 15 and refused_and_silent():
+                break
         url_now = str(page.url)
         turns_after = page.locator(USER_TURN_SELECTOR).count()
         statuses = self._send_statuses[statuses_mark:]
+        if refused_and_silent():
+            raise self._handshake_refused(
+                page, refused_and_silent(), turns_before, len(text)
+            )
         if found:
             if "turn" not in found:
                 # Posted, and the page did not show it the way the send

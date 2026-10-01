@@ -14,6 +14,8 @@ against, several of them straight out of ``references/failure-atlas.md``.
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import signal
 import sys
@@ -174,6 +176,15 @@ def _calls(page: fp.Page, method: str, selector: str | None = None) -> list[tupl
         and c[2] == method
         and (selector is None or c[1] == selector)
     ]
+
+
+def _events() -> list[dict]:
+    """The events this test's sender recorded (tests/conftest.py points
+    RP_EVENTS_FILE into tmp_path)."""
+    path = Path(os.environ["RP_EVENTS_FILE"])
+    if not path.is_file():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
 def _page_calls(page: fp.Page, method: str) -> list[tuple]:
@@ -1401,6 +1412,138 @@ def test_send_toggles_the_chat_surface_when_unchecked(make_sender) -> None:
     sender._send("hello", chat=None, name="task")
 
     assert len(_calls(page, "click", toggle_key)) == 1
+
+
+def test_send_presses_chat_when_the_page_opened_on_the_work_surface(make_sender):
+    """Since 2026-10-01 the toggle is a group of aria-pressed buttons and the
+    composer's own label says which surface the page is on. A page that
+    opens on Work (the shared profile did on 2026-09-30, and every send
+    typed its text there and never posted) has Chat pressed before anything
+    is filled; the switch is an event, so the digest counts how often the
+    page opens there."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    _wire_click_send_success(page)
+    _wire_post_confirmed(page)
+    page.url = fp.sequence(REAL_URL)
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        attributes=fp.sequence(
+            {"aria-label": "Work with ChatGPT"}, {"aria-label": "Ask ChatGPT"}
+        ),
+    )
+    page.set_locator(cc.SURFACE_UNPRESSED_SELECTOR, count=1, visible=True)
+
+    assert sender._send("hello", chat=None, name="task") == REAL_ID
+
+    assert len(_calls(page, "click", cc.SURFACE_UNPRESSED_SELECTOR)) == 1
+    assert _calls(page, "fill", cc.COMPOSER_SELECTOR)
+    assert [e["kind"] for e in _events()] == ["surface-switched"]
+
+
+def test_send_stops_naming_the_work_surface_when_chat_cannot_be_pressed(
+    make_sender,
+) -> None:
+    """A page that stays on Work after the press is refused before the
+    fill, with the surface named, a screenshot and its own event: a
+    message typed there never posts through f/conversation, and "not
+    posted" would send the caller back for a retry that cannot work."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    _wire_click_send_success(page)
+    _wire_post_confirmed(page)
+    page.url = fp.sequence("https://chatgpt.com/")
+    page.set_locator(
+        cc.COMPOSER_SELECTOR, attributes={"aria-label": "Work with ChatGPT"}
+    )
+    page.set_locator(cc.SURFACE_UNPRESSED_SELECTOR, count=1, visible=True)
+
+    with pytest.raises(cc.TransportError, match="Work surface"):
+        sender._send("hello", chat=None, name="task")
+
+    assert len(_calls(page, "click", cc.SURFACE_UNPRESSED_SELECTOR)) == 1
+    assert _calls(page, "fill", cc.COMPOSER_SELECTOR) == []
+    assert [e["kind"] for e in _events()] == ["work-surface"]
+    assert _page_calls(page, "screenshot")
+
+
+def test_the_composer_probe_refuses_the_work_surface_without_a_toggle(
+    make_sender,
+) -> None:
+    """preflight --browser and measure_window go through the same
+    ``_load_composer``: a Work composer with no toggle to press is the same
+    refusal, so the morning check names the surface instead of passing."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    page.url = fp.sequence("https://chatgpt.com/")
+    page.set_locator(
+        cc.COMPOSER_SELECTOR, attributes={"aria-label": "Work with ChatGPT"}
+    )
+
+    with pytest.raises(cc.TransportError, match="Work surface"):
+        sender._probe_composer()
+
+    assert _calls(page, "click") == []
+    assert [e["kind"] for e in _events()] == ["work-surface"]
+
+
+def test_send_failure_evidence_is_read_on_the_owner_thread(make_sender, monkeypatch):
+    """F-2026-10-01-24: the screenshot and the rate-limit notice of a failed
+    send were read from the calling thread, which Playwright's sync objects
+    refuse ("Cannot switch to a different thread"), so a real failure never
+    had a screenshot and never saw the notice. Both reads now run on the
+    owner thread, whose name the executor prefixes with "chatgpt-send"."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    seen: list[str] = []
+    real_screenshot = page.screenshot
+
+    def screenshot(**kw):
+        seen.append(threading.current_thread().name)
+        real_screenshot(**kw)
+
+    page.screenshot = screenshot  # type: ignore[method-assign]
+    page.set_locator(
+        cc.BrowserSender.RATE_LIMIT_MODAL, count=1, texts=["Too many requests."]
+    )
+
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(sender, "_send", boom)
+    with pytest.raises(cc.TransportError) as excinfo:
+        sender.send("hi")
+
+    assert excinfo.value.status == 429
+    assert seen and all(name.startswith("chatgpt-send") for name in seen)
+    assert [e["kind"] for e in _events()] == ["send-error"]
+    assert _events()[0]["screenshot"].endswith("chatgpt-send-error.png")
+
+
+def test_a_missing_composer_behind_the_challenge_is_its_own_event(make_sender):
+    """The three-day ALERT of 2026-09-29 to 2026-10-01: the page was
+    Cloudflare's challenge, recorded as ``composer-missing`` like a logged
+    out session. Now the event says which, with the same screenshot."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    page.url = fp.sequence("https://chatgpt.com/")
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    page.set_locator(cc.CHALLENGE_SELECTOR, count=1)
+
+    with pytest.raises(cc.TransportError, match="Verify you are human"):
+        sender._probe_composer()
+
+    assert [e["kind"] for e in _events()] == ["challenge-page"]
+    assert _page_calls(page, "screenshot")
 
 
 def test_send_wraps_a_fill_timeout_as_a_rate_limit_when_the_modal_is_present(

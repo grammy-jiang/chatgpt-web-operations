@@ -105,6 +105,47 @@ class _FakeSenderBlocked:
         )
 
 
+class _FakeSenderChallenged:
+    """The composer never appeared because Cloudflare's challenge was up
+    (2026-09-29 to 2026-10-01): the fix names the profile, never the login."""
+
+    def __init__(self, browser: str) -> None:
+        self.browser = browser
+
+    def __enter__(self) -> _FakeSenderChallenged:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def probe_composer(self) -> str:
+        raise RuntimeError(
+            "composer did not appear at https://chatgpt.com/: Cloudflare's 'Verify "
+            "you are human' challenge is on the page; the browser profile is what "
+            "is challenged, and a fresh profile (RP_BROWSER_PROFILE=) passes"
+        )
+
+
+class _FakeSenderWork:
+    """The page opened on the Work surface and stayed there (2026-10-01)."""
+
+    def __init__(self, browser: str) -> None:
+        self.browser = browser
+
+    def __enter__(self) -> _FakeSenderWork:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def probe_composer(self) -> str:
+        raise RuntimeError(
+            "the composer at https://chatgpt.com/ is on the Work surface ('Work "
+            "with ChatGPT') and the Chat/Work toggle did not switch it back; a "
+            "message typed there never posts through f/conversation"
+        )
+
+
 class _FakeSenderBusy:
     """Every window slot taken: a failure that names its own cause."""
 
@@ -1149,6 +1190,24 @@ def test_browser_composer_check_blocks_on_logged_out_or_challenged() -> None:
     assert c["fix"] == preflight.LOGIN_FIX
 
 
+def test_browser_composer_check_names_the_challenge_and_the_profile_fix() -> None:
+    cc = SimpleNamespace(BrowserSender=_FakeSenderChallenged)
+    c = preflight.browser_composer_check(cc, "chrome")
+    assert c["state"] == "block"
+    assert "Verify you are human" in c["detail"]
+    assert c["fix"] == preflight.CHALLENGE_FIX
+    assert "RP_BROWSER_PROFILE=" in c["fix"]
+    assert "log in" not in c["fix"]
+
+
+def test_browser_composer_check_names_the_work_surface_fix() -> None:
+    cc = SimpleNamespace(BrowserSender=_FakeSenderWork)
+    c = preflight.browser_composer_check(cc, "chrome")
+    assert c["state"] == "block"
+    assert "Work surface" in c["detail"]
+    assert c["fix"] == preflight.WORK_FIX
+
+
 def test_browser_composer_check_names_a_busy_slot_without_blaming_the_login() -> None:
     """A failure before the page even opened must not be dressed as a login
     problem: the detail names the cause and there is no fix line to mislead."""
@@ -1267,6 +1326,8 @@ def test_the_fake_senders_offer_nothing_the_real_sender_does_not() -> None:
     expected = {
         _FakeSenderOK: ["probe_composer"],
         _FakeSenderBlocked: ["probe_composer"],
+        _FakeSenderChallenged: ["probe_composer"],
+        _FakeSenderWork: ["probe_composer"],
         _FakeSenderBusy: ["probe_composer"],
         _FakeSenderSnapshot: ["snapshot_page"],
     }

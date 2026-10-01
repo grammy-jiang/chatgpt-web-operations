@@ -11,12 +11,20 @@
     ],
     "tag": "div"
   },
-  "recorded_at": "2026-09-27T14:35:06Z",
+  "recorded_at": "2026-09-30T23:58:56Z",
   "send_button": {
     "aria_label": null,
     "disabled": null,
     "found": false,
     "testid": null
+  },
+  "surface": {
+    "buttons": 2,
+    "found": true,
+    "pressed": [
+      "true",
+      "false"
+    ]
   },
   "turns": {
     "any": 0,
