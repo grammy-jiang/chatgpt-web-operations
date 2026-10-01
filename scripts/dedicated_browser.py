@@ -104,6 +104,30 @@ def endpoint(port: int) -> str:
     return f"http://127.0.0.1:{port}"
 
 
+def profile_extensions(profile: Path) -> list[str]:
+    """Names of the Web Store extensions installed in ``profile`` (its
+    ``Default/Preferences``), or []. The dedicated profile should have none:
+    on 2026-10-01 a Google login in its window signed Chrome in as well and
+    synced the owner's 33 extensions into it, and a duplicate-tab blocker
+    among them bounced every new tab opened on an address the owner's own
+    tab held (F-2026-10-01-32). Read-only, local, never a value of the
+    owner's."""
+    prefs = profile / "Default" / "Preferences"
+    try:
+        settings = json.loads(prefs.read_text(encoding="utf-8"))
+        entries = settings.get("extensions", {}).get("settings", {})
+    except (OSError, ValueError, AttributeError):
+        return []
+    names = []
+    for value in entries.values():
+        if not isinstance(value, dict) or not value.get("from_webstore"):
+            continue
+        name = (value.get("manifest") or {}).get("name")
+        if isinstance(name, str) and name:
+            names.append(name)
+    return sorted(names)
+
+
 def version(port: int) -> dict[str, Any] | None:
     """``/json/version`` of the browser at ``port``, or None."""
     return cc.dedicated_browser_version(endpoint(port))
@@ -201,6 +225,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     info = version(args.port)
     pages = tabs(args.port) if info else []
     chatgpt_tabs = [t for t in pages if "chatgpt.com" in str(t.get("url", ""))]
+    extensions = profile_extensions(args.profile)
     record = {
         "endpoint": endpoint(args.port),
         "running": bool(info),
@@ -208,6 +233,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         "tabs": len(pages),
         "chatgpt_tabs": len(chatgpt_tabs),
         "mode": cc.CDP_MODE,
+        "extensions": extensions,
     }
     if args.json:
         Path(args.json).write_text(
@@ -221,6 +247,13 @@ def cmd_status(args: argparse.Namespace) -> int:
         f"{record['tabs']} tab(s), {record['chatgpt_tabs']} on chatgpt.com; "
         f"RP_BROWSER_CDP={record['mode']}"
     )
+    if extensions:
+        print(
+            f"{len(extensions)} Web Store extension(s) in the profile "
+            f"({', '.join(extensions[:4])}{', ...' if len(extensions) > 4 else ''}): "
+            "the dedicated profile should have none; sign it out of Chrome (not "
+            "out of chatgpt.com) or remove them (F-2026-10-01-32)"
+        )
     return 0
 
 

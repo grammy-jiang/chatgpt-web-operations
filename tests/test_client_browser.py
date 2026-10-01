@@ -2081,3 +2081,32 @@ def test_chat_load_failure_regex_matches_the_notice_and_its_variants(
     text, matches
 ) -> None:
     assert bool(cc.CHAT_LOAD_FAILURE_RE.search(text)) is matches
+
+
+def test_a_tab_sent_off_chatgpt_right_after_loading_is_named_not_waited_for(
+    make_sender,
+) -> None:
+    """F-2026-10-01-32: a duplicate-tab blocker synced into the dedicated
+    profile bounced every new tab opened on the home page back to where it
+    came from; the probe then waited 60 s for a composer on about:blank and
+    blamed the login. The landing is checked one second after the load."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    page.url = fp.sequence("about:blank")
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+
+    with pytest.raises(cc.TransportError, match="the tab is on 'about:blank'"):
+        sender._probe_composer()
+
+    events = _events()
+    assert [e["kind"] for e in events] == ["navigation-bounced"]
+    assert events[0]["url"] == "about:blank"
+    assert events[0]["screenshot"].endswith("chatgpt-composer-missing.png")
+    assert cc.cooldown_remaining() == (0.0, {})
+    assert cc.page_on_chatgpt("https://chatgpt.com/c/x") is True
+    assert cc.page_on_chatgpt("https://example.com/") is False

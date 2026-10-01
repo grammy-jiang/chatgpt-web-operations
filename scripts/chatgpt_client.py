@@ -1742,6 +1742,23 @@ CHAT_PAGE_REASON = (
     "the page is logged in but this chat's composer never rendered; the "
     "conversation may be unreadable (read_chat.py tells)"
 )
+# A navigation that lands and is then sent back: the dedicated profile had
+# synced the owner's extensions after the Google login (2026-10-01), and a
+# duplicate-tab blocker among them bounced every new tab opened on an
+# address another tab already held -- the home page, where the owner's own
+# tab sits. Named apart so the report says what happened and no cool-down
+# starts (F-2026-10-01-32).
+BOUNCED_REASON = (
+    "the tab was sent back right after loading; another tab holds the same "
+    "address and an extension in this profile (a duplicate-tab blocker) "
+    "redirected it"
+)
+
+
+def page_on_chatgpt(url: str) -> bool:
+    """Whether ``url`` is a chatgpt.com page at all."""
+    return str(url).startswith("https://chatgpt.com/")
+
 
 # What the composer shows after an upload, read from its own DOM. Scoped to
 # the composer's <form> when one is found (SEND_BUTTONS shows the send
@@ -2155,6 +2172,11 @@ def find_composer(page: Any, timeout_ms: int = 60_000) -> Any:
     try:
         visible.first.wait_for(state="visible", timeout=timeout_ms)
     except PWTimeout:
+        if not page_on_chatgpt(str(page.url)):
+            raise TransportError(
+                f"composer did not appear: the tab is on {str(page.url)!r}, not on "
+                f"chatgpt.com; {BOUNCED_REASON}"
+            ) from None
         if challenge_page(page):
             raise TransportError(
                 f"composer did not appear at {page.url}: {CHALLENGE_REASON}; the "
@@ -2281,6 +2303,7 @@ def text_taken(expected: str, actual: str) -> bool:
 STATE_DIR = Path("~/.local/state/chatgpt-web-operations").expanduser()
 EVENT_KINDS = (
     "composer-missing",  # the composer never appeared: logged out or challenged
+    "navigation-bounced",  # the tab was sent off chatgpt.com right after loading
     "challenge-page",  # the composer never appeared: Cloudflare's challenge was up
     "surface-switched",  # the page opened on the Work surface; Chat was pressed
     "work-surface",  # the page stayed on the Work surface; the send was abandoned
@@ -3280,7 +3303,9 @@ class BrowserSender:
             # not, because the next window may be a signed-in one.
             url = str(self.page.url)
             shot = self._screenshot("chatgpt-composer-missing.png")
-            if CHALLENGE_REASON in str(exc):
+            if BOUNCED_REASON in str(exc):
+                record_event("navigation-bounced", url=url, screenshot=shot)
+            elif CHALLENGE_REASON in str(exc):
                 record_event("challenge-page", url=url, screenshot=shot)
                 note_refusal("challenge-page", url, str(exc))
             elif REFUSED_REASON in str(exc):

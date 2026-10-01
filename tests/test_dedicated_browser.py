@@ -332,3 +332,53 @@ def test_main_dispatches_and_parses_the_options(monkeypatch, tmp_path) -> None:
     with pytest.raises(SystemExit) as exc:
         db.main(["bogus"])
     assert exc.value.code == 2
+
+
+def test_profile_extensions_lists_web_store_extensions_only(tmp_path) -> None:
+    """F-2026-10-01-32: the dedicated profile should carry none; a synced
+    duplicate-tab blocker bounced the home page. Only Web Store entries
+    count (Chrome's own components are not the owner's doing)."""
+    prefs = tmp_path / "profile" / "Default" / "Preferences"
+    prefs.parent.mkdir(parents=True)
+    prefs.write_text(
+        json.dumps(
+            {
+                "extensions": {
+                    "settings": {
+                        "aaaa": {
+                            "from_webstore": True,
+                            "manifest": {"name": "Clutter Free"},
+                        },
+                        "bbbb": {
+                            "from_webstore": False,
+                            "manifest": {"name": "Chrome PDF Viewer"},
+                        },
+                        "cccc": {
+                            "from_webstore": True,
+                            "manifest": {"name": "AdBlock"},
+                        },
+                        "dddd": "junk",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert db.profile_extensions(tmp_path / "profile") == ["AdBlock", "Clutter Free"]
+    assert db.profile_extensions(tmp_path / "missing") == []
+    prefs.write_text("not json", encoding="utf-8")
+    assert db.profile_extensions(tmp_path / "profile") == []
+
+
+def test_status_names_the_profile_s_extensions(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setattr(db, "version", lambda port: ALIVE)
+    monkeypatch.setattr(db, "tabs", lambda port: [])
+    monkeypatch.setattr(
+        db, "profile_extensions", lambda profile: ["AdBlock", "Clutter Free"]
+    )
+    record = tmp_path / "status.json"
+    assert db.cmd_status(_args(tmp_path, json=str(record))) == 0
+    out = capsys.readouterr().out
+    assert "2 Web Store extension(s) in the profile (AdBlock, Clutter Free)" in out
+    assert "sign it out of Chrome" in out
+    assert json.loads(record.read_text())["extensions"] == ["AdBlock", "Clutter Free"]
