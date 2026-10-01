@@ -92,6 +92,41 @@ def test_model_alone_sets_model_and_nothing_else() -> None:
     assert out["system_hints"] == []
 
 
+def test_effort_on_a_model_that_takes_none_moves_the_model_too() -> None:
+    """2026-10-01, the dedicated browser window: its picker's "Auto" builds
+    the body with "gpt-5-6", and "standard" pinned on it came back with no
+    effort recorded. An effort pin lands on EFFORT_MODEL unless --model says
+    otherwise; a thinking model is left alone; a send that pins no effort
+    never touches the model."""
+    moved = cc.rewrite_send_body(
+        _body(model="gpt-5-6"), effort="standard", model="", search=False
+    )
+    assert moved["model"] == cc.EFFORT_MODEL
+    assert moved["thinking_effort"] == "standard"
+    kept = cc.rewrite_send_body(
+        _body(model="gpt-5-6-thinking"), effort="standard", model="", search=False
+    )
+    assert kept["model"] == "gpt-5-6-thinking"
+    named = cc.rewrite_send_body(
+        _body(model="gpt-5-6"), effort="standard", model="gpt-6-pro", search=False
+    )
+    assert named["model"] == "gpt-6-pro"
+    untouched = cc.rewrite_send_body(
+        _body(model="gpt-5-6"), effort="", model="", search=True
+    )
+    assert untouched["model"] == "gpt-5-6"
+
+
+def test_takes_effort_knows_the_catalog_s_shapes() -> None:
+    assert cc.takes_effort("gpt-5-6-thinking")
+    assert cc.takes_effort("gpt-6-pro")
+    assert cc.takes_effort("gpt-6.1-sol-wm")
+    assert not cc.takes_effort("gpt-5-6")
+    assert not cc.takes_effort("gpt-5-6-instant")
+    assert not cc.takes_effort("auto")
+    assert not cc.takes_effort("")
+
+
 def test_search_alone_appends_the_search_hint_without_dropping_others() -> None:
     out = cc.rewrite_send_body(
         _body(system_hints=["other"]), effort="", model="", search=True
@@ -623,7 +658,12 @@ def test_record_send_body_carries_original_and_sent_when_rewriting(
         assert doc["method"] == "POST"
         assert doc["url"] == SEND_URL
         assert doc["original"] == original
-        assert json.loads(doc["sent"]) == {"thinking_effort": "max"}
+        # A body with no model names none that takes an effort, so the pin
+        # moves the model to EFFORT_MODEL as well (2026-10-01).
+        assert json.loads(doc["sent"]) == {
+            "thinking_effort": "max",
+            "model": cc.EFFORT_MODEL,
+        }
     finally:
         sender._stack.close()
         sender._owner.shutdown(wait=True)
@@ -1029,6 +1069,28 @@ def test_send_writes_the_stream_file_and_the_record_names_it(
     assert Path(f"{target}.stream.txt").read_text(encoding="utf-8") == sse
     doc = json.loads(target.read_text(encoding="utf-8"))
     assert doc["stream_file"] == f"{target}.stream.txt"
+
+
+def test_send_skips_the_stream_through_the_dedicated_browser(
+    make_sender, tmp_path
+) -> None:
+    """F-2026-10-01-28: Response.finished() never returns on the attached
+    tab, so no stream is awaited there, and the record says so."""
+    target = tmp_path / "body.json"
+    sender = make_sender(record_send_body=str(target))
+    sender.attached_to = "http://127.0.0.1:9222"
+    page = fp.Page()
+    sender.page = page
+    _wire_confirmed_send(page)
+    sender._record_request(fp.Request(SEND_URL, "POST", "{}"))
+
+    assert sender._send("hello", chat=None, name="task") == REAL_ID
+
+    assert not Path(f"{target}.stream.txt").exists()
+    assert [c for c in page.calls if c[0] == "page" and c[1] == "expect_response"] == []
+    doc = json.loads(target.read_text(encoding="utf-8"))
+    assert doc["stream_file"] == f"{target}.stream.txt"
+    assert "dedicated browser" in doc["stream_skipped"]
 
 
 def test_send_records_the_stream_on_the_provisional_id_return_too(

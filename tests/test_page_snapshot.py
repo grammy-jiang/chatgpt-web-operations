@@ -287,13 +287,66 @@ def test_snapshot_drift_treats_a_missing_group_as_empty() -> None:
 # ---------------------------------------------------------------------------
 
 
+VISIBLE_COMPOSER = (
+    f"{cc.COMPOSER_SELECTOR} >> filter({sorted({'visible': True}.items())!r})"
+)
+
+
 def test_find_composer_returns_the_locator_once_visible() -> None:
     page = fp.Page()
     page.set_locator(cc.COMPOSER_SELECTOR, count=1)
     composer = cc.find_composer(page, timeout_ms=5)
+    assert composer.selector == cc.COMPOSER_SELECTOR
     assert composer.count() == 1
     waits = [c for c in page.calls if c[2] == "wait_for"]
-    assert waits and waits[0][4] == {"state": "visible", "timeout": 5}
+    # The wait is on the first visible match (2026-10-01: a chat page's first
+    # match is a hidden one); the strict locator is what comes back.
+    assert waits and waits[0][1] == VISIBLE_COMPOSER
+    assert waits[0][4] == {"state": "visible", "timeout": 5}
+
+
+def test_find_composer_waits_out_a_chat_page_s_second_composer(monkeypatch) -> None:
+    """2026-10-01, through the dedicated window: a chat page matched two
+    composers for a moment ("strict mode violation ... resolved to 2
+    elements") and one eight seconds later. The wait is on the first match;
+    the strict locator is returned once only one is left."""
+    monkeypatch.setattr(cc, "COMPOSER_SETTLE_SECONDS", 5.0)
+    page = fp.Page()
+    page.set_locator(cc.COMPOSER_SELECTOR, count=fp.sequence(2, 2, 1))
+    composer = cc.find_composer(page, timeout_ms=5)
+    assert composer.selector == cc.COMPOSER_SELECTOR
+    assert composer.count() == 1
+    waits = [c for c in page.calls if c[2] == "wait_for"]
+    assert waits[0][1] == VISIBLE_COMPOSER
+
+
+def test_find_composer_settles_for_the_visible_composer_when_two_stay(monkeypatch):
+    monkeypatch.setattr(cc, "COMPOSER_SETTLE_SECONDS", 0.05)
+    page = fp.Page()
+    page.set_locator(cc.COMPOSER_SELECTOR, count=2)
+    page.set_locator(VISIBLE_COMPOSER, count=1)
+    assert cc.find_composer(page, timeout_ms=5).selector == VISIBLE_COMPOSER
+    page.set_locator(VISIBLE_COMPOSER, count=2)
+    first = cc.find_composer(page, timeout_ms=5)
+    assert first.selector == VISIBLE_COMPOSER
+    assert first._index == 0  # the first visible one drives the send
+
+
+def test_find_composer_on_a_chat_page_names_the_chat_not_the_window(monkeypatch):
+    """2026-10-01 13:38: a chat page whose composer never rendered was taken
+    for a refused window and started the cool-down for everyone. On a /c/
+    page the reason is the chat's."""
+    fp.install(monkeypatch)
+    page = fp.Page()
+    page.url = "https://chatgpt.com/g/g-p-x-s/c/6abdd50c-d21c-83ec-82d4-a5c8e4580113"
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    page.set_locator(cc.LOGGED_IN_SELECTOR, count=14)
+    with pytest.raises(cc.TransportError, match="this chat's composer never rendered"):
+        cc.find_composer(page, timeout_ms=5)
 
 
 def test_find_composer_raises_the_send_s_logged_out_error_on_a_timeout(

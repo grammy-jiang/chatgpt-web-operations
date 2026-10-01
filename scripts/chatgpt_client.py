@@ -488,6 +488,23 @@ def transcript(conv: dict) -> list[dict]:
 # composer's own label (SKILL.md, "Reasoning effort"), so that path and its
 # cookie constant are gone.
 EFFORTS = ("min", "standard", "extended", "max")
+# The model an effort pin lands on when the page's own model cannot take one.
+# The page builds the body with the model its own picker holds; in the
+# dedicated browser window (2026-10-01) that was "gpt-5-6", the picker's
+# "Auto", and a body carrying ``thinking_effort: standard`` on it came back
+# with no effort at all. The account's thinking model (settings/user,
+# ``last_used_model_config.web``, the "Medium"/"High"/"Extra High" presets)
+# takes every level in EFFORTS. ``--model`` still wins when given.
+EFFORT_MODEL = "gpt-5-6-thinking"
+
+
+def takes_effort(model: str) -> bool:
+    """Whether ``model`` is one the catalog lists with ``thinking_efforts``
+    (``model_settings.effort_levels_of``, 2026-10-01: the ``-thinking``,
+    ``-pro`` and ``-wm`` slugs); "gpt-5-6", "gpt-5-6-instant" and "auto"
+    are not."""
+    slug = (model or "").lower()
+    return any(mark in slug for mark in ("thinking", "-pro", "-wm"))
 
 
 # Requests the send page makes that a scripted send never needs. Blocking
@@ -547,6 +564,12 @@ def rewrite_send_body(
     out = dict(body)
     if effort:
         out["thinking_effort"] = effort
+        # An effort on a model that takes none is dropped by the server
+        # (2026-10-01: "standard" on the window's "gpt-5-6" came back with
+        # no effort recorded), so the pin moves the model too unless the
+        # caller named one.
+        if not model and not takes_effort(str(out.get("model") or "")):
+            out["model"] = EFFORT_MODEL
     if model:
         out["model"] = model
     if search or hint_list:
@@ -1682,6 +1705,9 @@ DIALOG_SELECTOR = '[role="dialog"], [role="alertdialog"]'
 # 2026-09-30: every send typed its text and none posted), so every path that
 # loads a composer presses Chat first (BrowserSender._ensure_chat_surface).
 CHAT_SURFACE_RADIO_RE = re.compile(r"^Chat$", re.I)
+# How long find_composer waits for a chat page's second, transient composer
+# to go before it settles for the visible one.
+COMPOSER_SETTLE_SECONDS = float(os.environ.get("RP_COMPOSER_SETTLE_SECONDS", "10"))
 SURFACE_GROUP_SELECTOR = '[role="group"][aria-label="Composer mode"]'
 SURFACE_PRESSED_SELECTOR = f'{SURFACE_GROUP_SELECTOR} button[aria-pressed="true"]'
 SURFACE_UNPRESSED_SELECTOR = f'{SURFACE_GROUP_SELECTOR} button[aria-pressed="false"]'
@@ -1706,6 +1732,15 @@ LOGGED_IN_SELECTOR = 'a[href^="/c/"]'
 REFUSED_REASON = (
     "the page is logged in (its sidebar lists conversations) but the composer "
     "never rendered; the page's own requests are being refused"
+)
+# The same symptom on an existing chat's page is that chat, not the window:
+# an unreadable or deleted conversation renders its sidebar and no composer.
+# Named apart so it never starts the cool-down (2026-10-01 13:38: a chat
+# page's composer missing was taken for a refusal and stopped every send for
+# half an hour).
+CHAT_PAGE_REASON = (
+    "the page is logged in but this chat's composer never rendered; the "
+    "conversation may be unreadable (read_chat.py tells)"
 )
 
 # What the composer shows after an upload, read from its own DOM. Scoped to
@@ -2111,8 +2146,14 @@ def find_composer(page: Any, timeout_ms: int = 60_000) -> Any:
     from playwright.sync_api import TimeoutError as PWTimeout
 
     composer = page.locator(COMPOSER_SELECTOR)
+    # A chat page keeps the home page's composer in the DOM, hidden, ahead
+    # of the thread's own for a while (2026-10-01, through the dedicated
+    # window: "strict mode violation ... resolved to 2 elements"; waiting on
+    # the first match then waited on the hidden one for 60 s). So the wait
+    # is on the first *visible* match, whichever that is.
+    visible = composer.filter(visible=True)
     try:
-        composer.wait_for(state="visible", timeout=timeout_ms)
+        visible.first.wait_for(state="visible", timeout=timeout_ms)
     except PWTimeout:
         if challenge_page(page):
             raise TransportError(
@@ -2120,6 +2161,10 @@ def find_composer(page: Any, timeout_ms: int = 60_000) -> Any:
                 "browser profile is what is challenged, not the account"
             ) from None
         if page_logged_in(page):
+            if "/c/" in str(page.url):
+                raise TransportError(
+                    f"composer did not appear at {page.url}: {CHAT_PAGE_REASON}"
+                ) from None
             raise TransportError(
                 f"composer did not appear at {page.url}: {REFUSED_REASON} "
                 "(references/failure-atlas.md, F-2026-10-01-23)"
@@ -2127,6 +2172,14 @@ def find_composer(page: Any, timeout_ms: int = 60_000) -> Any:
         raise TransportError(
             f"composer did not appear at {page.url} (logged out or challenged)"
         ) from None
+    # The strict locators a send fills and clicks need exactly one match.
+    # Give the hidden extra one a moment to go; if it stays, drive the
+    # visible one.
+    deadline = time.monotonic() + COMPOSER_SETTLE_SECONDS
+    while composer.count() > 1 and time.monotonic() < deadline:
+        page.wait_for_timeout(250)
+    if composer.count() > 1:
+        return visible if visible.count() == 1 else visible.first
     return composer
 
 
@@ -2555,6 +2608,12 @@ class BrowserSender:
         # The debugging endpoint this window is attached to (cdp_endpoint),
         # or "" when it is a scripted window of our own.
         self.attached_to: str = ""
+        # The CDP target id of our tab in the dedicated browser, so a signal
+        # handler can close it through the browser's HTTP endpoint from any
+        # thread (close_tab_from_outside); and the SIGTERM disposition this
+        # window replaced, restored on exit.
+        self._target_id: str = ""
+        self._previous_sigterm: Any = None
         self._stack = contextlib.ExitStack()
         self.page: Any = None
         # Playwright's sync objects may only be used from the thread that
@@ -2579,6 +2638,7 @@ class BrowserSender:
         self._stack.enter_context(browser_slot())
         self._owner.submit(self._open).result()
         self._stack.callback(self._closed.set)
+        self._install_sigterm_exit()
         threading.Thread(
             target=self._watchdog,
             args=(time.monotonic() + BROWSER_MAX_SECONDS,),
@@ -2625,6 +2685,49 @@ class BrowserSender:
             self._closed.set()
             self._owner.shutdown(wait=True)
             self.page = None
+            if self._previous_sigterm is not None:
+                with contextlib.suppress(ValueError):  # not the main thread
+                    signal.signal(signal.SIGTERM, self._previous_sigterm)
+                self._previous_sigterm = None
+
+    def _install_sigterm_exit(self) -> None:
+        """SIGTERM ends the window cleanly. A ``timeout``-killed send left its
+        tab open in the dedicated window twice on 2026-10-01, because the
+        default disposition ends the process before ``__exit__`` can close
+        the tab (F-2026-10-01-29). Main thread only, and only when nothing
+        else installed a handler; ``__exit__`` restores what was there."""
+        if threading.current_thread() is not threading.main_thread():
+            return
+        if signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL:
+            return
+        self._previous_sigterm = signal.SIG_DFL
+        signal.signal(signal.SIGTERM, self._on_sigterm)
+
+    def _on_sigterm(self, signum: int, frame: Any) -> None:
+        """Close our tab from outside the owner thread, then leave through
+        ``SystemExit`` so every ``with`` block on the way out runs."""
+        self.close_tab_from_outside()
+        raise SystemExit(128 + int(signum))
+
+    def close_tab_from_outside(self) -> bool:
+        """Close this window's own tab through the dedicated browser's HTTP
+        endpoint (``/json/close/<target>``), from any thread: the one
+        Playwright-free way to end a blocked call on the owner thread, which
+        raises once its target is gone. False for a scripted window of our
+        own (it dies with the process) or when the endpoint did not answer."""
+        if not self.attached_to or not self._target_id:
+            return False
+        import urllib.request
+
+        try:
+            with urllib.request.urlopen(
+                f"{self.attached_to.rstrip('/')}/json/close/{self._target_id}",
+                timeout=3,
+            ):
+                pass
+        except Exception:
+            return False
+        return True
 
     def _open(self) -> None:
         from playwright.sync_api import sync_playwright
@@ -2673,6 +2776,11 @@ class BrowserSender:
         )
         self.page = ctx.new_page()
         self._stack.callback(self.page.close)
+        with contextlib.suppress(Exception):
+            session = ctx.new_cdp_session(self.page)
+            info = session.send("Target.getTargetInfo")
+            self._target_id = str((info.get("targetInfo") or {}).get("targetId") or "")
+            session.detach()
         block_unused(self.page, allow_project=bool(self.project), rewrite_send=rewrite)
 
     def _open_scripted(self, sync_playwright: Any, rewrite: Any) -> None:
@@ -2850,6 +2958,11 @@ class BrowserSender:
         including no attachments.
         """
         doc = {**doc, "stream_file": self.record_send_body + STREAM_SUFFIX}
+        if self.attached_to:
+            doc["stream_skipped"] = (
+                "the reply stream is not read through the dedicated browser "
+                "(references/failure-atlas.md, F-2026-10-01-28)"
+            )
         if self.attachments:
             doc["attachments"] = self.attachments
         with contextlib.suppress(Exception):
@@ -3175,6 +3288,10 @@ class BrowserSender:
                     "composer-missing", url=url, logged_in=True, screenshot=shot
                 )
                 note_refusal("composer-missing", url, str(exc))
+            elif CHAT_PAGE_REASON in str(exc):
+                record_event(
+                    "composer-missing", url=url, logged_in=True, screenshot=shot
+                )
             else:
                 record_event(
                     "composer-missing", url=url, logged_in=False, screenshot=shot
@@ -3637,11 +3754,19 @@ class BrowserSender:
         # record_send_body's stream capture is not missed; its value is not
         # read until the post-click checks below have confirmed the message
         # actually posted -- see _record_send_stream.
+        # Through the dedicated browser the reply stream is not read:
+        # Response.finished() on the f/conversation stream never returned
+        # there (2026-10-01, over 100 s after the reply had arrived;
+        # F-2026-10-01-28), and nothing can interrupt it. The record then
+        # says stream_skipped.
+        wants_stream = bool(
+            self.record_send_body and self.record_stream and not self.attached_to
+        )
         capture = (
             page.expect_response(
                 self._is_send_stream_response, timeout=max(budget, 60_000)
             )
-            if self.record_send_body and self.record_stream
+            if wants_stream
             else contextlib.nullcontext()
         )
         # Only what happens after this mark belongs to this send.
@@ -3733,7 +3858,7 @@ class BrowserSender:
                     chars=len(text),
                     screenshot=self._screenshot("chatgpt-post-unseen.png"),
                 )
-            if self.record_send_body and self.record_stream:
+            if wants_stream:
                 self._record_send_stream(info)
             if "/c/" in url_now:
                 return chat_id(url_now)  # may be provisional; the caller resolves it

@@ -242,6 +242,17 @@ class Locator:
     def nth(self, i: int) -> Locator:
         return Locator(self.page, self.selector, self._state, index=i)
 
+    def filter(self, **kw: Any) -> Locator:
+        """``Locator.filter(visible=True)``: a narrower view, keyed by the
+        filter so a test can configure what it reports; until a test does,
+        it reports what the unfiltered locator reports (count, raises,
+        attributes), the way one visible element filtered is still that
+        element."""
+        key = f"{self.selector} >> filter({sorted(kw.items())!r})"
+        state = self.page._locator_states.get(key) or self._state
+        self.page.calls.append(("locator", self.selector, "filter", (), kw))
+        return Locator(self.page, key, state)
+
     @property
     def first(self) -> Locator:
         return self.nth(0)
@@ -640,6 +651,12 @@ class BrowserContext:
         self.closed = True
         self.calls.append(("context", "close", (), {}))
 
+    def new_cdp_session(self, page: Page) -> CDPSession:
+        """``BrowserContext.new_cdp_session``: the attached path reads its
+        tab's target id through it."""
+        self.calls.append(("context", "new_cdp_session", (), {}))
+        return CDPSession()
+
     def trigger_route(
         self, url: str, method: str = "GET", post_data: str | None = None
     ) -> Route:
@@ -651,6 +668,24 @@ class BrowserContext:
                 handler(route)
                 break
         return route
+
+
+class CDPSession:
+    """A raw CDP session: answers Target.getTargetInfo with a fixed id."""
+
+    def __init__(self, target_id: str = "TARGET-1") -> None:
+        self.target_id = target_id
+        self.sent: list[tuple[str, dict | None]] = []
+        self.detached = False
+
+    def send(self, method: str, params: dict | None = None) -> dict:
+        self.sent.append((method, params))
+        if method == "Target.getTargetInfo":
+            return {"targetInfo": {"targetId": self.target_id, "type": "page"}}
+        return {}
+
+    def detach(self) -> None:
+        self.detached = True
 
 
 class Browser:

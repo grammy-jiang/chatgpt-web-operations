@@ -39,6 +39,11 @@ import fake_playwright as fp  # noqa: E402
 REAL_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 PROVISIONAL_ID = f"WEB:{REAL_ID}"
 REAL_URL = f"https://chatgpt.com/c/{REAL_ID}"
+# The locator find_composer waits on since 2026-10-01: the first *visible*
+# match (a chat page keeps a hidden composer ahead of the thread's own).
+VISIBLE_COMPOSER = (
+    f"{cc.COMPOSER_SELECTOR} >> filter({sorted({'visible': True}.items())!r})"
+)
 PROVISIONAL_URL = f"https://chatgpt.com/c/{PROVISIONAL_ID}"
 
 DIALOG_SELECTOR = '[role="dialog"], [role="alertdialog"]'
@@ -935,7 +940,7 @@ def test_composer_returns_the_locator_once_it_is_visible(make_sender) -> None:
     composer = sender._composer()
 
     assert composer.selector == cc.COMPOSER_SELECTOR
-    waits = _calls(page, "wait_for", cc.COMPOSER_SELECTOR)
+    waits = _calls(page, "wait_for", VISIBLE_COMPOSER)
     assert waits and waits[0][4]["state"] == "visible"
 
 
@@ -988,7 +993,7 @@ def test_probe_composer_loads_the_new_chat_page_then_waits_for_the_composer(
     gotos = _page_calls(page, "goto")
     assert gotos and gotos[0][2] == ("https://chatgpt.com/g/g-p-abc/project",)
     assert gotos[0][3]["wait_until"] == "domcontentloaded"
-    waits = _calls(page, "wait_for", cc.COMPOSER_SELECTOR)
+    waits = _calls(page, "wait_for", VISIBLE_COMPOSER)
     assert waits and waits[0][4]["state"] == "visible"
 
 
@@ -1550,6 +1555,28 @@ def test_a_missing_composer_on_a_logged_in_page_starts_the_cooldown(make_sender)
     assert record["kind"] == "composer-missing"
 
 
+def test_a_chat_page_without_a_composer_records_no_refusal(make_sender):
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    chat_url = "https://chatgpt.com/g/g-p-x-s/c/6abdd50c-d21c-83ec-82d4-a5c8e4580113"
+    page.url = fp.sequence(chat_url)
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    page.set_locator(cc.LOGGED_IN_SELECTOR, count=14)
+    page.set_locator(cc.CHAT_TURN_SELECTOR, count=1)  # the thread rendered
+
+    with pytest.raises(cc.TransportError, match="this chat's composer"):
+        sender._load_composer(chat_url)
+
+    assert _events()[-1]["kind"] == "composer-missing"
+    assert _events()[-1]["logged_in"] is True
+    assert cc.cooldown_remaining() == (0.0, {})
+
+
 def test_a_logged_out_page_records_no_refusal(make_sender):
     sender = make_sender()
     page = fp.Page()
@@ -1652,10 +1679,66 @@ def test_open_attaches_to_the_dedicated_browser_and_opens_one_tab(
             "**/ces/v1/**",
         ]
         assert ctx.pages == [page]
+        assert sender._target_id == "TARGET-1"
 
     assert page.closed is True
     assert browser.closed is True
     assert _events() == []
+
+
+def test_sigterm_closes_the_attached_tab_and_leaves_through_systemexit(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    """F-2026-10-01-29: a timeout-killed send left its tab open twice. The
+    window installs a SIGTERM handler (main thread, default disposition
+    only) that closes its own tab through the browser's HTTP endpoint and
+    raises SystemExit, so the with-block's exit runs; the previous
+    disposition is restored on exit."""
+    import urllib.request
+
+    monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "http://127.0.0.1:9222")
+    browser = fp.Browser()
+    browser.contexts = [fp.BrowserContext()]
+    fake_pw.chromium.connect_result = browser
+    installed: list = []
+    monkeypatch.setattr(cc.signal, "getsignal", lambda s: cc.signal.SIG_DFL)
+    monkeypatch.setattr(cc.signal, "signal", lambda s, h: installed.append((s, h)))
+    opened: list[str] = []
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(
+        urllib.request, "urlopen", lambda url, timeout=0: opened.append(url) or _Resp()
+    )
+    sender = make_sender()
+
+    with sender:
+        assert installed and installed[-1][0] == cc.signal.SIGTERM
+        handler = installed[-1][1]
+        with pytest.raises(SystemExit) as excinfo:
+            handler(cc.signal.SIGTERM, None)
+
+    assert excinfo.value.code == 143
+    assert opened == ["http://127.0.0.1:9222/json/close/TARGET-1"]
+    assert installed[-1] == (cc.signal.SIGTERM, cc.signal.SIG_DFL)
+
+
+def test_an_existing_sigterm_handler_is_left_alone(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "")
+    monkeypatch.setattr(cc.signal, "getsignal", lambda s: (lambda *a: None))
+    installed: list = []
+    monkeypatch.setattr(cc.signal, "signal", lambda s, h: installed.append(s))
+    sender = make_sender()
+    with sender:
+        assert sender.close_tab_from_outside() is False  # a scripted window
+    assert installed == []
 
 
 def test_open_uses_a_new_context_when_the_attached_browser_offers_none(
