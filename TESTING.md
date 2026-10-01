@@ -256,7 +256,12 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
     tag names, `id`, `class`, `role`, `aria-*`, `data-*`, `contenteditable`,
     `placeholder`, `type` and `disabled`; and `snapshot.json`: the URL, which
     alternative of `COMPOSER_SELECTOR` matched, the send button's test id or
-    label, the `COMPOSER_STATE_JS` result and the Chrome version.
+    label, the `COMPOSER_STATE_JS` result and the Chrome version. Since
+    2026-10-01 evening also the `composers`, `uploads`, `controls` and
+    `page` groups (ten more drift keys: hidden composers, the file inputs,
+    the attach menu and model picker, the chips, the challenge and login
+    flags); `snapshot_unproven` names the keys a fixture predates, and the
+    same facts end every composer-missing message and event.
   - `preflight.browser_composer_check` calls it when `RP_SNAPSHOT_DIR` is
     set; the daily wrapper passes its run directory. The daily run compares
     `snapshot.json` with `tests/fixtures/dom/composer.json` and reports WARN
@@ -327,7 +332,11 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
     with `--json`. Three facts: exit 0 and a chat id in the JSON; `read_chat
     --text` prints the reply to a nonce; teardown deletes the chat and
     `GET conversation/<id>` returns 404. The test also records
-    `conversation.html` for P1.
+    `conversation.html` for P1 and, since 2026-10-01 evening, the POST body's
+    shape (`send_body.shape.json`, compared by the wrapper with
+    `tests/fixtures/send/send_body.shape.json` through
+    `api_shapes.compare_send_body`: a pinned or server-read field missing or
+    retyped is drift, a new field is information).
   - Schedule: `chatgpt-ops-check.sh --send`, Sunday 05:40, `CHATGPT_LIVE=send
     CHATGPT_LIVE_SENDS=1`, mails on failure. Rule: run `make live-send` after
     any change to `BrowserSender` or `send_prompt.py`, before the commit.

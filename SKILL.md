@@ -413,6 +413,28 @@ never renders (`composer-missing` with `logged_in: true`). In every shape
 the account is fine: `probe_account.py` reads, and the user's own Chrome
 sends. Wait for the cool-down, then one window at a time.
 
+**A page without a composer says what it is.** Since 2026-10-01 evening the
+composer-missing message ends with the page's facts -- `[page: challenge=...,
+login=..., composers=N (M hidden), toggle=..., attach-menu=..., picker=...,
+title=...]`, read by `page_snapshot` (attributes only) -- and the same facts
+go into the event (`page`) and, beside the screenshot, into
+`chatgpt-composer-missing.json`. Three mornings of "logged out or
+challenged" (2026-09-29 to 10-01) said none of this; a challenge, a login
+page and a changed page are now told apart in the morning mail and in the
+heal evidence. The daily recording compares ten more facts with the fixture
+(`SNAPSHOT_DRIFT_KEYS`: how many composers the selector matches and how many
+are hidden, the file inputs and whether `#upload-files` still exists, the
+attach menu, the model picker, the attachment chips, the challenge and login
+flags), and a fixture promoted before a fact joined the keys is named in the
+ok row as "newer fact(s) not in the fixture yet" until a re-recording is
+promoted (`make refresh-dom-fixtures`). The weekly send records the
+`f/conversation` body's shape as well (`tests/fixtures/send/send_body.shape.json`:
+field names and types, never a value; `api_shapes.compare_send_body`), so
+the Sunday check warns when a field the client pins or the server reads is
+missing or retyped: the body of 2026-10-01's morning, with `thinking_effort`
+gone and `one_off_model_override` added, reads "send_body: thinking_effort
+removed" against it.
+
 **A send is judged by its own request.** The sender counts a message as
 posted when the page's `f/conversation` POST is answered 2xx, when a new
 chat's address becomes a real `/c/<id>`, or when one more user turn appears

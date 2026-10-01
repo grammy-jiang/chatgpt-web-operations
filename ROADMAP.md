@@ -163,6 +163,13 @@ Working rule 2 applies to every repository, not only research-pipeline.
    2026-10-01 evening): what Chrome sync put into its profile stays
    installed but inert, which the owner accepts; removing it, if ever, is
    the owner's step, with the sync trap named (F-2026-10-01-32).
+6. **A page change is named, not guessed at** (the owner's ask, 2026-10-01
+   evening): a composer that does not appear says what the page is instead
+   (challenge, login, hidden composers, missing controls); the daily
+   recording compares the facts the day's changes hid behind, and a fixture
+   that predates a fact says so; the weekly send records the POST body's
+   shape and the check warns on a pinned or server-read field going. Where
+   the report is delivered stays the owner's decision.
 
 ## Historical decisions
 

@@ -176,6 +176,26 @@ switch. Results: `VERIFICATION.md`, "The dedicated browser window", "The
 effort pin, the same evening", "The owner's default and the window's
 extensions" and "The skill's own tab".
 
+Late evening, the owner's second ask: when the page changes, detect it and
+report it. What existed already -- the daily browser health with its DOM
+comparison, the weekly send, the shape drift of the read endpoints, the heal
+agent, the mails -- is in `~/.local/bin` (not this repo) and had fired three
+mornings running; the mails went to the local mailbox and said "logged out
+or challenged". What changed in the skill: a composer-missing message, event
+and `chatgpt-composer-missing.json` now carry the page's facts (challenge,
+login, composers and hidden ones, toggle, controls); ten more facts are
+compared with the fixture and a stale fixture names the ones it lacks; the
+weekly send records the POST body's shape and the wrapper compares it
+(`tests/fixtures/send/send_body.shape.json`). Two wrapper scripts were
+edited, each backed up as `*.bak-20261001`: `chatgpt-ops-send-check.sh`
+(the send-body comparison in its drift step) and `chatgpt-ops-heal.sh` (the
+page facts in the evidence, and the prompt's rule that a repeated "transient"
+is not one). The delivery channel (where the mail goes) is still the owner's
+open decision. The next scheduled runs are the proof: the daily browser check
+at 05:25 (the promoted `composer` fixture carries the new facts, so its row
+should read "matches ... no newer fact"), and Sunday's send at 05:40 (first
+`send_body.shape.json` recorded by cron).
+
 ## Entry point, 2026-09-25
 
 For first use or missing access, read `references/setup.md` and the

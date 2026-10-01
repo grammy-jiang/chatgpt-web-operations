@@ -201,7 +201,24 @@ drives; measured with the default:
 The read-path 403/429 at 17:17 is a reminder that the live tiers and the
 probes of one afternoon add up; the skill's own cool-down and preflight's
 block are the right answer, and nothing else was run against the account
-after it.
+until 22:5x, when `/backend-api/me` answered 200 again.
+
+### Detect and report a page change, 22:50-23:25
+
+The owner's second ask. The monitoring that exists lives in `~/.local/bin`
+(daily browser health with the DOM comparison at 05:25, the weekly send at
+Sunday 05:40, the heal agent, mails to the local mailbox); what the skill
+gained and how it was checked:
+
+| Step | Result |
+| --- | --- |
+| page facts on a composer-missing message, event and `chatgpt-composer-missing.json` | unit tests over a faked page: the message ends `[page: challenge=no, login=no, composers=0 (0 hidden), toggle=yes, attach-menu=no, picker=no, title=chatgpt]`, the event carries the compact facts, the JSON beside the screenshot carries no markup. |
+| ten more drift facts, and the stale-fixture note | `preflight --browser` at 23:13 through the dedicated window: "the page matches the fixture recorded 2026-09-30T23:58:56Z; 10 newer fact(s) not in the fixture yet (composers.visible, ..., page.login): re-record and promote". The recording: 1 composer (0 hidden), 3 file inputs (`#upload-files` gone, one accepts any file), attach menu and picker present, no challenge, no login route. |
+| `composer-attached` re-recorded | T3 upload dry run at 23:13 with `RP_SNAPSHOT_DIR`: 1 passed in 44 s; the recording carries one attachment chip. |
+| promotion | `make refresh-dom-fixtures` for `composer` and `composer-attached`; hygiene 3 passed; replay 43 passed (three new cases prove the attach menu, the picker, the file inputs and the flags on every recorded composer). |
+| the send body's shape | `tests/fixtures/send/send_body.shape.json` from the evening's recorded High body (5,180 bytes, no value in it); the morning's Instant body against it reads "send_body: thinking_effort removed" plus two added fields -- the change of 2026-10-01, as the Sunday check would now report it. |
+| wrapper edits | `chatgpt-ops-send-check.sh` compares the shape in its drift step; `chatgpt-ops-heal.sh` puts the page facts in the evidence and tells the agent a repeated "transient" is not one; both parse (`bash -n`), both backed up as `*.bak-20261001`. Not exercised by cron yet: 05:25 and Sunday 05:40 are the first runs. |
+| offline gates | lint clean; the unit suite, replay and loopback green (the numbers in the gate log of this commit). |
 
 ## What the owner decides
 
