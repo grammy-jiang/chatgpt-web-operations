@@ -196,6 +196,21 @@ at 05:25 (the promoted `composer` fixture carries the new facts, so its row
 should read "matches ... no newer fact"), and Sunday's send at 05:40 (first
 `send_body.shape.json` recorded by cron).
 
+The owner then approved the layered design (2026-10-01 late evening, done
+into 2026-10-02 00:0x): layer 1 is `scripts/triage.py` (rules only; tested;
+registry `~/.local/state/chatgpt-ops/triage.json`), called by both cron
+wrappers after a new read-only reproduction step (`chatgpt-ops-repro.sh`,
+new in `~/.local/bin`); the agent (layer 3, `chatgpt-ops-heal.sh`) runs only
+on an escalate decision and gets the triage record and the reproduction in
+its evidence, may reproduce once more itself (allowlisted), and is told what
+a reproduced failure means; layer 4 is `chatgpt-ops-approve` (new in
+`~/.local/bin`: show, `--merge`, `--promote`, `--discard`). Layer 2 (a cheap
+model for novel signatures) is not built. Backups of the edited wrappers:
+`*.bak-20261002`. The model picker fact is recorded but not compared
+(`controls.picker` left `SNAPSHOT_DRIFT_KEYS` after the home page drew it on
+one load and not the next). The delivery channel stays the owner's open
+decision.
+
 ## Entry point, 2026-09-25
 
 For first use or missing access, read `references/setup.md` and the

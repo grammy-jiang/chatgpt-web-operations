@@ -90,7 +90,7 @@ skill does not import it.
 
 ## The commands
 
-There are 33 command scripts and six support modules. `clean_chats.py`,
+There are 34 command scripts and six support modules. `clean_chats.py`,
 `project_settings.py`, `pin_chat.py` and `delete_project.py` need `--apply`.
 `create_project.py`, `create_connector.py` and `connect_connector.py` act
 unless `--dry-run` is supplied. `delete_connector.py` and `delete_skill.py`
@@ -139,6 +139,7 @@ use POST; HTTP method alone does not determine whether an operation writes.
 | `clean_chats.py` | Archive, delete or unarchive chats. Select by `--match TEXT`, by `--project g-p-<id>` (its own listing, every chat when `--match` is absent, so a chat ChatGPT renamed is still found), by exact `--id ID_OR_URL` (repeatable), or by `--tracked`: a local ledger of test chats kept with `--track ID_OR_URL [--note]` and `--untrack` (`~/.local/share/chatgpt-chats/test-chats.json`, binnacle's old ledger). `--backup DIR` saves each chat's conversation JSON before acting. An account-wide `--match` needs 3 characters; `--max N` refuses an apply to more than N chats. Dry run unless `--apply`. | 0 done or dry run, 1 a read, backup or change failed, 2 refused |
 | `round_status.py` | A research round: admitted, read, written off, unread; `--collect [--apply]` classifies every entry stuck at "sent" (resumable, superseded, collectable, lost) and archives a collectable reply. | 0 nothing unread; with `--collect` 0 nothing to do or all collected, 1 a fetch or write failed, 2 refused |
 | `review_topic.py` | A finished topic, offline: six integrity checks, a seventh warning about the profile snapshot, review verdicts, gaps, and cost. | 0 nothing wrong |
+| `triage.py` | A failed scheduled check, offline: its signature, class (page-change, api-change, session, known-transient, host, unknown), streak in a registry and decision (digest / escalate / escalate-repeat), with the reproduction's result weighed in; the cron wrappers run the repair agent only on escalate. `--ok RUN_ID` records a clean run. | 0 digest, 2 escalate, 1 unreadable run |
 | `measure_window.py` | What a send window costs in memory and fill time. | 0 always |
 | `discover_endpoints.py` | Record what endpoints the page calls, and with `--bodies` what they sent. | 0 always |
 | `dedicated_browser.py` | The browser window a send attaches to since 2026-10-01: `start`, `run` (foreground, for its systemd user unit), `status [--json PATH]`, `stop`, `unit [--install]`. A separate Chrome profile with a debugging port on 127.0.0.1, logged in once by hand; only sends, Deep research's start and the browser diagnostics use it, everything else stays HTTP. | 0 done, 1 the browser did not start, answer or stop, 2 bad arguments |
@@ -412,6 +413,33 @@ challenge page (`challenge-page`), a refused send handshake
 never renders (`composer-missing` with `logged_in: true`). In every shape
 the account is fine: `probe_account.py` reads, and the user's own Chrome
 sends. Wait for the cool-down, then one window at a time.
+
+**A failed check is triaged before anything expensive runs.** Layer 1 of
+the owner's design (2026-10-01 evening) is rules, not a model: the cron
+wrappers (`~/.local/bin/chatgpt-ops-check.sh`, `chatgpt-ops-send-check.sh`)
+first reproduce the failed check the same way, read-only
+(`chatgpt-ops-repro.sh`: `preflight --browser` through the dedicated window
+with the page recorded, plus the T3 upload dry run for the weekly send; never
+a send), then run `triage.py` over the run's evidence. It reduces the failure
+to a signature, a class and a streak kept in
+`~/.local/state/chatgpt-ops/triage.json`, weighs the reproduction (a
+failure that did not reproduce is probably transient; one that reproduced is
+real; a reproduction whose page drifted is a page change) and decides:
+`digest` (a known transient or host condition, first occurrence) or
+`escalate` (a page or API change, a session problem, an unknown shape, or any
+signature on two failing runs in a row, counted also by the browser check
+blocking every time whatever else failed beside it). Only `escalate` hands
+the evidence -- now including the triage record and the reproduction -- to
+the repair agent (`chatgpt-ops-heal.sh`, a large model in a worktree, which
+may reproduce once more itself and still never sends). The owner reviews
+with `chatgpt-ops-approve RUN_ID` (`--merge` the heal branch after the
+gates, `--promote` the recordings into the fixtures, `--discard`), which is
+layer 4; the delivery channel of the report is still the owner's decision.
+Measured on the three mornings of 2026-09-29 to 10-01 replayed in order: day
+one escalates (unknown, the old client gave no page facts), day two
+escalates as a repeat, day three -- the same browser failure beside a 403 on
+the read path -- escalates as a repeat too, where before each day was its
+own ALERT and its own agent run.
 
 **A page without a composer says what it is.** Since 2026-10-01 evening the
 composer-missing message ends with the page's facts -- `[page: challenge=...,

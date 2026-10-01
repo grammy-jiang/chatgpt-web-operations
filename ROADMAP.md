@@ -170,6 +170,13 @@ Working rule 2 applies to every repository, not only research-pipeline.
    that predates a fact says so; the weekly send records the POST body's
    shape and the check warns on a pinned or server-read field going. Where
    the report is delivered stays the owner's decision.
+7. **Rules before the agent, the agent before the owner** (the owner's
+   layered design, approved 2026-10-01 evening): a failed check is
+   reproduced the same way, read-only (`chatgpt-ops-repro.sh`), then
+   classified and counted by `triage.py` (no model); the repair agent runs
+   only on an escalate decision and proposes on a branch; the owner merges
+   or promotes with `chatgpt-ops-approve`. A cheap-model layer for novel
+   signatures may come later, without the power to drop an issue.
 
 ## Historical decisions
 

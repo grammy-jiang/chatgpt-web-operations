@@ -220,6 +220,18 @@ gained and how it was checked:
 | wrapper edits | `chatgpt-ops-send-check.sh` compares the shape in its drift step; `chatgpt-ops-heal.sh` puts the page facts in the evidence and tells the agent a repeated "transient" is not one; both parse (`bash -n`), both backed up as `*.bak-20261001`. Not exercised by cron yet: 05:25 and Sunday 05:40 are the first runs. |
 | offline gates | lint clean; the unit suite, replay and loopback green (the numbers in the gate log of this commit). |
 
+### Triage, reproduction and approval, 2026-10-01 23:30 - 2026-10-02 00:10
+
+| Step | Result |
+| --- | --- |
+| `triage.py` over the three real alert runs, in order, scratch registry | 09-29: escalate (unknown: the old client gave no page facts, streak 1); 09-30: escalate-repeat (streak 2); 10-01: escalate-repeat (class known-transient because the read path answered 403 that morning, exact-signature streak 1, browser streak 3). Three mornings, one incident. |
+| `chatgpt-ops-repro.sh` on a copy of the 10-01 run | one read-only `preflight --browser` through the dedicated window, 63 s; the composer appeared; a second call refuses ("already done for this run"). |
+| what the reproduction taught | its row was a warn: `controls.picker` differed from the fixture promoted at 23:13 -- the home page drew the model picker inside the composer on one load and not on the next, nothing else changed. The fact is recorded but no longer compared; a reproduction whose page drifts now escalates as a page change. |
+| `triage.py` with that reproduction | digest (known-transient, 403); with the picker rule gone the same reproduction reads "composer ok". |
+| unit tests | `tests/test_triage.py`: 35 tests, 99% of the module; classes, signatures, streaks, the ok reset, the reproduction's three effects, exit codes. |
+| `chatgpt-ops-approve last` | shows the run's status, triage, reproduction, heal gates, patch stat and report; `--merge`, `--promote` and `--discard` ask before changing anything (not exercised: no heal branch to merge tonight). |
+| wrappers | `chatgpt-ops-check.sh` and `chatgpt-ops-send-check.sh` reproduce, triage and call the agent only on exit 2, and record clean runs with `--ok`; `chatgpt-ops-heal.sh` carries the triage and reproduction in its evidence and allows `chatgpt-ops-repro.sh`; all parse (`bash -n`); backups `*.bak-20261002`. First scheduled proof: 05:25 on 2026-10-02. |
+
 ## What the owner decides
 
 - `/tmp/rp-browser-profile.stale-20261001` (174 MB) was deleted at the owner's request, 2026-10-01 15:4x.

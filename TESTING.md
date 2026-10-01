@@ -653,6 +653,14 @@ noted that the ledger still said `pending` for that fix, and ran
 `make replay FIXTURES=<run>/dom` itself (30 passed). The gates passed;
 `patch.diff` was empty. Evidence: that run's `heal/` directory.
 
+Since 2026-10-01 evening the loop has a first layer in front of the agent
+(the owner's design): `chatgpt-ops-repro.sh` reproduces the failed check the
+same way, read-only, and `scripts/triage.py` (rules, a registry, no model)
+classifies the failure, counts repeats and decides whether the agent runs at
+all; the agent's evidence carries both, and its prompt says what a
+reproduced or unreproduced failure means. `chatgpt-ops-approve RUN_ID` is
+the owner's review step (show, `--merge`, `--promote`, `--discard`).
+
 ### 6.6 Order and rough effort
 
 P1 (1-2 days), P2 (half a day), P3 (half a day plus the cron line), P4 (half
