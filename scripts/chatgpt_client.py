@@ -2289,7 +2289,10 @@ SNAPSHOT_DRIFT_KEYS = (
     ("uploads", "primary_found"),
     ("uploads", "any_file"),
     ("controls", "attach_menu"),
-    ("controls", "picker"),
+    # not ("controls", "picker"): the home page's composer carried the model
+    # picker at 23:13 on 2026-10-01 and not at 00:02 the next morning, with
+    # nothing else changed -- a layout the page chooses, not a change to
+    # follow; the fact is still recorded, just not compared.
     ("controls", "remove_chips"),
     ("page", "challenge"),
     ("page", "login"),

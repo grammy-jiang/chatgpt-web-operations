@@ -132,6 +132,7 @@ LIVE_COVERAGE: dict[str, str] = {
         "test_refresh_connector_lists_resolves_and_dry_runs_a_real_connector"
     ),
     "review_topic.py": "offline-only",
+    "triage.py": "offline-only",
     "round_status.py": "research-workdir",
     "search_chats.py": (
         "live/test_read_commands.py::test_search_chats_main_exits_as_documented"
