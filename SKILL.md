@@ -456,12 +456,36 @@ python3 $S/dedicated_browser.py unit --install   # keep it alive (systemd --user
 python3 $S/preflight.py --browser                # "... through the dedicated browser at ..."
 ```
 
-What a send does there: one new tab; the composer filled, the button
-clicked, the handshake and `f/conversation` watched exactly as before; the
-tab closed at the end. The window and the owner's own tab stay. No cookie is
-injected (the profile holds the login) and no display is started. Routes
-(the request blocking and the effort/model rewrite) go on the send's own
-tab only. `RP_BROWSER_CDP` chooses: unset or `auto` attaches when the window
+What a send does there: it drives one tab of the window -- the composer
+filled, the button clicked, the handshake and `f/conversation` watched
+exactly as before -- and which tab is `RP_BROWSER_TAB`'s choice (the owner's
+question of 2026-10-01 evening, "why can't you specify which tab"):
+
+- `own` (the default): the skill keeps one tab of its own across sends,
+  remembered by its target id in `~/.local/state/chatgpt-web-operations/dedicated-tab.json`
+  (`RP_TAB_FILE`), made on the first send and never closed by a send; the
+  next send finds it, raises it and drives it, so no tab opens and closes
+  per send and the owner's own tab is never touched. A failed send leaves
+  that tab where it failed, which is evidence the owner can look at.
+- `url:<prefix>`: the first open tab whose address starts with the prefix
+  -- `url:https://chatgpt.com/` is the owner's own chatgpt.com tab -- is
+  driven and kept; when none matches, the own tab is used.
+- `new`: one tab per window, closed at its end (the behaviour of 2026-10-01
+  daytime).
+
+A kept tab is held under an advisory lock while a window drives it; a
+second window finding it held opens a tab of its own for that window and
+closes it afterwards, so two sends never share one tab. A send killed by
+SIGTERM closes the tab it was driving, whichever mode chose it
+(F-2026-10-01-29); the next send makes or finds one again.
+`dedicated_browser.py status` prints which tab a send would drive. Measured
+2026-10-01 17:15-17:18: a preflight made the own tab, a sandbox send and a
+second preflight reused it (two pages in the window throughout, the owner's
+and the skill's), and the pinned effort was recorded as before. The window
+and the owner's own tab stay. No cookie is injected (the profile holds the
+login) and no display is started. Routes (the request blocking and the
+effort/model rewrite) go on the driven tab only, and vanish with the
+connection at the end. `RP_BROWSER_CDP` chooses: unset or `auto` attaches when the window
 answers and falls back to the scripted Xvfb window otherwise -- which
 Cloudflare refuses at the time of writing, so preflight's host check
 "dedicated browser" blocks when the window is down; `off` never attaches; a
@@ -494,11 +518,12 @@ tab holds (F-2026-10-01-32): `preflight --browser`, `health --browser` and
 `measure_window` then fail with "the tab is on 'about:blank'", while sends
 into a project work. Since the same evening the window runs none of them
 (`--disable-extensions`, above); `dedicated_browser.py status` lists them
-and says whether the running window has them disabled. Removing them for
-good is the owner's step, in this order: sign the profile out of Chrome
-first (Settings > You and Google; not out of chatgpt.com), because removing
-a synced extension removes it from the owner's own Chrome too, then remove
-them in that window. A fresh profile's picker sits on "Instant",
+and says whether the running window has them disabled. They may stay
+installed -- the owner's choice of 2026-10-01 evening, since the window runs
+none of them. If they are ever to go, the order matters: sign the profile
+out of Chrome first (Settings > You and Google; not out of chatgpt.com),
+because removing a synced extension removes it from the owner's own Chrome
+too, then remove them in that window. A fresh profile's picker sits on "Instant",
 whose body carries a one-off model override that makes the server ignore a
 pinned level; the rewrite drops it, so `--effort` takes there too
 (F-2026-10-01-31, "Reasoning effort" below). Chrome 136 and later ignore the debugging
@@ -726,6 +751,7 @@ probe script run by hand is how a second window appears.
     RP_MIN_AVAILABLE_MB=4000  RP_BROWSER_WAIT_SECONDS=900
     RP_BROWSER_PROFILE=  RP_BROWSER_COOLDOWN_SECONDS=1800
     RP_BROWSER_CDP=auto  RP_DEDICATED_PORT=9222
+    RP_BROWSER_TAB=own  RP_TAB_FILE=
 
 Refusing to open is correct: a window opened into swap makes every Playwright
 call time out, so the send fails anyway and the host suffers. The lifetime

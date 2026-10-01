@@ -184,6 +184,25 @@ account's record read before and after each and unchanged
 | `make live-browser` (T3) | 1 passed, 1 failed at 16:36 and again at 16:40 (the upload dry run: no chip, no send button); 2 passed at 16:52. The client's own `attach_files` at 16:50 showed the upload requests and the chip in 8.4 s (atlas, "Seen, not measured"). |
 | offline gates | lint clean; 2,515 passed once the slider's write endpoint was excused from the recorded-shapes rule; replay 40; loopback 43. |
 
+### The skill's own tab, 17:15-17:18
+
+The owner asked why a tab cannot be specified. `RP_BROWSER_TAB` (`own` by
+default, `url:<prefix>`, `new`) now says which tab of the window a send
+drives; measured with the default:
+
+| Step | Result |
+| --- | --- |
+| `preflight --browser`, no own tab yet | GO; the window went from one page (the owner's) to two; `dedicated-tab.json` written with the new tab's target id; `status`: "the skill's own tab is open at https://chatgpt.com/". |
+| a sandbox send, `--effort extended` pinned | the own tab reused (still two pages), the reply recorded `extended`, the chat deleted; `status` then named the own tab at the chat's address. |
+| `preflight --browser` again | the own tab reused (two pages), composer found; the run's verdict was DO NOT START because the HTTP read path answered 403 and then "rate limited" -- the day's request volume on the read side, not the browser. |
+| two `preflight --browser` at once | both found the composer (one GO, one blocked by the same read-path limit); the lock's fallback to a fresh tab is covered by the unit test and was not caught in the act. |
+| offline gates | lint clean; 2,525 passed; replay 40; loopback 43. |
+
+The read-path 403/429 at 17:17 is a reminder that the live tiers and the
+probes of one afternoon add up; the skill's own cool-down and preflight's
+block are the right answer, and nothing else was run against the account
+after it.
+
 ## What the owner decides
 
 - `/tmp/rp-browser-profile.stale-20261001` (174 MB) was deleted at the owner's request, 2026-10-01 15:4x.

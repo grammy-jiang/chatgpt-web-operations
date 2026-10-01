@@ -167,9 +167,14 @@ below Pro -- "Extra High" now -- set at 16:19 and kept by the rule in
 dedicated window runs no extensions (`--disable-extensions`, restarted
 16:34), the removal being the owner's step with the sync trap named. Seen
 once, not measured: the T3 upload dry run failed twice right after that
-restart and passed from 16:50 on (atlas, "Seen, not measured"). Results:
-`VERIFICATION.md`, "The dedicated browser window", "The effort pin, the
-same evening" and "The owner's default and the window's extensions".
+restart and passed from 16:50 on (atlas, "Seen, not measured"). The owner
+then asked why a tab cannot be specified: `RP_BROWSER_TAB` now chooses the
+tab a send drives -- the skill's own kept tab by default, `url:<prefix>` for
+a named one such as the owner's, `new` for one per window -- with a lock so
+two windows never share one; the extensions stay installed, inert under the
+switch. Results: `VERIFICATION.md`, "The dedicated browser window", "The
+effort pin, the same evening", "The owner's default and the window's
+extensions" and "The skill's own tab".
 
 ## Entry point, 2026-09-25
 
