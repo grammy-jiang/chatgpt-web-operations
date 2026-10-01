@@ -146,8 +146,8 @@ live tiers below.
 | cleanup | the disposable connector's link and app deleted; 6 sandbox chats backed up and deleted; the window keeps only the owner's tab. |
 
 A note the owner must read: logging the dedicated profile in to the Google
-account signed that Chrome in too, and Chrome synced the owner's 33
-extensions into the profile (AdBlock, MetaMask, 2FAS, Bitwarden, the
+account signed that Chrome in too, and Chrome synced the owner's 23 Web
+Store extensions into the profile (AdBlock, MetaMask, 2FAS, Bitwarden, the
 Claude and Gemini extensions, a duplicate-tab blocker among them). Every
 send's tab runs them, and the duplicate-tab blocker is what broke the
 browser checks from 13:54 (F-2026-10-01-32). Sign the profile out of Chrome

@@ -150,8 +150,8 @@ four more defects, all fixed with tests: a chat page's hidden composer
 (F-2026-10-01-27), the reply-stream wait that never ends there
 (F-2026-10-01-28), the tab a killed send leaves and the chat page taken for
 a refusal (F-2026-10-01-29), and an effort pinned on the window's "Auto"
-model (F-2026-10-01-30). Chrome synced the owner's 33 extensions into the
-dedicated profile after the Google login, and a duplicate-tab blocker
+model (F-2026-10-01-30). Chrome synced the owner's extensions (23 from the
+Web Store) into the dedicated profile after the Google login, and a duplicate-tab blocker
 among them bounces every new tab opened on the home page (F-2026-10-01-32:
 named now, not fought; the owner removes them or signs the profile out of
 Chrome). Open: the effort pin no longer takes because the page's body and

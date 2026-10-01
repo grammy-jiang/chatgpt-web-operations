@@ -478,8 +478,8 @@ available there, while the widget route (`deep_research.py start`, `status`,
 effort pinned without a model lands on `EFFORT_MODEL` (`gpt-5-6-thinking`),
 because the window's own picker may hold a model that takes no effort
 (F-2026-10-01-30). **The dedicated profile must carry no extensions.** Signing it into a
-Google account in Chrome syncs the owner's extensions into it (33 arrived
-on 2026-10-01 after the login), and a duplicate-tab blocker among them
+Google account in Chrome syncs the owner's extensions into it (23 Web
+Store extensions arrived on 2026-10-01 after the login), and a duplicate-tab blocker among them
 bounced every new tab opened on the home page, the address the owner's own
 tab holds (F-2026-10-01-32): `preflight --browser`, `health --browser` and
 `measure_window` then fail with "the tab is on 'about:blank'", while sends

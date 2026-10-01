@@ -771,10 +771,11 @@ The rules that came out of them are in `worker-rounds.md`.
 - **(F-2026-10-01-32) The dedicated profile synced the owner's extensions,
   and a duplicate-tab blocker bounced every new tab opened on the home
   page.** The Google login in the dedicated window signed Chrome in as
-  well, and between 11:38 and 12:07 Chrome synced 33 of the owner's
-  extensions into the profile (AdBlock, MetaMask, 2FAS, Bitwarden, the
-  Claude and Gemini extensions, "Clutter Free - Prevent duplicate tabs"
-  among them). From then on a new tab navigated to `https://chatgpt.com/`
+  well, and between 11:38 and 12:07 Chrome synced the owner's extensions
+  into the profile: 33 entries in its extension settings, 23 of them Web
+  Store extensions (AdBlock, MetaMask, 2FAS, Bitwarden, the Claude and
+  Gemini extensions, "Clutter Free - Prevent duplicate tabs" among them),
+  the rest Chrome's own components. From then on a new tab navigated to `https://chatgpt.com/`
   -- the address the owner's own tab held -- was sent straight back to
   where it came from (measured 14:05: the navigation request went out, the
   frame navigated, and one second later the tab was back on the previous
