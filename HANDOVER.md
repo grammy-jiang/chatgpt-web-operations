@@ -211,6 +211,18 @@ model for novel signatures) is not built. Backups of the edited wrappers:
 one load and not the next). The delivery channel stays the owner's open
 decision.
 
+2026-10-06: the first four scheduled days of the loop (`VERIFICATION.md`,
+"Four scheduled days") found three defects in the skill, fixed with tests
+(F-2026-10-06-1 to -3): a slow render under host load was counted as a
+refusal and bought a 30-minute cool-down each time; the cool-down held
+sends that attach to the dedicated window; sends whose close did not finish
+left their tabs in the window (31 by 10-06). The watchdog now closes an
+attached tab from outside, `dedicated_browser.py tidy --apply` sweeps the
+leftovers and the daily check runs it first (`chatgpt-ops-check.sh`,
+backup `.bak-20261006`). The host itself is the open problem: a load of
+10-17 on 4 cores from the owner's parallel pipelines, which no change here
+can fix; preflight's load and memory rows say so each morning.
+
 ## Entry point, 2026-09-25
 
 For first use or missing access, read `references/setup.md` and the

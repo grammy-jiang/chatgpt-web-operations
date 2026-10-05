@@ -370,5 +370,40 @@
       "test_dedicated_browser.py::test_status_names_the_profile_s_extensions"
     ],
     "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-06-1",
+    "title": "a slow render (the composer in the page but not yet visible) was counted as a refusal and started a 30-minute cool-down",
+    "atlas": "A slow render was counted as a refusal",
+    "fix": "60dd832",
+    "tests": [
+      "test_page_snapshot.py::test_find_composer_waits_once_more_when_the_composer_is_in_the_page",
+      "test_page_snapshot.py::test_find_composer_names_a_slow_render_and_not_a_refusal",
+      "test_client_browser.py::test_a_slow_render_is_an_event_and_never_a_refusal"
+    ],
+    "removed_and_failed": "2026-10-06"
+  },
+  {
+    "id": "F-2026-10-06-2",
+    "title": "the cool-down after a refused scripted window held sends that attach to the dedicated window too",
+    "atlas": "The cool-down held the dedicated window too",
+    "fix": "60dd832",
+    "tests": [
+      "test_client_browser.py::test_the_cooldown_holds_scripted_windows_only",
+      "test_preflight.py::test_browser_cooldown_check_is_ok_when_the_dedicated_window_answers"
+    ],
+    "removed_and_failed": "2026-10-06"
+  },
+  {
+    "id": "F-2026-10-06-3",
+    "title": "a send whose close did not complete left its tab in the dedicated window; nothing swept them",
+    "atlas": "Sends whose close did not complete left their tabs",
+    "fix": "60dd832",
+    "tests": [
+      "test_client_browser.py::test_watchdog_closes_an_attached_tab_from_outside",
+      "test_dedicated_browser.py::test_leftover_tabs_are_chat_pages_other_than_the_own_tab",
+      "test_dedicated_browser.py::test_tidy_lists_then_closes_the_leftovers"
+    ],
+    "removed_and_failed": "2026-10-06"
   }
 ]

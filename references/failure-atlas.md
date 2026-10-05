@@ -828,6 +828,46 @@ The rules that came out of them are in `worker-rounds.md`.
   hint alone. The account's `last_used_model_config` stayed `gpt-5-6-thinking`
   / `extended` through every test send, read before and after; the skill
   still never calls the PATCH.
+- **(F-2026-10-06-1) A slow render was counted as a refusal, and each one
+  cost a 30-minute cool-down.** Between 2026-10-03 and 10-04 the events file
+  holds eight "logged-in page without a composer" refusals; six of them
+  carry page facts that count one composer (`composers=1 (0 hidden)`,
+  `challenge=no`, `login=no`), and the latest screenshot (10-04 22:00)
+  shows the page whole, on the Work surface, composer and all: the 60 s
+  wait had expired, the facts were read a moment later, and the composer
+  was there. The host was at a load of 10 on 4 cores with the dedicated
+  Chrome peaking at 8.7 GB; pages rendered slowly, nothing refused anything.
+  The refusal started `note_refusal` each time, so every slow page bought 30
+  minutes without any window. What changed: `find_composer` reads the page
+  facts once, and a page that holds a composer the wait did not see (no
+  challenge, no login route: `composer_in_page_but_slow`) gets
+  `COMPOSER_SLOW_SECONDS` (30 s, `RP_COMPOSER_SLOW_SECONDS`) more; a
+  composer that shows is returned like any other, and one that does not is
+  named a slow render (`SLOW_RENDER_REASON`), recorded as `composer-missing`
+  with `slow_render: true`, never a refusal.
+- **(F-2026-10-06-2) The cool-down held the dedicated window too.**
+  `__enter__` checked the cool-down before choosing the window, so a
+  refusal of a scripted window held every send, including the ones that
+  attach to the dedicated window, which Cloudflare had not refused. On
+  2026-10-04 one refusal at 05:11 held the daily check at 05:25 and the
+  weekly send at 05:40 (T3 failed in 2 s) while the window was fine; the
+  repair agent's first real run named exactly that. What changed:
+  `__enter__` resolves the endpoint first and consults the cool-down only
+  when no dedicated window answers; `_open` reuses that choice;
+  preflight's "browser cool-down" is an ok row that says which windows it
+  holds when the dedicated window answers.
+- **(F-2026-10-06-3) Sends whose close did not complete left their tabs in
+  the window.** By 2026-10-05 the window carried 18 chat tabs that no
+  failure event named, by 10-06 morning 31: sends that posted and whose
+  tab close did not finish under the load (the attached watchdog had no
+  process of ours to kill, so a hung call kept its tab). What changed: the
+  watchdog closes an attached tab through the browser's endpoint when a
+  send outlives its ceiling (`close_tab_from_outside`, two attempts), and
+  `dedicated_browser.py tidy [--apply]` names and closes the leftover chat
+  tabs (a conversation page other than the skill's own kept tab); the daily
+  browser check runs it before its own composer check and the mail carries
+  the count. Measured 10-06 08:46: 31 closed, the window back to the
+  owner's tab and the skill's own.
 
 ## Re-validation after the Work surface, 2026-10-01
 

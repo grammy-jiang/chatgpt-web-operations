@@ -232,6 +232,17 @@ gained and how it was checked:
 | `chatgpt-ops-approve last` | shows the run's status, triage, reproduction, heal gates, patch stat and report; `--merge`, `--promote` and `--discard` ask before changing anything (not exercised: no heal branch to merge tonight). |
 | wrappers | `chatgpt-ops-check.sh` and `chatgpt-ops-send-check.sh` reproduce, triage and call the agent only on exit 2, and record clean runs with `--ok`; `chatgpt-ops-heal.sh` carries the triage and reproduction in its evidence and allows `chatgpt-ops-repro.sh`; all parse (`bash -n`); backups `*.bak-20261002`. First scheduled proof: 05:25 on 2026-10-02. |
 
+### Four scheduled days, and what they taught, 2026-10-02 to 10-06
+
+| What | Result |
+| --- | --- |
+| 05:25 daily, 10-02 / 10-03 / 10-04 / 10-05 | ALERT (page without a composer at 05:25, reproduced fine at 05:29: digest) / ALERT (read-path 403: digest) / ALERT, 4 blocking (memory 3,372 MB, the cool-down from a refusal at 05:11, read-path 403, the composer held by the cool-down: digest) / GO. The agent never ran on a daily check. |
+| 05:40 weekly, 10-04 | ALERT: T3 failed in 2 s, held by the same cool-down; triage escalate (unknown, reproduction failed the same way); the agent ran (18 turns, 0.83 USD): diagnosis "the client's own cool-down; not transient, four ALERT days running", no patch, three measurements named -- and a quoting defect in the heal evidence builder, fixed the same day. |
+| the events of 10-03/04 | 8 logged-in composer-missing refusals, 6 with `composers=1`; the 10-04 22:00 screenshot shows the whole page on the Work surface, composer present. Load 10 on 4 cores; the dedicated Chrome peaked at 8.7 GB and was restarted by its unit at 06:06 on 10-04; the owner restarted it by hand at 14:04 on 10-05 (Chrome 154.0.8037.97 since the 10-02 upgrade). |
+| the window's tabs | 20 pages on 10-05 evening (18 chat tabs, none named by a failure event), 32 on 10-06 morning. |
+| the three fixes (F-2026-10-06-1, -2, -3) | unit tests fail without them (8 of 8 in a worktree at the previous commit); `dedicated_browser.py tidy` dry run listed 31 leftovers, `--apply` closed 31, the window back to 2 pages; `preflight --browser` right after: composer appeared through the window (the run's verdict blocked only on "rate limited on the read path", at a load of 17.4). |
+| offline gates | lint clean; the unit suite, replay and loopback green (this commit's gate log). |
+
 ## What the owner decides
 
 - `/tmp/rp-browser-profile.stale-20261001` (174 MB) was deleted at the owner's request, 2026-10-01 15:4x.

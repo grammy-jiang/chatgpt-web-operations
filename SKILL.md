@@ -142,7 +142,7 @@ use POST; HTTP method alone does not determine whether an operation writes.
 | `triage.py` | A failed scheduled check, offline: its signature, class (page-change, api-change, session, known-transient, host, unknown), streak in a registry and decision (digest / escalate / escalate-repeat), with the reproduction's result weighed in; the cron wrappers run the repair agent only on escalate. `--ok RUN_ID` records a clean run. | 0 digest, 2 escalate, 1 unreadable run |
 | `measure_window.py` | What a send window costs in memory and fill time. | 0 always |
 | `discover_endpoints.py` | Record what endpoints the page calls, and with `--bodies` what they sent. | 0 always |
-| `dedicated_browser.py` | The browser window a send attaches to since 2026-10-01: `start`, `run` (foreground, for its systemd user unit), `status [--json PATH]`, `stop`, `unit [--install]`. A separate Chrome profile with a debugging port on 127.0.0.1, logged in once by hand; only sends, Deep research's start and the browser diagnostics use it, everything else stays HTTP. | 0 done, 1 the browser did not start, answer or stop, 2 bad arguments |
+| `dedicated_browser.py` | The browser window a send attaches to since 2026-10-01: `start`, `run` (foreground, for its systemd user unit), `status [--json PATH]`, `stop`, `unit [--install]`, `tidy [--apply] [--json PATH]` (the leftover chat tabs a send's unfinished close left behind: named, and closed with `--apply`; the daily check runs it). A separate Chrome profile with a debugging port on 127.0.0.1, logged in once by hand; only sends, Deep research's start and the browser diagnostics use it, everything else stays HTTP. | 0 done, 1 the browser did not start, answer or stop, 2 bad arguments |
 
 `_common.py` holds only session bootstrap, table formatting and the
 name-or-substring lookup the commands that take a name share.
@@ -407,12 +407,22 @@ fetch between windows), and after any refusal no scripted window opens for
 the time the cool-down ends with status 429, `preflight.py` shows it as the
 host check "browser cool-down", and the refusal is one record in
 `~/.local/state/chatgpt-web-operations/browser-refusal.json`
-(F-2026-10-01-26). The refusal has three shapes, each its own event: the
+(F-2026-10-01-26). Since 2026-10-06 the cool-down holds scripted windows
+only: a send that attaches to the dedicated window is not the window
+Cloudflare refused, and on 2026-10-04 one refusal had held the daily check
+and the weekly send for half an hour while the window was fine
+(F-2026-10-06-2). The refusal has three shapes, each its own event: the
 challenge page (`challenge-page`), a refused send handshake
 (`handshake-refused`, F-2026-10-01-23), and a logged-in page whose composer
-never renders (`composer-missing` with `logged_in: true`). In every shape
-the account is fine: `probe_account.py` reads, and the user's own Chrome
-sends. Wait for the cool-down, then one window at a time.
+never renders (`composer-missing` with `logged_in: true`). A page that holds
+a composer the wait did not see -- the facts count one, no challenge, no
+login route -- is not that third shape: it is a slow render, which gets
+`RP_COMPOSER_SLOW_SECONDS` (30 s) more and, failing that, is recorded as
+`composer-missing` with `slow_render: true`, never a refusal
+(F-2026-10-06-1: six of the eight refusals of 2026-10-03/04 were such
+pages, under a load of 10 on 4 cores). In every real shape the account is
+fine: `probe_account.py` reads, and the user's own Chrome sends. Wait for
+the cool-down, then one window at a time.
 
 **A failed check is triaged before anything expensive runs.** Layer 1 of
 the owner's design (2026-10-01 evening) is rules, not a model: the cron
@@ -527,7 +537,12 @@ A kept tab is held under an advisory lock while a window drives it; a
 second window finding it held opens a tab of its own for that window and
 closes it afterwards, so two sends never share one tab. A send killed by
 SIGTERM closes the tab it was driving, whichever mode chose it
-(F-2026-10-01-29); the next send makes or finds one again.
+(F-2026-10-01-29); the next send makes or finds one again. A send that
+outlives `RP_BROWSER_MAX_SECONDS` on an attached tab has its tab closed from
+outside by the watchdog (the hung call raises, the tab is not left behind),
+and `dedicated_browser.py tidy --apply` sweeps the chat tabs that still get
+left (31 on the morning of 2026-10-06, after two days at a load of 10;
+F-2026-10-06-3).
 `dedicated_browser.py status` prints which tab a send would drive. Measured
 2026-10-01 17:15-17:18: a preflight made the own tab, a sandbox send and a
 second preflight reused it (two pages in the window throughout, the owner's
@@ -800,6 +815,7 @@ probe script run by hand is how a second window appears.
     RP_MAX_BROWSERS=1  RP_BROWSER_MAX_SECONDS=1500
     RP_MIN_AVAILABLE_MB=4000  RP_BROWSER_WAIT_SECONDS=900
     RP_BROWSER_PROFILE=  RP_BROWSER_COOLDOWN_SECONDS=1800
+    RP_COMPOSER_SLOW_SECONDS=30
     RP_BROWSER_CDP=auto  RP_DEDICATED_PORT=9222
     RP_BROWSER_TAB=own  RP_TAB_FILE=
 
