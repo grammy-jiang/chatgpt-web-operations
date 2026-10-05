@@ -37,6 +37,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -362,6 +363,84 @@ def tab_in_use(pages: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+CHAT_TAB_RE = re.compile(r"^https://chatgpt\.com/(?:g/[^/]+/)?c/[0-9a-f-]{36}")
+
+
+def close_tab(port: int, target_id: str, timeout: float = 3.0) -> bool:
+    """Close one tab through the browser's endpoint (``/json/close``)."""
+    try:
+        with urllib.request.urlopen(
+            f"{endpoint(port)}/json/close/{target_id}", timeout=timeout
+        ):
+            return True
+    except Exception:
+        return False
+
+
+def leftover_tabs(pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The chat tabs in the window that are nobody's: a conversation page
+    (``/c/<id>``, inside a project or not) other than the skill's own kept
+    tab (``chatgpt_client.tab_record``). A send drives one tab and closes it,
+    so a chat tab left open is a send whose close did not complete (2026-10-05:
+    18 of them under a load of 10 on 4 cores; F-2026-10-06-3). The owner's
+    own browsing belongs in the owner's own Chrome, not this window."""
+    own = str(cc.tab_record().get("target_id") or "")
+    return [
+        p
+        for p in pages
+        if p.get("type") == "page"
+        and CHAT_TAB_RE.match(str(p.get("url", "")))
+        and p.get("id") != own
+    ]
+
+
+def cmd_tidy(args: argparse.Namespace) -> int:
+    """``tidy [--apply] [--json PATH]``: name the leftover chat tabs, and
+    close them with ``--apply``. Exit 0 either way; 1 when the browser does
+    not answer. The daily check runs it with ``--apply`` before its own
+    browser check."""
+    if not version(args.port):
+        print(f"not running: nothing answers at {endpoint(args.port)}")
+        return 1
+    pages = tabs(args.port)
+    leftovers = leftover_tabs(pages)
+    closed: list[str] = []
+    failed: list[str] = []
+    if args.apply:
+        for page in leftovers:
+            target = str(page.get("id") or "")
+            (closed if close_tab(args.port, target) else failed).append(target)
+    record = {
+        "endpoint": endpoint(args.port),
+        "tabs": len(pages),
+        "leftovers": [str(p.get("url", ""))[:120] for p in leftovers],
+        "applied": bool(args.apply),
+        "closed": len(closed),
+        "failed": len(failed),
+    }
+    if args.json:
+        Path(args.json).write_text(
+            json.dumps(record, indent=2) + "\n", encoding="utf-8"
+        )
+    kept = len(pages) - len(leftovers)
+    if not leftovers:
+        print(f"tidy: no leftover chat tab among {len(pages)} tab(s)")
+    elif args.apply:
+        print(
+            f"tidy: closed {len(closed)} leftover chat tab(s)"
+            + (f", {len(failed)} would not close" if failed else "")
+            + f"; {kept} tab(s) kept (the owner's and the skill's own)"
+        )
+    else:
+        print(
+            f"tidy: {len(leftovers)} leftover chat tab(s) would be closed "
+            f"(--apply), {kept} kept:"
+        )
+        for url in record["leftovers"]:
+            print(f"  {url}")
+    return 0
+
+
 def cmd_stop(args: argparse.Namespace, kill: Any = os.kill) -> int:
     """SIGTERM the profile's browser and wait for the port to close; a
     Chrome that is still answering after STOP_WAIT_SECONDS gets SIGKILL
@@ -430,12 +509,16 @@ def cmd_unit(args: argparse.Namespace, run: Any = subprocess.run) -> int:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="command", required=True)
-    for name in ("start", "run", "status", "stop", "unit"):
+    for name in ("start", "run", "status", "stop", "unit", "tidy"):
         p = sub.add_parser(name)
         p.add_argument("--port", type=int, default=cc.DEDICATED_PORT)
         p.add_argument("--profile", type=Path, default=cc.DEDICATED_PROFILE_DIR)
-        if name == "status":
-            p.add_argument("--json", help="write the status record to PATH")
+        if name in ("status", "tidy"):
+            p.add_argument("--json", help="write the record to PATH")
+        if name == "tidy":
+            p.add_argument(
+                "--apply", action="store_true", help="close the leftover chat tabs"
+            )
         if name == "unit":
             p.add_argument(
                 "--install", action="store_true", help="write and enable the user unit"
@@ -451,6 +534,7 @@ def main(argv: list[str] | None = None) -> int:
         "status": cmd_status,
         "stop": cmd_stop,
         "unit": cmd_unit,
+        "tidy": cmd_tidy,
     }
     return handlers[args.command](args)
 

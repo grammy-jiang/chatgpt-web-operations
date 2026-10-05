@@ -1754,6 +1754,12 @@ CHAT_SURFACE_RADIO_RE = re.compile(r"^Chat$", re.I)
 # How long find_composer waits for a chat page's second, transient composer
 # to go before it settles for the visible one.
 COMPOSER_SETTLE_SECONDS = float(os.environ.get("RP_COMPOSER_SETTLE_SECONDS", "10"))
+# One more wait when the composer is in the page but not yet visible after
+# the first wait (F-2026-10-06-1): six of the eight "logged-in page without a
+# composer" refusals of 2026-10-03/04 were pages whose facts counted one
+# composer -- a slow render under host load (load 10 on 4 cores, Chrome at
+# 8.7 GB), each of which started a 30-minute cool-down for nothing.
+COMPOSER_SLOW_SECONDS = float(os.environ.get("RP_COMPOSER_SLOW_SECONDS", "30"))
 SURFACE_GROUP_SELECTOR = '[role="group"][aria-label="Composer mode"]'
 SURFACE_PRESSED_SELECTOR = f'{SURFACE_GROUP_SELECTOR} button[aria-pressed="true"]'
 SURFACE_UNPRESSED_SELECTOR = f'{SURFACE_GROUP_SELECTOR} button[aria-pressed="false"]'
@@ -1794,6 +1800,12 @@ LOGIN_SELECTOR = (
 REFUSED_REASON = (
     "the page is logged in (its sidebar lists conversations) but the composer "
     "never rendered; the page's own requests are being refused"
+)
+# The composer is in the page (page_snapshot counted it) but never became
+# visible: the page or the host is slow. Not a refusal, so no cool-down.
+SLOW_RENDER_REASON = (
+    "the composer is in the page but did not become visible in time; the page "
+    "or the host is slow, not a refusal"
 )
 # The same symptom on an existing chat's page is that chat, not the window:
 # an unreadable or deleted conversation renders its sidebar and no composer.
@@ -2232,15 +2244,32 @@ def page_facts_summary(facts: dict[str, Any]) -> str:
     )
 
 
-def page_facts_for_message(page: Any) -> str:
-    """`` [page: ...]`` to append to a composer-missing message, or "" when
-    the page gave no facts. Never raises: it decorates an error, it does not
-    replace it."""
+def page_facts_quietly(page: Any) -> dict[str, Any]:
+    """``page_snapshot`` for a message or an event: {} when the page gave
+    none. Never raises: it decorates an error, it does not replace it."""
     try:
-        summary = page_facts_summary(page_snapshot(page))
+        return page_snapshot(page)
     except Exception:
-        return ""
+        return {}
+
+
+def page_facts_for_message(facts: dict[str, Any]) -> str:
+    """`` [page: ...]`` to append to a composer-missing message, or ""."""
+    summary = page_facts_summary(facts)
     return f" [{summary}]" if summary else ""
+
+
+def composer_in_page_but_slow(facts: dict[str, Any]) -> bool:
+    """Whether the facts describe a page that holds a composer the wait did
+    not see: at least one composer counted, no challenge widget, no login
+    route. That page is slow, not refusing (F-2026-10-06-1)."""
+    compact = page_facts_compact(facts)
+    return bool(
+        compact
+        and compact["composers"] >= 1
+        and not compact["challenge"]
+        and not compact["login"]
+    )
 
 
 def snapshot_document(facts: dict[str, Any]) -> str:
@@ -2383,13 +2412,28 @@ def find_composer(page: Any, timeout_ms: int = 60_000) -> Any:
         # widget, a login route, how many composers (hidden ones included),
         # the toggle and the controls (page_facts_summary). Three mornings
         # of "logged out or challenged" (2026-09-29 to 10-01) said none of it.
-        facts = page_facts_for_message(page)
+        page_facts = page_facts_quietly(page)
+        facts = page_facts_for_message(page_facts)
         if challenge_page(page):
             raise TransportError(
                 f"composer did not appear at {page.url}: {CHALLENGE_REASON}; the "
                 f"browser profile is what is challenged, not the account{facts}"
             ) from None
-        if page_logged_in(page):
+        if composer_in_page_but_slow(page_facts):
+            # The page holds a composer the wait did not see: give it
+            # COMPOSER_SLOW_SECONDS more, and name a slow render -- never a
+            # refusal -- when that is not enough either (F-2026-10-06-1).
+            try:
+                visible.first.wait_for(
+                    state="visible", timeout=int(COMPOSER_SLOW_SECONDS * 1000)
+                )
+            except PWTimeout:
+                waited = timeout_ms / 1000 + COMPOSER_SLOW_SECONDS
+                raise TransportError(
+                    f"composer did not appear at {page.url}: {SLOW_RENDER_REASON} "
+                    f"({waited:.0f} s){facts}"
+                ) from None
+        elif page_logged_in(page):
             if "/c/" in str(page.url):
                 raise TransportError(
                     f"composer did not appear at {page.url}: {CHAT_PAGE_REASON}{facts}"
@@ -2398,9 +2442,11 @@ def find_composer(page: Any, timeout_ms: int = 60_000) -> Any:
                 f"composer did not appear at {page.url}: {REFUSED_REASON} "
                 f"(references/failure-atlas.md, F-2026-10-01-23){facts}"
             ) from None
-        raise TransportError(
-            f"composer did not appear at {page.url} (logged out or challenged){facts}"
-        ) from None
+        else:
+            raise TransportError(
+                f"composer did not appear at {page.url} (logged out or "
+                f"challenged){facts}"
+            ) from None
     # The strict locators a send fills and clicks need exactly one match.
     # Give the hidden extra one a moment to go; if it stays, drive the
     # visible one.
@@ -2919,6 +2965,9 @@ class BrowserSender:
         # made, "new" for a tab per window, "busy" for a fresh tab because
         # the kept one is held by another window; "" for a scripted window.
         self.tab_how: str = ""
+        # The endpoint __enter__ chose (cdp_endpoint), so _open and the
+        # cool-down agree on which kind of window this is; None until then.
+        self._endpoint: str | None = None
         self._previous_sigterm: Any = None
         self._stack = contextlib.ExitStack()
         self.page: Any = None
@@ -2935,10 +2984,16 @@ class BrowserSender:
         # No window during the cool-down after a refusal (cooldown_remaining):
         # the caller gets the time it ends and the rate-limit status, which
         # is what a dispatcher's ladder already knows how to wait on.
-        left, record = cooldown_remaining()
-        if left > 0:
-            self._owner.shutdown(wait=False)
-            raise TransportError(cooldown_message(left, record), 429)
+        # The cool-down holds scripted windows only: a send that attaches to
+        # the dedicated window is not the window Cloudflare refused. On
+        # 2026-10-04 it held the daily check and the weekly send for 30 min
+        # while the dedicated window was fine (F-2026-10-06-2).
+        self._endpoint = cdp_endpoint()
+        if not self._endpoint:
+            left, record = cooldown_remaining()
+            if left > 0:
+                self._owner.shutdown(wait=False)
+                raise TransportError(cooldown_message(left, record), 429)
         # Hold a slot for the whole window, so the cap counts open windows and
         # not merely concurrent opens. It is released by the exit stack.
         self._stack.enter_context(browser_slot())
@@ -2965,6 +3020,18 @@ class BrowserSender:
         while not self._closed.wait(5):
             if time.monotonic() < deadline:
                 continue
+            if self.attached_to:
+                # A hung call on an attached tab has no process of ours to
+                # kill; closing the tab through the browser's endpoint makes
+                # the call raise and keeps the tab from being left behind
+                # (F-2026-10-06-3: 18 leftover chat tabs by 2026-10-05).
+                closed = self.close_tab_from_outside()
+                logger.warning(
+                    "send window exceeded %.0f s; %s its tab in the dedicated "
+                    "browser from outside",
+                    BROWSER_MAX_SECONDS,
+                    "closed" if closed else "could not close",
+                )
             victims = self._own_pids & scripted_browser_pids()
             logger.warning(
                 "send window exceeded %.0f s; killing %d scripted browser "
@@ -3025,15 +3092,14 @@ class BrowserSender:
             return False
         import urllib.request
 
-        try:
-            with urllib.request.urlopen(
-                f"{self.attached_to.rstrip('/')}/json/close/{self._target_id}",
-                timeout=3,
-            ):
-                pass
-        except Exception:
-            return False
-        return True
+        url = f"{self.attached_to.rstrip('/')}/json/close/{self._target_id}"
+        for _attempt in range(2):  # a loaded browser can miss one 3 s window
+            try:
+                with urllib.request.urlopen(url, timeout=3):
+                    return True
+            except Exception:
+                continue
+        return False
 
     def _open(self) -> None:
         from playwright.sync_api import sync_playwright
@@ -3043,7 +3109,7 @@ class BrowserSender:
         # (even one pinning nothing) would pay the extra JSON round trip.
         rewrites = bool(self.effort or self.model or self.search or self.hints)
         rewrite = self._rewrite_send_route if rewrites else None
-        endpoint = cdp_endpoint()
+        endpoint = self._endpoint if self._endpoint is not None else cdp_endpoint()
         if endpoint:
             self._open_attached(sync_playwright, endpoint, rewrite)
         else:
@@ -3628,6 +3694,17 @@ class BrowserSender:
             if CHALLENGE_REASON in str(exc):
                 record_event("challenge-page", url=url, screenshot=shot, page=page)
                 note_refusal("challenge-page", url, str(exc))
+            elif SLOW_RENDER_REASON in str(exc):
+                # In the page, not visible in time: the host or the page is
+                # slow. Counted apart (slow_render), and never a refusal.
+                record_event(
+                    "composer-missing",
+                    url=url,
+                    logged_in=True,
+                    slow_render=True,
+                    screenshot=shot,
+                    page=page,
+                )
             elif REFUSED_REASON in str(exc):
                 record_event(
                     "composer-missing",

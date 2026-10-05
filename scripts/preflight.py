@@ -282,10 +282,12 @@ def disk_check(free_bytes: int, workdir: Path) -> dict[str, Any]:
 
 
 def browser_cooldown_check(
-    left: float, record: dict[str, Any], cooldown: float
+    left: float, record: dict[str, Any], cooldown: float, attached: bool = False
 ) -> dict[str, Any]:
     """The cool-down after a refused scripted window (``cc.cooldown_remaining``,
-    atlas F-2026-10-01-26): a block while it runs, with the time it ends."""
+    atlas F-2026-10-01-26): a block while it runs, with the time it ends --
+    unless ``attached`` (the dedicated window answers), because since
+    2026-10-06 the cool-down holds scripted windows only (F-2026-10-06-2)."""
     if cooldown <= 0:
         return check("host", "browser cool-down", "ok", "cool-down disabled (0 s)")
     if left <= 0:
@@ -296,6 +298,15 @@ def browser_cooldown_check(
             f"no scripted window refused in the last {cooldown:.0f} s",
         )
     at = time.strftime("%H:%M:%S", time.localtime(float(record.get("at", 0))))
+    if attached:
+        return check(
+            "host",
+            "browser cool-down",
+            "ok",
+            f"Cloudflare refused the last scripted window at {at} "
+            f"({record.get('kind', 'refusal')}); {left:.0f} s left, which holds "
+            "scripted windows only: sends attach to the dedicated window",
+        )
     return check(
         "host",
         "browser cool-down",
@@ -355,7 +366,9 @@ def host_checks(cc: Any, workdir: Path | None) -> list[dict[str, Any]]:
             importlib.util.find_spec("dbus") is not None,
         ),
         fetch_keyring_bus(cc),
-        browser_cooldown_check(*cc.cooldown_remaining(), cc.COOLDOWN_SECONDS),
+        browser_cooldown_check(
+            *cc.cooldown_remaining(), cc.COOLDOWN_SECONDS, bool(cc.cdp_endpoint())
+        ),
         dedicated_browser_check(
             cc.CDP_MODE, cc.DEDICATED_URL, cc.dedicated_browser_version
         ),

@@ -36,6 +36,7 @@ def _args(tmp_path: Path, **extra) -> SimpleNamespace:
         "profile": tmp_path / "profile",
         "json": None,
         "install": False,
+        "apply": False,
     }
     base.update(extra)
     return SimpleNamespace(**base)
@@ -375,6 +376,94 @@ def test_unit_prints_or_installs_and_enables(monkeypatch, tmp_path, capsys) -> N
     assert "daemon-reload failed: no manager" in capsys.readouterr().err
 
 
+PAGES = [
+    {"id": "T-owner", "type": "page", "url": "https://chatgpt.com/"},
+    {
+        "id": "T-own",
+        "type": "page",
+        "url": "https://chatgpt.com/c/" + "a" * 8 + "-bbbb-cccc-dddd-" + "e" * 12,
+    },
+    {
+        "id": "T-left1",
+        "type": "page",
+        "url": "https://chatgpt.com/c/" + "1" * 8 + "-2222-3333-4444-" + "5" * 12,
+    },
+    {
+        "id": "T-left2",
+        "type": "page",
+        "url": "https://chatgpt.com/g/g-p-x-proj/c/"
+        + "6" * 8
+        + "-7777-8888-9999-"
+        + "0" * 12,
+    },
+    {"id": "T-project", "type": "page", "url": "https://chatgpt.com/g/g-p-x/project"},
+    {
+        "id": "SW",
+        "type": "service_worker",
+        "url": "https://chatgpt.com/c/" + "f" * 8 + "-ffff-ffff-ffff-" + "f" * 12,
+    },
+]
+
+
+def test_leftover_tabs_are_chat_pages_other_than_the_own_tab(monkeypatch) -> None:
+    """F-2026-10-06-3: 18 chat tabs left in the window by 2026-10-05. A
+    chat page that is not the skill's kept tab is a leftover; the home page,
+    a project page and the own tab are not; a worker is not a page."""
+    monkeypatch.setattr(db.cc, "tab_record", lambda: {"target_id": "T-own"})
+    assert [p["id"] for p in db.leftover_tabs(PAGES)] == ["T-left1", "T-left2"]
+    monkeypatch.setattr(db.cc, "tab_record", lambda: {})
+    assert [p["id"] for p in db.leftover_tabs(PAGES)] == ["T-own", "T-left1", "T-left2"]
+
+
+def test_tidy_lists_then_closes_the_leftovers(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setattr(db, "version", lambda port: ALIVE)
+    monkeypatch.setattr(db, "tabs", lambda port: PAGES)
+    monkeypatch.setattr(db.cc, "tab_record", lambda: {"target_id": "T-own"})
+    closed: list[str] = []
+    monkeypatch.setattr(
+        db,
+        "close_tab",
+        lambda port, target, timeout=3.0: closed.append(target) or target != "T-left2",
+    )
+    record = tmp_path / "tidy.json"
+    assert db.cmd_tidy(_args(tmp_path, json=str(record))) == 0
+    out = capsys.readouterr().out
+    assert "2 leftover chat tab(s) would be closed (--apply), 4 kept" in out
+    assert closed == []
+    doc = json.loads(record.read_text())
+    assert doc["applied"] is False and len(doc["leftovers"]) == 2
+    assert db.cmd_tidy(_args(tmp_path, apply=True)) == 0
+    out = capsys.readouterr().out
+    assert "closed 1 leftover chat tab(s), 1 would not close; 4 tab(s) kept" in out
+    assert closed == ["T-left1", "T-left2"]
+
+
+def test_tidy_with_nothing_to_do_and_with_no_browser(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(db, "version", lambda port: ALIVE)
+    monkeypatch.setattr(db, "tabs", lambda port: PAGES[:1])
+    assert db.cmd_tidy(_args(tmp_path, apply=True)) == 0
+    assert "no leftover chat tab among 1 tab(s)" in capsys.readouterr().out
+    monkeypatch.setattr(db, "version", lambda port: None)
+    assert db.cmd_tidy(_args(tmp_path)) == 1
+    assert "not running" in capsys.readouterr().out
+
+
+def test_close_tab_reports_the_endpoint_s_answer(monkeypatch) -> None:
+    import urllib.request
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=0: _Resp())
+    assert db.close_tab(9222, "T1") is True
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=0: 1 / 0)
+    assert db.close_tab(9222, "T1") is False
+
+
 def test_main_dispatches_and_parses_the_options(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(db, "version", lambda port: None)
     out_json = tmp_path / "s.json"
@@ -383,6 +472,7 @@ def test_main_dispatches_and_parses_the_options(monkeypatch, tmp_path) -> None:
     with pytest.raises(SystemExit) as exc:
         db.main(["bogus"])
     assert exc.value.code == 2
+    assert db.main(["tidy", "--port", "9333"]) == 1  # nothing answers there
 
 
 def test_profile_extensions_lists_web_store_extensions_only(tmp_path) -> None:

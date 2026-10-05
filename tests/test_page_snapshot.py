@@ -301,6 +301,55 @@ def test_snapshot_drift_skips_facts_the_fixture_never_recorded_and_names_them():
     ]
 
 
+def _slow_page(monkeypatch, *, visible_eventually: bool) -> fp.Page:
+    """A page whose composer the first wait does not see while the facts
+    count one: the slow render of 2026-10-03/04 (F-2026-10-06-1)."""
+    fp.install(monkeypatch)
+    page = fp.Page()
+    page.url = "https://chatgpt.com/g/g-p-x/project"
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=1,
+        raises={
+            "wait_for": fp.sequence(fp.PlaywrightTimeoutError("t"), None)
+            if visible_eventually
+            else fp.PlaywrightTimeoutError("t")
+        },
+    )
+    page.set_locator(cc.LOGGED_IN_SELECTOR, count=14)  # the sidebar is there
+    raw = json.loads(json.dumps(RAW_SNAPSHOT))
+    raw["composers"] = {"total": 1, "visible": 1, "hidden": 0}
+    page.set_evaluate_result("page_snapshot", raw)
+    return page
+
+
+def test_find_composer_waits_once_more_when_the_composer_is_in_the_page(monkeypatch):
+    """F-2026-10-06-1: six of eight "logged-in page without a composer"
+    refusals of 2026-10-03/04 were pages whose facts counted one composer.
+    The wait that timed out gets COMPOSER_SLOW_SECONDS more; the composer
+    that then shows is returned like any other, and nothing is a refusal."""
+    monkeypatch.setattr(cc, "COMPOSER_SLOW_SECONDS", 7.0)
+    page = _slow_page(monkeypatch, visible_eventually=True)
+    composer = cc.find_composer(page, timeout_ms=5)
+    assert composer.count() == 1
+    waits = [c for c in page.calls if c[0] == "locator" and c[2] == "wait_for"]
+    assert len(waits) == 2
+    assert waits[1][4].get("timeout") == 7000
+
+
+def test_find_composer_names_a_slow_render_and_not_a_refusal(monkeypatch) -> None:
+    monkeypatch.setattr(cc, "COMPOSER_SLOW_SECONDS", 7.0)
+    page = _slow_page(monkeypatch, visible_eventually=False)
+    with pytest.raises(cc.TransportError) as excinfo:
+        cc.find_composer(page, timeout_ms=5000)
+    message = str(excinfo.value)
+    assert cc.SLOW_RENDER_REASON in message
+    assert "(12 s)" in message
+    assert cc.REFUSED_REASON not in message
+    assert "[page: challenge=no, login=no, composers=1 (0 hidden)" in message
+    assert cc.composer_in_page_but_slow({}) is False
+
+
 def test_find_composer_s_message_carries_the_page_facts(monkeypatch) -> None:
     """The three mornings of "logged out or challenged" (2026-09-29 to
     10-01) now end with what the page is: no challenge, no login route, how
@@ -672,7 +721,10 @@ def test_snapshot_page_reraises_a_transport_error_unchanged(
         count=0,
         raises={"wait_for": fp.PlaywrightTimeoutError("t")},
     )
-    with pytest.raises(cc.TransportError, match="logged out or challenged"):
+    # since 2026-10-06 the snapshot's own facts count a composer, so the
+    # error is the slow-render one; what matters here is that it passes
+    # through unchanged
+    with pytest.raises(cc.TransportError, match="composer did not appear"):
         sender.snapshot_page(tmp_path)
 
 

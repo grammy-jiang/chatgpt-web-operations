@@ -181,6 +181,7 @@ def _fake_cc(
         xvfb_pids=lambda: set(),
         cooldown_remaining=lambda: (0.0, {}),
         COOLDOWN_SECONDS=1800.0,
+        cdp_endpoint=lambda *a, **k: "",
         CDP_MODE="off",
         DEDICATED_URL="http://127.0.0.1:9222",
         dedicated_browser_version=lambda url=None: None,

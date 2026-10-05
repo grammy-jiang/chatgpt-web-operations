@@ -285,6 +285,7 @@ def _fake_cc(
         ensure_desktop_env_calls=[],
         cooldown_remaining=lambda: (0.0, {}),
         COOLDOWN_SECONDS=1800.0,
+        cdp_endpoint=lambda *a, **k: "",
         CDP_MODE="off",
         DEDICATED_URL="http://127.0.0.1:9222",
         dedicated_browser_version=lambda url=None: None,
@@ -1396,6 +1397,38 @@ def test_browser_cooldown_check_blocks_while_the_cooldown_runs() -> None:
     assert "handshake-refused" in c["detail"]
     assert "900 s of the 1800 s" in c["detail"]
     assert c["fix"] == preflight.COOLDOWN_FIX
+
+
+def test_browser_cooldown_check_is_ok_when_the_dedicated_window_answers() -> None:
+    """F-2026-10-06-2: the cool-down holds scripted windows only. With the
+    dedicated window answering, a running cool-down is an ok row that says
+    which windows it holds, never a block."""
+    record = {"at": 0.0, "kind": "composer-missing"}
+    c = preflight.browser_cooldown_check(900.0, record, 1800.0, attached=True)
+    assert c["state"] == "ok"
+    assert "holds scripted windows only" in c["detail"]
+    assert c["fix"] is None
+    blocked = preflight.browser_cooldown_check(900.0, record, 1800.0, attached=False)
+    assert blocked["state"] == "block"
+
+
+def test_host_checks_pass_the_attached_window_to_the_cooldown_check() -> None:
+    client = _fake_cc(None)
+    client.cooldown_remaining = lambda: (600.0, {"at": 0.0, "kind": "challenge-page"})
+    client.cdp_endpoint = lambda *a, **k: "http://127.0.0.1:9222"
+    cooldown = next(
+        c
+        for c in preflight.host_checks(client, None)
+        if c["name"] == "browser cool-down"
+    )
+    assert cooldown["state"] == "ok" and "scripted windows only" in cooldown["detail"]
+    client.cdp_endpoint = lambda *a, **k: ""
+    cooldown = next(
+        c
+        for c in preflight.host_checks(client, None)
+        if c["name"] == "browser cool-down"
+    )
+    assert cooldown["state"] == "block"
 
 
 def test_browser_cooldown_check_says_so_when_disabled() -> None:

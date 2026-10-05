@@ -1556,7 +1556,7 @@ def test_a_missing_composer_on_a_logged_in_page_starts_the_cooldown(make_sender)
 
 
 def test_a_composer_missing_event_carries_the_page_facts_and_writes_them(
-    make_sender,
+    make_sender, monkeypatch
 ):
     """2026-10-01 evening: beside the screenshot, the page's facts
     (attributes only, no markup) as chatgpt-composer-missing.json, and the
@@ -1584,11 +1584,16 @@ def test_a_composer_missing_event_carries_the_page_facts_and_writes_them(
         },
     )
 
-    with pytest.raises(cc.TransportError, match="logged out or challenged"):
+    # two composers in the page, both hidden: since 2026-10-06 that is a
+    # slow render (one more wait, then the slow-render reason), never a
+    # refusal; the facts still travel with the event and the file
+    monkeypatch.setattr(cc, "COMPOSER_SLOW_SECONDS", 1.0)
+    with pytest.raises(cc.TransportError, match="slow, not a refusal"):
         sender._probe_composer()
 
     event = _events()[-1]
     assert event["kind"] == "composer-missing"
+    assert event["slow_render"] is True
     assert event["page"] == {
         "challenge": False,
         "login": False,
@@ -1604,6 +1609,130 @@ def test_a_composer_missing_event_carries_the_page_facts_and_writes_them(
     assert record["composers"] == {"total": 2, "visible": 0, "hidden": 2}
     assert "html" not in record and "secret" not in written.read_text()
     assert record["recorded_at"]
+
+
+def test_a_slow_render_is_an_event_and_never_a_refusal(make_sender, monkeypatch):
+    """F-2026-10-06-1: the composer is in the page but not visible in time.
+    The event says slow_render, the cool-down does not start, so the next
+    send (and the daily check) are not held for 30 minutes."""
+    monkeypatch.setattr(cc, "COMPOSER_SLOW_SECONDS", 1.0)
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    page.url = fp.sequence("https://chatgpt.com/g/g-p-x/project")
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=1,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    page.set_locator(cc.LOGGED_IN_SELECTOR, count=14)
+    page.set_evaluate_result(
+        "page_snapshot",
+        {
+            "url": "https://chatgpt.com/g/g-p-x/project",
+            "composer": {"found": True, "count": 1, "matched": []},
+            "composers": {"total": 1, "visible": 1, "hidden": 0},
+            "surface": {"found": True, "buttons": 2, "pressed": ["false", "true"]},
+            "controls": {"attach_menu": True, "picker": True, "remove_chips": 0},
+            "page": {"title_kind": "chatgpt", "challenge": False, "login": False},
+            "html": {"composer": "", "turns": []},
+        },
+    )
+
+    with pytest.raises(cc.TransportError, match="slow, not a refusal"):
+        sender._probe_composer()
+
+    event = _events()[-1]
+    assert event["kind"] == "composer-missing"
+    assert event["slow_render"] is True and event["logged_in"] is True
+    assert event["page"]["composers"] == 1
+    assert cc.cooldown_remaining() == (0.0, {})
+
+
+def test_the_cooldown_holds_scripted_windows_only(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    """F-2026-10-06-2: on 2026-10-04 a refusal at 05:11 held the daily
+    check at 05:25 and the weekly send at 05:40 although the dedicated
+    window was fine. A send that attaches is not the window Cloudflare
+    refused, so the cool-down does not hold it."""
+    monkeypatch.setattr(cc, "COOLDOWN_SECONDS", 1800.0)
+    cc.note_refusal("composer-missing", "https://chatgpt.com/", "refused")
+    monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "http://127.0.0.1:9222")
+    browser = fp.Browser()
+    browser.contexts = [fp.BrowserContext()]
+    fake_pw.chromium.connect_result = browser
+    sender = make_sender()
+    with sender:
+        assert sender.attached_to == "http://127.0.0.1:9222"
+        assert fake_pw.chromium.connect_over_cdp_calls == ["http://127.0.0.1:9222"]
+    assert fake_pw.chromium.launch_calls == []
+    # and the scripted path is still held
+    monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "")
+    with pytest.raises(cc.TransportError, match="cool-down ends at"), make_sender():
+        pass
+
+
+def test_watchdog_closes_an_attached_tab_from_outside(monkeypatch, make_sender):
+    """F-2026-10-06-3: a hung send on an attached tab has no process to
+    kill; the watchdog closes the tab through the browser's endpoint, which
+    makes the hung call raise and leaves no tab behind."""
+    import urllib.request
+
+    sender = make_sender()
+    sender.attached_to = "http://127.0.0.1:9222"
+    sender._target_id = "T-hung"
+    sender._closed = FakeEvent(closed=False)
+    monkeypatch.setattr(cc, "scripted_browser_pids", lambda: set())
+    monkeypatch.setattr(cc.time, "monotonic", lambda: 10_000.0)
+    opened: list[str] = []
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(
+        urllib.request, "urlopen", lambda url, timeout=0: opened.append(url) or _Resp()
+    )
+    killed = []
+    monkeypatch.setattr(cc.os, "kill", lambda pid, sig: killed.append(pid))
+
+    sender._watchdog(deadline=0.0)
+
+    assert opened == ["http://127.0.0.1:9222/json/close/T-hung"]
+    assert killed == []
+
+
+def test_close_tab_from_outside_tries_twice_under_load(monkeypatch, make_sender):
+    import urllib.request
+
+    sender = make_sender()
+    sender.attached_to = "http://127.0.0.1:9222"
+    sender._target_id = "T"
+    calls: list[str] = []
+
+    def flaky(url, timeout=0):
+        calls.append(url)
+        if len(calls) == 1:
+            raise OSError("busy")
+
+        class _Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        return _Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", flaky)
+    assert sender.close_tab_from_outside() is True
+    assert len(calls) == 2
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=0: 1 / 0)
+    assert sender.close_tab_from_outside() is False
 
 
 def test_a_chat_page_without_a_composer_records_no_refusal(make_sender):
