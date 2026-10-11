@@ -585,6 +585,31 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
     after the send and reports WARN when either fails, without hiding a
     drift. `chatgpt-chats` and `chatgpt-project` were retired, so no
     installed name is left to call for them.
+- **P14. The dedicated window's platform.openai.com login, sampled on a
+  schedule** (owner's approval, 2026-10-12). Kind: scheduled read-only
+  probe. Tier: none of the test tiers; the probe is a command
+  (`scripts/probe_platform.py`) and its live samples are the wrappers' runs.
+  - Why: the Platform login is separate from chatgpt.com's and does not
+    renew itself; stale, it ends at an MFA challenge only the owner can
+    answer, and nothing saw that until a Platform step failed.
+  - Daily: `chatgpt-ops-check.sh --browser` runs it after `health.py`,
+    under the same browser slot (`RP_BROWSER_WAIT_SECONDS=60`), and logs
+    `platform=<STATE> platform_auth_days=<N>`. `LOGIN_REQUIRED`,
+    `MFA_REQUIRED`, `ERROR`, and 5 days or fewer left are one WARN finding
+    naming the state and the owner's action; never ALERT, never the repair
+    loop (its trigger phrase cannot appear in the finding, which a test
+    checks). The Friday digest prints a "Platform" line: the week's states,
+    the first change, the fewest days, and the Sunday sample.
+  - Weekly: `chatgpt-ops-send-check.sh` runs it once more after the send
+    and logs the same two fields in `send-check.log`; it can turn an OK into
+    a WARN, never more, and never changes an ALERT or FAIL.
+  - Offline: `tests/test_probe_platform.py`: one URL/title fixture per
+    state, the verdict mapping (ok or warn only), the `check.log` fields,
+    the cookie reader over a temporary Chrome-shaped jar with an sqlite
+    authorizer that refuses the `value` and `encrypted_value` columns, the
+    settle loop, the tab's open and close through a fake debugging
+    endpoint, and an AST check that the module can neither click, type,
+    run page script nor open the API-keys page.
 
 ### 6.4 Rules that come with the plan
 
@@ -600,7 +625,7 @@ yet, and the row says why.
 | A finding is closed by three things, never fewer: the fix; a test that fails with the fix removed; an entry in `references/failure-atlas.md`. | `tests/findings.json` is the ledger; `tests/test_findings_ledger.py` checks every listed test exists, the atlas carries each entry's id and phrase, and every "Fixed bugs" bullet dated 2026-09-27 or later carries a ledger id. "Fails with the fix removed" is a date recorded by hand (`removed_and_failed`) until P10 makes it a mutation run. | script, partial |
 | Every endpoint the commands call is recorded or excused by name, and every recorded endpoint is read by a contract. | `tests/test_api_shapes.py` (every endpoint constant in `scripts/` is in `api_shapes.ENDPOINTS` or in its excuse table with a reason) and `tests/test_api_contracts.py` (every registered endpoint has a committed shape and is called by a contract scenario; `read_paths.json` is what the contracts read). | script |
 | Every page selector is a named constant, and every named constant is proven against a recorded page or excused by name. | `tests/test_dom_coverage.py`: no bare string handed to a Playwright locator in the client; every `*_SELECTOR`, `*_JS`, page-facing `*_RE`, `SEND_BUTTONS` and `RATE_LIMIT_MODAL` appears in `tests/replay` or in its `EXCUSED` table with a reason. | script |
-| Every tier runs on a schedule; a tier that runs only by hand has already broken. | The crontab (daily 05:25: tier TL, T0, tier R, tier L, the composer recording; Sunday 05:40: T3, the scripted send with an attachment, the three conversation-side recordings). `chatgpt-ops-check.sh` warns when the weekly job is missing from the crontab or last ran more than 8 days ago. T1 and T2 run with every change to a command and on the acceptance procedure, by hand: no script checks that. | script for the scheduled tiers, prose for T1 and T2 |
+| Every tier runs on a schedule; a tier that runs only by hand has already broken. | The crontab (daily 05:25: tier TL, T0, tier R, tier L, the composer recording, the platform.openai.com probe; Sunday 05:40: T3, the scripted send with an attachment, the three conversation-side recordings, the second platform.openai.com sample). `chatgpt-ops-check.sh` warns when the weekly job is missing from the crontab or last ran more than 8 days ago. T1 and T2 run with every change to a command and on the acceptance procedure, by hand: no script checks that. | script for the scheduled tiers, prose for T1 and T2 |
 | The suite pins its inputs. | `tests/conftest.py` clears the shell's recording settings for every non-live test; `tests/test_harness_replay.py` runs an inner pytest with the settings leaked and checks a plain test sees none. | script |
 | A proposed fix is accepted by the gates, not by whoever wrote it. | `make lint`, `make test`, `make replay FIXTURES=<the fresh recording>`: the same three commands whether a person or the repair loop (6.5) wrote the patch. | script |
 | Cron never commits a fixture; promotion is a reviewed step. | Design: the wrappers hold no `git` command and the repair loop pushes a branch at most, never `main`. | prose |
@@ -638,6 +663,9 @@ differs from its fixture. Limits: one heal per run, one per 6 h
 `~/.config/chatgpt-ops/heal.conf`, `MODE=off|report|pr`. Codex can take the
 agent's place (`codex exec --sandbox workspace-write` in the same worktree)
 by changing the one command in the script; the gates do not change.
+
+A platform.openai.com finding (P14) never triggers the loop: it is a WARN
+whose fix is the owner's login, which no agent can make.
 
 What this does not do, on purpose: it never promotes a recording into
 `tests/fixtures/dom`, never merges, never deploys, and never sends a message

@@ -90,7 +90,7 @@ skill does not import it.
 
 ## The commands
 
-There are 34 command scripts and six support modules. `clean_chats.py`,
+There are 35 command scripts and six support modules. `clean_chats.py`,
 `project_settings.py`, `pin_chat.py` and `delete_project.py` need `--apply`.
 `create_project.py`, `create_connector.py` and `connect_connector.py` act
 unless `--dry-run` is supplied. `delete_connector.py` and `delete_skill.py`
@@ -103,7 +103,8 @@ need `--confirm`.
 and `skill` need `--apply`, and its `uninstall` needs `--confirm`.
 
 Browser paths are sending, Deep research start, `preflight.py --browser`,
-`health.py --browser`, `measure_window.py`, and `discover_endpoints.py`.
+`health.py --browser`, `measure_window.py`, `discover_endpoints.py`, and
+`probe_platform.py` (one tab in the dedicated window, never a composer).
 Other account operations use HTTP. Read-only searches and connector lookups
 use POST; HTTP method alone does not determine whether an operation writes.
 
@@ -143,6 +144,7 @@ use POST; HTTP method alone does not determine whether an operation writes.
 | `measure_window.py` | What a send window costs in memory and fill time. | 0 always |
 | `discover_endpoints.py` | Record what endpoints the page calls, and with `--bodies` what they sent. | 0 always |
 | `dedicated_browser.py` | The browser window a send attaches to since 2026-10-01: `start`, `run` (foreground, for its systemd user unit), `status [--json PATH]`, `stop`, `unit [--install]`, `tidy [--apply] [--json PATH]` (the leftover chat tabs a send's unfinished close left behind: named, and closed with `--apply`; the daily check runs it). A separate Chrome profile with a debugging port on 127.0.0.1, logged in once by hand; only sends, Deep research's start and the browser diagnostics use it, everything else stays HTTP. | 0 done, 1 the browser did not start, answer or stop, 2 bad arguments |
+| `probe_platform.py` | Is the dedicated window still logged in to platform.openai.com (a separate login from chatgpt.com)? Under the browser slot it opens ONE tab on the Platform root through the debugging endpoint, waits for the address to settle, classifies it -- `VALID`, `LOGIN_REQUIRED` (`/login`, the account chooser, an auth.openai.com log-in), `MFA_REQUIRED` (`auth.openai.com/mfa-challenge`, any verify page), `ERROR` -- and closes the tab; never a click, a keystroke, an account choice or the API-keys page. Also the days left on the auth.openai.com session cookies (`oai-client-auth-info`, the unified-session manifest), from a copy of the profile's cookie DB, names and expiry only. `--json PATH` (`-` prints it) carries the state, host+path, the days, a severity (`ok`/`warn`, never more) and the wrapper's `check.log` fields. | 0 VALID, 2 LOGIN_REQUIRED, MFA_REQUIRED or 5 days or fewer left, 1 ERROR |
 
 `_common.py` holds only session bootstrap, table formatting and the
 name-or-substring lookup the commands that take a name share.
@@ -325,6 +327,33 @@ the local forwarding daemon. Use a dedicated tunnel for each independently
 served MCP endpoint. To retire an endpoint, remove its connector links/app,
 stop its forwarding daemon, then delete that tunnel. A tunnel delete does
 not perform those other actions or infer which existing resources to remove.
+
+### Is the dedicated window still logged in to platform.openai.com?
+
+The Platform dashboard (tunnels, keys) needs its own login in the dedicated
+window, separate from chatgpt.com's. chatgpt.com's session renews itself on
+every authenticated request; the Platform one does not. It lives in
+auth.openai.com's cookies (`oai-client-auth-info`, about 30 days;
+`__Host-unified_session_manifest`, about 400 days; there is no
+platform-specific cookie). Stale, it sends the tab to `/login`, an account
+chooser, and choosing the account leads to `auth.openai.com/mfa-challenge`
+("Check your authenticator app"), which only the owner can answer.
+
+```bash
+python3 $S/probe_platform.py                  # platform: VALID at platform.openai.com/...; auth cookies 29.6 d, ...
+python3 $S/probe_platform.py --json -         # the document the cron wrappers read
+```
+
+The daily browser check (`chatgpt-ops-check.sh --browser`) runs it after
+`health.py` and logs `platform=<STATE> platform_auth_days=<N>` in
+`check.log`; the weekly send check runs it once more as a second sample, and
+the Friday digest carries a "Platform" line (the week's states, the first
+change, the fewest days). `LOGIN_REQUIRED`, `MFA_REQUIRED`, `ERROR` and 5
+days or fewer left are a WARN mail naming the state and the owner's action
+("log in to platform.openai.com in the dedicated Chrome (MFA)"); a Platform
+problem is never an ALERT and never reaches triage's repair agent. The
+probe does not log in, and no script should: the owner logs in by hand in
+the dedicated window, as for chatgpt.com.
 
 ## Projects keep a run's chats out of the user's list
 

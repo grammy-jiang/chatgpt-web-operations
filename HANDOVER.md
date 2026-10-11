@@ -223,6 +223,25 @@ backup `.bak-20261006`). The host itself is the open problem: a load of
 10-17 on 4 cores from the owner's parallel pipelines, which no change here
 can fix; preflight's load and memory rows say so each morning.
 
+2026-10-12: the owner approved a read-only platform.openai.com probe in the
+scheduled checks, after the dedicated window's Platform login had gone
+stale unnoticed (login and MFA redone by hand on 2026-10-11 evening).
+`scripts/probe_platform.py` is the 35th command: under the browser slot it
+opens one tab on the Platform root through the debugging endpoint
+(`/json/new`, `/json/list`, `/json/close`; no Playwright, no page script, no
+input), classifies the settled address as VALID, LOGIN_REQUIRED,
+MFA_REQUIRED or ERROR, closes the tab, and reads the auth.openai.com
+session cookies' expiry from a copy of the profile's jar (three columns, no
+value). The daily browser check runs it after `health.py`
+(`check.log`: `platform=<STATE> platform_auth_days=<N>`), the Sunday send
+check runs it once more (`send-check.log`, same fields), and the Friday
+digest prints a "Platform" line. Anything but VALID, or 5 days or fewer
+left, is one WARN naming the state and the owner's action; never ALERT,
+never triage's repair agent. Wrappers edited in place in `~/.local/bin`
+(backups `*.bak-20261012`; that repository's other uncommitted hunks from
+2026-10-01 and 10-06 were left as they were). `TESTING.md` P14 and
+`VERIFICATION.md` ("The platform.openai.com probe") have the rest.
+
 ## Entry point, 2026-09-25
 
 For first use or missing access, read `references/setup.md` and the

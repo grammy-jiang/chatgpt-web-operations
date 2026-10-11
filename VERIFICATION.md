@@ -243,6 +243,16 @@ gained and how it was checked:
 | the three fixes (F-2026-10-06-1, -2, -3) | unit tests fail without them (8 of 8 in a worktree at the previous commit); `dedicated_browser.py tidy` dry run listed 31 leftovers, `--apply` closed 31, the window back to 2 pages; `preflight --browser` right after: composer appeared through the window (the run's verdict blocked only on "rate limited on the read path", at a load of 17.4). |
 | offline gates | lint clean; the unit suite, replay and loopback green (this commit's gate log). |
 
+### The platform.openai.com probe, 2026-10-12
+
+| What | Result |
+| --- | --- |
+| why | the dedicated window's Platform login (separate from chatgpt.com's, not self-renewing) had gone stale unnoticed; the owner redid login and MFA on 2026-10-11 about 21:29Z and approved a read-only probe in the scheduled checks on 2026-10-12 |
+| cookie metadata, 08:5x | auth.openai.com: `oai-client-auth-info` 30.0 d, `__Host-unified_session_manifest` and `unified_session_manifest` 400 d; no platform-specific session cookie (`.platform.openai.com` holds only `__stripe_*`). Names and expiry only, from a copy. |
+| offline gates | `make lint` clean (140 files); `make test` 2,702 passed, `probe_platform.py` 100 % lines; `make replay` 43 passed; `make loopback` 43 passed. |
+| live probe, 09:07:07 local (22:07:07Z) | run once by hand after a send from another session had finished (waited, never forced): `VALID` at `platform.openai.com/home`, `platform_auth_days` 30 (`oai-client-auth-info` 30.0 d, unified session 400.0 d), tab closed, 10.1 s, exit 0; the window back to its 3 tabs. |
+| wrappers | `chatgpt-ops-check.sh --browser` and `chatgpt-ops-send-check.sh` run it (backups `*.bak-20261012`); `bash -n` clean; `--summary` checked on a synthetic `check.log` and `send-check.log` in a temporary HOME (state history, first change, min days, Sunday sample). First scheduled proof: 05:25 on 2026-10-13. |
+
 ## What the owner decides
 
 - `/tmp/rp-browser-profile.stale-20261001` (174 MB) was deleted at the owner's request, 2026-10-01 15:4x.
