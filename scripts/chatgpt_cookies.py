@@ -31,6 +31,10 @@ _EPOCH_DELTA_S = 11_644_473_600
 
 
 def export(browser: str) -> list[dict]:
+    if cs.sys.platform == "darwin":
+        from macos_cdp_auth import browser_cookies
+
+        return browser_cookies()
     db, app = cs.BROWSERS[browser]
     if not db.exists():
         cs.fail(f"{browser} cookie DB not found at {db}")

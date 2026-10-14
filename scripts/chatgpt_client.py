@@ -865,6 +865,10 @@ def xvfb_pids() -> set[int]:
 def _process_argvs() -> Generator[tuple[int, list[str]]]:
     """``(pid, argv)`` for every process ``/proc`` shows; one that ends
     while we look is skipped."""
+    if sys.platform == "darwin":
+        # This macOS port must attach to the owner-controlled Chrome CDP.
+        # It must never enumerate or terminate the owner's Chrome processes.
+        return
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
             continue
@@ -2989,6 +2993,11 @@ class BrowserSender:
         # 2026-10-04 it held the daily check and the weekly send for 30 min
         # while the dedicated window was fine (F-2026-10-06-2).
         self._endpoint = cdp_endpoint()
+        if sys.platform == "darwin" and not self._endpoint:
+            raise TransportError(
+                "macOS requires explicit RP_BROWSER_CDP=http://127.0.0.1:9233; "
+                "refusing a scripted fallback"
+            )
         if not self._endpoint:
             left, record = cooldown_remaining()
             if left > 0:

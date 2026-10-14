@@ -11,6 +11,35 @@ description: >-
   skill.
 ---
 
+
+## MacBook Pro compatibility (local adapter, 2026-10-14)
+
+The MacBook copy is pinned to the Raspberry Pi's unpushed source revision
+b626c06 and adds a local macOS compatibility adapter. The two machines
+keep separate credentials, browser profiles, virtualenvs and state.
+
+On macOS, only use the separate user-authenticated Chrome on local
+CDP port 9233; do not fall back to a scripted browser, do not reuse the
+owner's ordinary tabs and do not copy secrets from the Raspberry Pi.
+The Mac-specific wrapper sets loopback CDP, one new tab per send and
+disables Linux-only GNOME keyring persistence:
+
+    S="$HOME/.codex/skills/chatgpt-web-operations/scripts"
+    "$S/mac_skill.sh" preflight.py --browser
+    "$S/mac_skill.sh" model_settings.py
+    "$S/mac_skill.sh" send_prompt.py TASK.prompt.md --model gpt-6-thinking --effort standard --no-wait --json TASK.send.json
+    "$S/mac_skill.sh" read_chat.py CHAT_ID --effort
+
+Read references/worker-rounds.md before dispatching multiple work agents.
+Always record TASK_ID, model, effort, actual conversation ID, test evidence,
+and real worker response. Confirm a POST wasn't accepted before resending.
+The original Linux bootstrap, Linux D-Bus keyring and Linux browser/process
+checking paths are not used on Mac. The macOS preflight is a separate
+read-only check for the actual Mac Chrome and the authenticated account.
+Not every Linux-specific diagnostic command has been ported; do not claim
+otherwise. Inspect any failure and stay within the Skill's allowed actions.
+
+
 # Operating ChatGPT from this machine
 
 Use the command for the requested operation. ChatGPT account operations and

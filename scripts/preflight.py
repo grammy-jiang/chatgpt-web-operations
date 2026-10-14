@@ -1020,6 +1020,10 @@ def render(checks: list[dict[str, Any]], order: tuple[str, ...] = GROUP_ORDER) -
 
 
 def main(argv: list[str] | None = None) -> int:
+    if sys.platform == "darwin":
+        from mac_preflight import main as mac_main
+
+        return mac_main(argv)
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "--workdir",
