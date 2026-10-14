@@ -1,9 +1,10 @@
 # Local macOS ChatGPT Skill adapter
 
-Source is copied at Git SHA b626c06c3b640bfcd7bc3394e25640ce7ae94082
-from the clean Raspberry Pi installed checkout, including 27 commits not
-yet present on its GitHub remote main. Changes on this Mac are isolated
-on branch macos-chatgpt-skill-port-20261014, not pushed upstream.
+The macOS adapter uses the Raspberry Pi-installed Skill source history
+starting at b626c06c3b640bfcd7bc3394e25640ce7ae94082 (27 commits newer
+than the former GitHub main). It is maintained on
+macos-chatgpt-skill-port-20261014 and reviewed in GitHub PR #1.
+Do not presume PR #1 is merged until its actual merge commit is verified.
 
 - Mac Codex finds the Skill through ~/.codex/skills/chatgpt-web-operations.
 - Mac Chrome binary: ~/Applications/Google Chrome.app.
@@ -44,3 +45,26 @@ on branch macos-chatgpt-skill-port-20261014, not pushed upstream.
 - 本地 macOS 端口的会话、浏览器、发送、模型和参数重写等 576 项离线回归测试通过。
 - 证据目录：~/Projects/android-mcp-mac-skill-worker-smoke-20261014、~/Projects/android-mcp-chatgpt-worker-e2e-20261014 。没有修改正式 Android MCP 源码。
 - 尚未在这次 Smoke 中验证：多代理自动合并、生产级工作树权限、Supervisor 自动恢复和真实 Android 硬件运行。不能把这些宣称为通过。
+
+
+## 2026-10-15 macOS health and live-read completion gates
+
+The local mac_skill.sh health.py command checks the real macOS runtime
+and loopback-only Chrome CDP, not Linux /proc, Xvfb, wireless link or
+GNOME Keyring. The version check accepts the actual Chrome version
+metadata dictionary and denies missing, invalid or non-Chrome responses.
+Browser-only session expiry is verified from CDP cookie metadata in
+memory, without leaking cookie values. A transport exception is
+reported by error type only, not a potentially sensitive exception message.
+
+T0 2772 tests, Ruff and >90% coverage have passed on macOS for these
+changes. Sixteen dedicated unit tests check CDP/authorization/expiry,
+wrong versions, exceptions and fail-closed behavior. Real T1 dedicated
+health and API-shape cases passed, but the full T1 suite later returned
+HTTP 429 on account read and correctly declared DO NOT START. A rate
+limit is an external readiness blocker: it must not be skipped, silenced
+or reported as a green account-read gate. After cooldown, rerun the
+complete make live-read on the final exact SHA.
+
+No user conversation, cookie, device diagnostic or account setting is
+intentionally modified by the T0/T1 checks.
