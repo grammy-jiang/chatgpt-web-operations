@@ -108,6 +108,9 @@ def _fake_browser(monkeypatch, *, browser=None, error=None):
 
 @pytest.fixture
 def ready(monkeypatch):
+    # Test the macOS branch even on the Raspberry Pi/Linux validation node.
+    # This is an offline fixture; it never reaches the real CDP or account.
+    monkeypatch.setattr(mac.sys, "platform", "darwin")
     monkeypatch.setattr(mac, "endpoint", lambda: "http://127.0.0.1:9233")
     requests = []
 
