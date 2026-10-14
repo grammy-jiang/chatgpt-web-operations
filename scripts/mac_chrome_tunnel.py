@@ -35,6 +35,8 @@ def ssh_argv(home: Path) -> list[str]:
     key, known, _, _ = paths(home)
     return [
         "/usr/bin/ssh",
+        "-F",
+        "/dev/null",
         "-n",
         "-N",
         "-T",
@@ -44,6 +46,10 @@ def ssh_argv(home: Path) -> list[str]:
         "IdentitiesOnly=yes",
         "-o",
         "BatchMode=yes",
+        "-o",
+        "ForwardAgent=no",
+        "-o",
+        "PermitLocalCommand=no",
         "-o",
         "PreferredAuthentications=publickey",
         "-o",

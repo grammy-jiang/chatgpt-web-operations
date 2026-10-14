@@ -51,6 +51,12 @@ def commands(monkeypatch: pytest.MonkeyPatch):
 def test_reverse_ssh_never_exposes_devtools_to_lan(home: Path) -> None:
     argv = mac.ssh_argv(home)
     assert argv[0] == "/usr/bin/ssh"
+    assert argv[1:3] == ["-F", "/dev/null"], (
+        "Dedicated tunnel must ignore all user and system SSH config "
+        "(Host blocks could inject ForwardAgent, LocalForward or DynamicForward)"
+    )
+    assert "ForwardAgent=no" in argv
+    assert "PermitLocalCommand=no" in argv
     assert argv[-1] == "grammy-jiang@raspberrypi.local"
     assert argv.count("-R") == 1
     assert argv[argv.index("-R") + 1] == "127.0.0.1:9233:127.0.0.1:9233"
@@ -276,3 +282,41 @@ def test_installer_rejects_different_ssh_key_owner(home: Path, commands, monkeyp
     real = mac.os.getuid()
     monkeypatch.setattr(mac.os, "getuid", lambda: real + 42)
     assert not mac.trusted_files(home)
+
+
+def test_real_ssh_g_ignores_hostile_user_ssh_config_with_explicit_f(
+    home: Path,
+) -> None:
+    """Use OpenSSH's config dump without establishing any network socket."""
+    import subprocess
+
+    cfg = home / ".ssh/config"
+    cfg.write_text(
+        "Host raspberrypi.local\n"
+        "  ForwardAgent yes\n"
+        "  PermitLocalCommand yes\n"
+        "  LocalCommand /bin/false\n"
+        "  LocalForward 0.0.0.0:9765 127.0.0.1:22\n"
+        "  RemoteForward 0.0.0.0:9766 127.0.0.1:22\n"
+        "  DynamicForward 0.0.0.0:9767\n"
+        "  ProxyCommand /usr/bin/false\n"
+    )
+    args = mac.ssh_argv(home)
+    proc = subprocess.run(
+        ["/usr/bin/ssh", "-G", *args[1:]],
+        capture_output=True,
+        text=True,
+        timeout=8,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr[:180]
+    fields = proc.stdout.lower().splitlines()
+    forwards = [x for x in fields if x.startswith("remoteforward ")]
+    assert len(forwards) == 1, forwards
+    normalized = forwards[0].replace("[", "").replace("]", "")
+    assert normalized == "remoteforward 127.0.0.1:9233 127.0.0.1:9233"
+    assert "forwardagent no" in fields
+    assert "permitlocalcommand no" in fields
+    assert not [x for x in fields if x.startswith(("localforward ", "dynamicforward "))]
+    assert not any("9765" in x or "9766" in x or "9767" in x for x in fields)
+    assert "proxycommand /usr/bin/false" not in fields

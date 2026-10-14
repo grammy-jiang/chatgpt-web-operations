@@ -87,7 +87,11 @@ After logging in to the Mac GUI desktop, run in the Skill checkout:
     .venv/bin/python scripts/mac_chrome_tunnel.py status
 
 The user-scoped launchd service is named
-com.grammy.android-mcp.chrome-reverse-tunnel. It runs /usr/bin/ssh with
+com.grammy.android-mcp.chrome-reverse-tunnel. It explicitly sets
+-F /dev/null (ignores ~/.ssh/config and system ssh_config),
+ForwardAgent=no and PermitLocalCommand=no. This prevents an inherited
+Host entry from adding LocalForward/RemoteForward/DynamicForward,
+ProxyCommand, or forwarding agent credentials. It runs /usr/bin/ssh with
 BatchMode, strict host checking, no ControlMaster, ServerAliveInterval 20,
 ServerAliveCountMax 2, ExitOnForwardFailure and a sole reverse port
 127.0.0.1:9233 → 127.0.0.1:9233. KeepAlive=true, RunAtLoad=true and
