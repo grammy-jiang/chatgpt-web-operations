@@ -21,6 +21,7 @@ export RP_DEDICATED_PORT=9233
 export RP_BROWSER_TAB=new
 export RP_MAX_BROWSERS=1
 export CHATGPT_SESSION_STORE=0
+export CHATGPT_MACOS_CDP_MODE=1
 if ! /usr/bin/curl -fsS --max-time 4 "$RP_BROWSER_CDP/json/version" >/dev/null; then
   echo "mac_skill: dedicated Mac Chrome CDP unavailable on loopback:9233" >&2
   exit 1

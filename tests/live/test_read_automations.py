@@ -30,7 +30,11 @@ def test_each_filter_returns_shaped_items(filter_name: str, live_session) -> Non
         assert isinstance(item["title"], str)
         assert isinstance(item["is_enabled"], bool)
         assert item["timing_mode"] in TIMING_MODES
-        assert isinstance(item["conversation_id"], str)
+        # Some legitimate new watches have no associated chat yet.
+        assert "conversation_id" in item
+        assert item["conversation_id"] is None or isinstance(
+            item["conversation_id"], str
+        )
 
 
 def test_suggested_automations_returns_a_list(live_session) -> None:

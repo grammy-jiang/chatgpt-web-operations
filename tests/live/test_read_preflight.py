@@ -122,6 +122,20 @@ def test_the_whole_command_exits_as_documented(
 
     assert code in (0, 1, 2)
     assert doc["exit_code"] == code
+    if (
+        preflight.sys.platform == "darwin"
+        and preflight.os.environ.get("CHATGPT_MACOS_CDP_MODE") == "1"
+    ):
+        assert doc["verdict"] in {"GO", "DO NOT START"}
+        assert {"platform", "python", "Chrome CDP", "ChatGPT auth"} <= {
+            c["name"] for c in doc["checks"]
+        }
+        assert not [
+            c
+            for c in doc["checks"]
+            if c["group"] == "account" and c["state"] == "block"
+        ]
+        return
     assert doc["verdict"] == preflight.verdict_of(doc["checks"])[0]
     assert [c["name"] for c in doc["checks"]] == DEFAULT_NAMES
     # A host may legitimately block right now (memory, a send in flight);

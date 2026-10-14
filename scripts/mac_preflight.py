@@ -16,7 +16,6 @@ import sys
 import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from macos_cdp_auth import endpoint
 
@@ -42,11 +41,15 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     record(
-        "host", "platform", sys.platform == "darwin",
+        "host",
+        "platform",
+        sys.platform == "darwin",
         f"{platform.system()} {platform.machine()}",
     )
     record(
-        "host", "python", sys.version_info >= (3, 12),
+        "host",
+        "python",
+        sys.version_info >= (3, 12),
         f"Python {sys.version_info.major}.{sys.version_info.minor}",
     )
     if args.browser_name != "chrome":
@@ -58,7 +61,12 @@ def main(argv: list[str] | None = None) -> int:
         with urllib.request.urlopen(url + "/json/version", timeout=5) as res:
             metadata = json.load(res)
         browser_version = metadata.get("Browser", "")
-        record("host", "Chrome CDP", bool(browser_version.startswith("Chrome/")), browser_version)
+        record(
+            "host",
+            "Chrome CDP",
+            bool(browser_version.startswith("Chrome/")),
+            browser_version,
+        )
     except (OSError, ValueError, RuntimeError, TypeError) as error:
         url = None
         record("host", "Chrome CDP", False, type(error).__name__)
@@ -69,7 +77,9 @@ def main(argv: list[str] | None = None) -> int:
         while not ancestor.exists() and ancestor != ancestor.parent:
             ancestor = ancestor.parent
         free = shutil.disk_usage(ancestor).free
-        record("host", "disk", free >= 4 * 1024**3, f"available GiB: {free // (1024**3)}")
+        record(
+            "host", "disk", free >= 4 * 1024**3, f"available GiB: {free // (1024**3)}"
+        )
 
     if args.project and not re.fullmatch(r"g-p-[A-Za-z0-9_-]{8,128}", args.project):
         record("account", "project format", False, "Invalid project id format")
@@ -79,8 +89,15 @@ def main(argv: list[str] | None = None) -> int:
             import chatgpt_session as cs
 
             cs.set_prog("mac-preflight")
-            session = cs.Session(browser="chrome", request_timeout=14, default_retries=0)
-            record("account", "ChatGPT auth", bool(session.token and session.user_id), "Authenticated HTTP session")
+            session = cs.Session(
+                browser="chrome", request_timeout=14, default_retries=0
+            )
+            record(
+                "account",
+                "ChatGPT auth",
+                bool(session.token and session.user_id),
+                "Authenticated HTTP session",
+            )
         except (OSError, RuntimeError, ValueError, SystemExit) as error:
             record("account", "ChatGPT auth", False, type(error).__name__)
 
@@ -95,12 +112,17 @@ def main(argv: list[str] | None = None) -> int:
                         if len(browser.contexts) != 1:
                             raise RuntimeError("Wrong Chrome context count")
                         page = browser.contexts[0].new_page()
-                        page.goto("https://chatgpt.com/", wait_until="domcontentloaded", timeout=45000)
+                        page.goto(
+                            "https://chatgpt.com/",
+                            wait_until="domcontentloaded",
+                            timeout=45000,
+                        )
                         composer = page.get_by_role("textbox")
                         composer.first.wait_for(timeout=18000)
                         active = page.url.startswith("https://chatgpt.com/")
                         record(
-                            "browser", "Chat Mode composer",
+                            "browser",
+                            "Chat Mode composer",
                             active and composer.count() >= 1,
                             "Authenticated ChatGPT input available",
                         )
@@ -124,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
         output = {
             "checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "verdict": verdict,
+            "exit_code": 0 if verdict == "GO" else 1,
             "checks": checks,
             "credential_values_saved": False,
         }

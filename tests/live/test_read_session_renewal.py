@@ -70,6 +70,12 @@ def test_a_real_session_build_leaves_a_sane_renewal_in_the_keyring(
     in the keyring is sane: present, not expired, not absurdly far out,
     and never a downgrade from Chrome's own jar (choose_session's own
     invariant: the keyring only ever holds the later of the two)."""
+    if sys.platform == "darwin" and cs.os.environ.get("CHATGPT_MACOS_CDP_MODE") == "1":
+        # Mac never persists session credentials in GNOME Keyring.
+        # Confirm authentication through the browser-only diagnostic instead.
+        assert cs.load_stored_session() is None
+        assert probe_cookies.main([]) == 0
+        return
     now = time.time()
     record = cs.load_stored_session()
     assert record is not None, "a real Session build must leave something stored"

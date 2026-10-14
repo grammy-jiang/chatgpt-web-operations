@@ -31,7 +31,10 @@ _EPOCH_DELTA_S = 11_644_473_600
 
 
 def export(browser: str) -> list[dict]:
-    if cs.sys.platform == "darwin":
+    if (
+        cs.sys.platform == "darwin"
+        and cs.os.environ.get("CHATGPT_MACOS_CDP_MODE") == "1"
+    ):
         from macos_cdp_auth import browser_cookies
 
         return browser_cookies()

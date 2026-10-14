@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import sqlite3
 import sys
@@ -134,6 +135,33 @@ def report(
     }
 
 
+def mac_cdp_cookie_rows() -> list[tuple[str, str, bytes, int]]:
+    """Local CDP cookie metadata, adapted to the old expiry-only report.
+
+    Never read the macOS Keychain, browser cookie DB, or print cookie values.
+    In-memory bytes go only to classify for their length.
+    """
+    from macos_cdp_auth import browser_cookies
+
+    rows: list[tuple[str, str, bytes, int]] = []
+    for item in browser_cookies():
+        raw_exp = item.get("expires")
+        when = (
+            int((raw_exp + WEBKIT_EPOCH_DELTA_S) * 1_000_000)
+            if type(raw_exp) in (float, int) and 0 < raw_exp < 4_000_000_000
+            else 0
+        )
+        rows.append(
+            (
+                str(item["name"]),
+                str(item["domain"]),
+                str(item["value"]).encode("utf-8"),
+                when,
+            )
+        )
+    return rows
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--browser", default="chrome")
@@ -147,14 +175,34 @@ def main(argv: list[str] | None = None) -> int:
 
     cc = load_client()
     cs = cc._helpers()
-    db, app = cs.BROWSERS[args.browser]
-    if not Path(db).exists():
-        print(f"no cookie DB for {args.browser} at {db}")
-        return 1
+    mac_cdp = (
+        sys.platform == "darwin" and os.environ.get("CHATGPT_MACOS_CDP_MODE") == "1"
+    )
+    if mac_cdp:
+        if args.browser != "chrome":
+            print("macOS: only the dedicated Chrome browser is supported")
+            return 2
+        try:
+            rows = mac_cdp_cookie_rows()
+        except (OSError, RuntimeError, ValueError):
+            print("macOS dedicated Chrome session unreadable")
+            return 1
+
+        # Cookie bytes never leave this process or appear in the report.
+        def decode_mac_cookie(data: bytes) -> str:
+            return data.decode("utf-8")
+
+        decrypt = decode_mac_cookie
+    else:
+        db, app = cs.BROWSERS[args.browser]
+        if not Path(db).exists():
+            print(f"no cookie DB for {args.browser} at {db}")
+            return 1
+        rows = read_jar(Path(db))
+        decrypt = cc._tolerant_decryptor(cs, app)
 
     now = time.time()
-    rows = read_jar(Path(db))
-    good, bad = classify(rows, cc._tolerant_decryptor(cs, app), now)
+    good, bad = classify(rows, decrypt, now)
     horizon = session_horizon(rows, now)
     print(table(good, ("cookie", "host", "value", "expires")))
     if bad:

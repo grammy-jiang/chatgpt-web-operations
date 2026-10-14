@@ -2993,7 +2993,11 @@ class BrowserSender:
         # 2026-10-04 it held the daily check and the weekly send for 30 min
         # while the dedicated window was fine (F-2026-10-06-2).
         self._endpoint = cdp_endpoint()
-        if sys.platform == "darwin" and not self._endpoint:
+        if (
+            sys.platform == "darwin"
+            and os.environ.get("CHATGPT_MACOS_CDP_MODE") == "1"
+            and not self._endpoint
+        ):
             raise TransportError(
                 "macOS requires explicit RP_BROWSER_CDP=http://127.0.0.1:9233; "
                 "refusing a scripted fallback"

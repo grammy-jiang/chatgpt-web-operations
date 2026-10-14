@@ -1020,7 +1020,7 @@ def render(checks: list[dict[str, Any]], order: tuple[str, ...] = GROUP_ORDER) -
 
 
 def main(argv: list[str] | None = None) -> int:
-    if sys.platform == "darwin":
+    if sys.platform == "darwin" and os.environ.get("CHATGPT_MACOS_CDP_MODE") == "1":
         from mac_preflight import main as mac_main
 
         return mac_main(argv)

@@ -32,6 +32,8 @@ LIBRARY_MODULES = {
     "chatgpt_client.py",
     "chatgpt_session.py",
     "chatgpt_cookies.py",
+    "macos_cdp_auth.py",  # macOS internal authentication helper
+    "mac_preflight.py",  # dispatch implementation behind preflight.py
 }
 
 REASONS = {

@@ -157,7 +157,24 @@ def test_delete_skill_refuses_an_unknown_name_and_dry_runs_a_known_one(
         if isinstance(item, dict) and isinstance(item.get("name"), str)
     ]
     if names:
-        assert delete_skill.main([names[0]]) == 0
+        first = names[0]
+        items = [
+            item
+            for item in (body or {}).get("hazelnuts", [])
+            if isinstance(item, dict) and item.get("name") == first
+        ]
+        item = items[0]
+        perms = item.get("permissions") or {}
+        deletable = (
+            len(items) == 1
+            and delete_skill.valid_name(first)
+            and delete_skill.valid_id(item.get("id"))
+            and isinstance(perms, dict)
+            and perms.get("can_read") is True
+            and perms.get("can_delete") is True
+        )
+        # A non-deletable built-in Skill must be refused, even for dry-run.
+        assert delete_skill.main([first]) == (0 if deletable else 2)
 
 
 def test_probe_cookies_reads_this_machine_s_jar() -> None:

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -78,9 +79,22 @@ def replay_browser() -> Any:
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            channel="chrome", headless=True, args=list(LAUNCH_ARGS)
+        launch_options: dict[str, Any] = {
+            "headless": True,
+            "args": list(LAUNCH_ARGS),
+            "channel": "chrome",
+        }
+        # Homebrew Cask may install Chrome for this user rather than the
+        # system-wide /Applications path Playwright's channel lookup assumes.
+        # Use only the real signed, already installed browser binary; do not
+        # silently substitute an unverified browser or skip replay assertions.
+        local_chrome = (
+            Path.home() / "Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
         )
+        if sys.platform == "darwin" and local_chrome.is_file():
+            launch_options.pop("channel")
+            launch_options["executable_path"] = str(local_chrome)
+        browser = playwright.chromium.launch(**launch_options)
         try:
             yield browser
         finally:
