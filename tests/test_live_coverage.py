@@ -50,6 +50,11 @@ REASONS = {
         "hand when no send is in flight"
     ),
     "offline-only": "reads local files only",
+    "os-service": (
+        "manages only the user's macOS launchd SSH reverse port, which "
+        "cannot be installed in account T1–T4 tests; tested with pure "
+        "offline T0 mocks and an independent real loopback tunnel recovery"
+    ),
     "platform-login": (
         "reads the dedicated window's platform.openai.com login, which the "
         "ChatGPT live tiers never hold; its live samples are the daily "
@@ -91,6 +96,7 @@ LIVE_COVERAGE: dict[str, str] = {
     ),
     "discover_endpoints.py": "browser-diagnostic",
     "health.py": "live/test_read_health.py::test_the_whole_command_exits_as_documented",
+    "mac_chrome_tunnel.py": "os-service",
     "list_automations.py": (
         "live/test_read_commands.py::test_list_automations_reads_every_filter"
     ),

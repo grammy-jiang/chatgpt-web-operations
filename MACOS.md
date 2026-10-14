@@ -68,3 +68,68 @@ complete make live-read on the final exact SHA.
 
 No user conversation, cookie, device diagnostic or account setting is
 intentionally modified by the T0/T1 checks.
+
+## 2026-10-15 Mac → Raspberry Pi SSH reverse tunnel auto-recovery
+
+Chrome 155 runs on MacBook Pro at 127.0.0.1:9233. Raspberry Pi
+workers reach it through a restricted SSH reverse port, also bound
+only on Pi 127.0.0.1:9233. Neither port may bind the LAN.
+
+The existing dedicated Mac key is ~/.ssh/android-mcp-chrome-tunnel.
+The Raspberry Pi authorized_keys entry restricts this key to remote
+port forwarding at 127.0.0.1:9233. The installer checks key owner,
+permissions, strict known_hosts pinning and conflicting LaunchAgents.
+No secret, cookie, root/admin SSH key or Chrome profile is copied.
+
+After logging in to the Mac GUI desktop, run in the Skill checkout:
+
+    .venv/bin/python scripts/mac_chrome_tunnel.py install
+    .venv/bin/python scripts/mac_chrome_tunnel.py status
+
+The user-scoped launchd service is named
+com.grammy.android-mcp.chrome-reverse-tunnel. It explicitly sets
+-F /dev/null (ignores ~/.ssh/config and system ssh_config),
+ForwardAgent=no and PermitLocalCommand=no. This prevents an inherited
+Host entry from adding LocalForward/RemoteForward/DynamicForward,
+ProxyCommand, or forwarding agent credentials. It runs /usr/bin/ssh with
+BatchMode, strict host checking, no ControlMaster, ServerAliveInterval 20,
+ServerAliveCountMax 2, ExitOnForwardFailure and a sole reverse port
+127.0.0.1:9233 → 127.0.0.1:9233. KeepAlive=true, RunAtLoad=true and
+ThrottleInterval=20 enable recovery on SSH/network failure.
+Its launchd plist and private error log are under ~/Library/LaunchAgents
+and ~/Library/Logs/AndroidMCP respectively; no password prompts.
+
+For one-time migration from the preexisting dedicated manual reverse SSH
+master, first bootstrap launchd, then shut down ONLY that known master:
+
+    ssh -S ~/.ssh/android-mcp-chrome-tunnel.ctl -O exit grammy-jiang@raspberrypi.local
+
+Wait for launchd to reclaim the remote port. Verify the active service with:
+
+    launchctl print gui/$(id -u)/com.grammy.android-mcp.chrome-reverse-tunnel
+
+Then independently check http://127.0.0.1:9233/json/version from Pi.
+A loaded launchd service alone does NOT prove that SSH CDP forwarding works.
+To test watchdog restart, record the SSH pid and use ONLY the specific
+service target:
+
+    launchctl kill SIGTERM gui/$(id -u)/com.grammy.android-mcp.chrome-reverse-tunnel
+
+Confirm a NEW SSH pid and Pi Chrome CDP connection, without manual help.
+Do not kill unrelated users' ssh/Chrome processes.
+
+The user-scoped LaunchAgent starts only after the Mac GUI user logs in.
+The current headless, closed-lid GUI login qualifies. A cold reboot without
+user auto-login remains a separate macOS policy: this service alone does
+NOT guarantee running before a user session. Chrome must also be launched
+and authenticated independently.
+
+### T2 sandbox writes and limits
+
+T2 has exactly four live-write cases in the dedicated rp-test-sandbox:
+temporary project create/delete; instructions change/restore; memory scope
+global/project-only round trip; and the separately verified rp-test-plugin
+release/install/skill-toggle/download/uninstall lifecycle. A test-only
+plugin release may remain in history. Every write is constrained by the
+live tier guard to sandbox resources, with post-test identity and state
+checks. Real production projects, chats and plugins must remain untouched.
