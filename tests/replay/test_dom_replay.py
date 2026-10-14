@@ -39,6 +39,7 @@ WITH_SEND_BUTTON = ("composer-filled", "composer-attached")
 ATTACHED = "composer-attached"
 NOTICE = "chat-load-failed-synthetic"
 NOTICE_URL = "https://chatgpt.com/c/x"
+WORK = "composer-work-synthetic"
 PROBE_TEXT = "replay probe: the recorded composer takes text"
 
 
@@ -129,6 +130,81 @@ def test_the_upload_input_is_found_by_the_fallback_on_every_recorded_page(replay
 def test_the_legacy_composer_still_offers_the_old_upload_input(replay) -> None:
     page = replay("composer-legacy-synthetic")
     assert page.locator(cc.UPLOAD_INPUT_SELECTOR).count() == 1
+
+
+@pytest.mark.parametrize("name", RECORDED_COMPOSERS)
+def test_the_controls_beside_the_composer_are_found_on_every_recorded_page(
+    replay, name: str
+) -> None:
+    """2026-10-01 evening: the attach menu (``ATTACH_MENU_SELECTOR``) and
+    the model picker (``PICKER_SELECTOR``) stand beside every recorded
+    composer, the page facts count them, and the file inputs the fallback
+    reads are counted too; no recorded page is a challenge or a login page."""
+    page = replay(name)
+    assert page.locator(cc.ATTACH_MENU_SELECTOR).count() >= 1
+    assert page.locator(cc.PICKER_SELECTOR).count() >= 1
+    facts = cc.page_snapshot(page)
+    assert facts["controls"]["attach_menu"] is True
+    # the picker is recorded, not required: the home page draws it inside the
+    # composer on some loads and not on others (2026-10-02 00:02)
+    assert isinstance(facts["controls"]["picker"], bool)
+    assert facts["uploads"]["inputs"] >= 1
+    assert facts["composers"]["total"] >= 1
+    assert facts["page"] == {"title_kind": None, "challenge": False, "login": False}
+    compact = cc.page_facts_compact(facts)
+    assert compact["attach_menu"] and compact["picker"] and not compact["challenge"]
+
+
+@pytest.mark.parametrize("name", COMPOSERS)
+def test_the_surface_toggle_is_found_where_it_was_recorded(replay, name: str) -> None:
+    """Since 2026-10-01 the home page carries the Chat/Work toggle
+    (``SURFACE_GROUP_SELECTOR``), a group of aria-pressed buttons: on a page
+    recorded with it exactly one button is pressed
+    (``SURFACE_PRESSED_SELECTOR``) and the others are not
+    (``SURFACE_UNPRESSED_SELECTOR``). A page recorded before the toggle
+    existed carries none, and its facts say so (or say nothing)."""
+    page = replay(name)
+    recorded = facts_of(name).get("surface") or {"found": False}
+    facts = cc.page_snapshot(page)
+    assert facts["surface"]["found"] == bool(recorded["found"])
+    assert page.locator(cc.SURFACE_GROUP_SELECTOR).count() == int(recorded["found"])
+    if recorded["found"]:
+        assert facts["surface"]["pressed"] == recorded["pressed"]
+        assert page.locator(cc.SURFACE_PRESSED_SELECTOR).count() == 1
+        unpressed = page.locator(cc.SURFACE_UNPRESSED_SELECTOR).count()
+        assert unpressed == recorded["buttons"] - 1
+
+
+def test_the_work_surface_is_read_from_the_composer_label(replay) -> None:
+    """The synthetic Work page (the user's own Chrome, 2026-10-01): the same
+    composer selector matches, its label is the Work one
+    (``WORK_COMPOSER_LABEL_RE``), and no recorded Chat page's label is."""
+    page = replay(WORK)
+    composer = cc.find_composer(page, timeout_ms=5_000)
+    assert cc.WORK_COMPOSER_LABEL_RE.match(composer.get_attribute("aria-label") or "")
+    assert cc.page_snapshot(page)["surface"] == facts_of(WORK)["surface"]
+    for name in RECORDED_COMPOSERS:
+        label = facts_of(name)["composer"]["aria_label"] or ""
+        assert not cc.WORK_COMPOSER_LABEL_RE.match(label), (name, label)
+
+
+def test_a_page_stuck_on_the_work_surface_is_refused_before_any_fill(replay):
+    """``ensure_chat_surface`` on the synthetic Work page in a real Chrome:
+    it presses the unpressed button (a static page, so nothing changes),
+    reads the label again and refuses with the surface named. The send
+    never fills, and the caller is not told to retry. On the recorded
+    Chat page the same call changes nothing and says so."""
+    page = replay(WORK)
+    composer = cc.find_composer(page, timeout_ms=5_000)
+    with pytest.raises(cc.TransportError, match="Work surface"):
+        cc.ensure_chat_surface(page, composer)
+    assert page.locator(cc.SURFACE_PRESSED_SELECTOR).count() == 1
+
+    chat = replay("composer")
+    assert cc.ensure_chat_surface(chat, cc.find_composer(chat, timeout_ms=5_000)) == (
+        "chat"
+    )
+    assert chat.locator(cc.SURFACE_PRESSED_SELECTOR).count() == 1
 
 
 def test_find_composer_raises_the_send_s_error_on_a_page_without_one(replay):

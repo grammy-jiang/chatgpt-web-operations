@@ -200,5 +200,210 @@
       "test_manage_plugins.py::test_inspect_archive_refuses_a_manifest_without_the_schema"
     ],
     "removed_and_failed": "2026-09-29"
+  },
+  {
+    "id": "F-2026-09-29-19",
+    "title": "read_chat ended in a TransportError traceback on a deleted conversation",
+    "atlas": "read_chat ended in a traceback on a deleted",
+    "fix": "827a3dd",
+    "tests": [
+      "test_command_mains_2.py::test_a_deleted_conversation_prints_the_server_reason_and_exits_3",
+      "test_command_mains_2.py::test_a_404_without_a_reason_says_not_found",
+      "test_command_mains_2.py::test_another_failed_read_is_one_line_and_exits_4"
+    ],
+    "removed_and_failed": "2026-09-29"
+  },
+  {
+    "id": "F-2026-10-01-20",
+    "title": "the page opened on the Work surface and the send typed into it; the toggle is no longer a radio",
+    "atlas": "The page opened on the Work surface, and the send",
+    "fix": "f7b77d0",
+    "tests": [
+      "test_client_browser.py::test_send_presses_chat_when_the_page_opened_on_the_work_surface",
+      "test_client_browser.py::test_send_stops_naming_the_work_surface_when_chat_cannot_be_pressed",
+      "test_client_browser.py::test_the_composer_probe_refuses_the_work_surface_without_a_toggle",
+      "test_preflight.py::test_browser_composer_check_names_the_work_surface_fix",
+      "test_page_snapshot.py::test_snapshot_drift_names_the_composer_label_and_the_toggle_group",
+      "replay/test_dom_replay.py::test_the_surface_toggle_is_found_where_it_was_recorded",
+      "replay/test_dom_replay.py::test_the_work_surface_is_read_from_the_composer_label",
+      "replay/test_dom_replay.py::test_a_page_stuck_on_the_work_surface_is_refused_before_any_fill"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-21",
+    "title": "a composer missing behind Cloudflare's challenge read as logged out or challenged for three mornings",
+    "atlas": "for three mornings while the page was Cloudflare's challenge",
+    "fix": "f7b77d0",
+    "tests": [
+      "test_page_snapshot.py::test_find_composer_names_the_cloudflare_challenge_when_its_widget_is_up",
+      "test_page_snapshot.py::test_challenge_page_reads_the_widget_or_the_notice_and_survives_a_dead_page",
+      "test_client_browser.py::test_a_missing_composer_behind_the_challenge_is_its_own_event",
+      "test_preflight.py::test_browser_composer_check_names_the_challenge_and_the_profile_fix"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-22",
+    "title": "the first promotion of a page with the toggle was refused for an at-sign in a Tailwind class",
+    "atlas": "The first promotion of a page with the toggle was",
+    "fix": "f7b77d0",
+    "tests": [
+      "test_page_snapshot.py::test_sanitize_drops_the_at_sign_class_tokens_the_hygiene_rule_refuses"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-23",
+    "title": "a refused send handshake (403 on sentinel, init, prepare) read as a post because the page drew the bubble",
+    "atlas": "The page's send handshake was refused, and the bubble",
+    "fix": "f7b77d0",
+    "tests": [
+      "test_client_submit.py::test_a_refused_handshake_with_no_message_request_is_not_a_post",
+      "test_client_submit.py::test_a_handshake_refused_with_429_is_the_rate_limit",
+      "test_client_submit.py::test_is_handshake_post_names_the_endpoint_and_nothing_else"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-24",
+    "title": "a failed send's screenshot and rate-limit check ran on the calling thread and never worked",
+    "atlas": "A failed send's screenshot and rate-limit check ran on",
+    "fix": "f7b77d0",
+    "tests": [
+      "test_client_browser.py::test_send_failure_evidence_is_read_on_the_owner_thread"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-25",
+    "title": "the live teardown PATCHed a local-chatgpt: placeholder and tripped the guard",
+    "atlas": "The live teardown PATCHed a",
+    "fix": "f7b77d0",
+    "tests": [
+      "test_live_cleanup_wiring.py::test_a_provisional_id_is_never_deleted"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-26",
+    "title": "the shared browser profile kept Cloudflare's refusal alive and nothing stopped the next window from running into it",
+    "atlas": "A shared browser profile kept the refusal alive",
+    "fix": "93e0f17",
+    "tests": [
+      "test_client_browser.py::test_profile_dir_from_reads_unset_and_empty_as_a_fresh_profile",
+      "test_client_browser.py::test_the_cooldown_is_noted_read_back_and_expires",
+      "test_client_browser.py::test_the_cooldown_is_off_at_zero_and_ignores_a_damaged_record",
+      "test_client_browser.py::test_enter_opens_no_window_during_the_cooldown",
+      "test_client_browser.py::test_a_missing_composer_on_a_logged_in_page_starts_the_cooldown",
+      "test_preflight.py::test_browser_cooldown_check_blocks_while_the_cooldown_runs",
+      "test_preflight.py::test_browser_composer_check_names_the_cooldown_and_its_end",
+      "test_page_snapshot.py::test_find_composer_names_the_refused_requests_on_a_logged_in_page"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-27",
+    "title": "a chat page's hidden composer ahead of its own made the strict composer wait fail or wait on the hidden one",
+    "atlas": "A chat page keeps a hidden composer ahead of its",
+    "fix": "3ea66b2",
+    "tests": [
+      "test_page_snapshot.py::test_find_composer_returns_the_locator_once_visible",
+      "test_page_snapshot.py::test_find_composer_waits_out_a_chat_page_s_second_composer",
+      "test_page_snapshot.py::test_find_composer_settles_for_the_visible_composer_when_two_stay"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-28",
+    "title": "the reply-stream capture never finished through the dedicated browser and held a posted send for 20 minutes",
+    "atlas": "Through the dedicated browser the reply stream never",
+    "fix": "3ea66b2",
+    "tests": [
+      "test_client_rewrite.py::test_send_skips_the_stream_through_the_dedicated_browser"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-29",
+    "title": "a killed send left its tab in the dedicated window, and a chat page's missing composer started the cool-down",
+    "atlas": "A killed send left its tab in the dedicated window",
+    "fix": "3ea66b2",
+    "tests": [
+      "test_client_browser.py::test_sigterm_closes_the_attached_tab_and_leaves_through_systemexit",
+      "test_client_browser.py::test_an_existing_sigterm_handler_is_left_alone",
+      "test_client_browser.py::test_a_chat_page_without_a_composer_records_no_refusal",
+      "test_page_snapshot.py::test_find_composer_on_a_chat_page_names_the_chat_not_the_window"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-30",
+    "title": "an effort pinned on a model that takes none (the window's Auto, gpt-5-6) recorded no effort",
+    "atlas": "An effort pinned on the window's own model recorded",
+    "fix": "3ea66b2",
+    "tests": [
+      "test_client_rewrite.py::test_effort_on_a_model_that_takes_none_moves_the_model_too",
+      "test_client_rewrite.py::test_takes_effort_knows_the_catalog_s_shapes",
+      "test_client_rewrite.py::test_record_send_body_carries_original_and_sent_when_rewriting"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-31",
+    "title": "a pinned effort was ignored when the body carried the page's one-off model override (the Instant picker's shape)",
+    "atlas": "A pinned effort is ignored when the body carries the",
+    "fix": "3a7c4b3",
+    "tests": [
+      "test_client_rewrite.py::test_a_pin_drops_the_page_s_one_off_override_fields"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-01-32",
+    "title": "the dedicated profile synced the owner's extensions and a duplicate-tab blocker bounced the home page",
+    "atlas": "The dedicated profile synced the owner's extensions",
+    "fix": "cd90582",
+    "tests": [
+      "test_client_browser.py::test_a_tab_sent_off_chatgpt_right_after_loading_is_named_not_waited_for",
+      "test_dedicated_browser.py::test_profile_extensions_lists_web_store_extensions_only",
+      "test_dedicated_browser.py::test_status_names_the_profile_s_extensions"
+    ],
+    "removed_and_failed": "2026-10-01"
+  },
+  {
+    "id": "F-2026-10-06-1",
+    "title": "a slow render (the composer in the page but not yet visible) was counted as a refusal and started a 30-minute cool-down",
+    "atlas": "A slow render was counted as a refusal",
+    "fix": "60dd832",
+    "tests": [
+      "test_page_snapshot.py::test_find_composer_waits_once_more_when_the_composer_is_in_the_page",
+      "test_page_snapshot.py::test_find_composer_names_a_slow_render_and_not_a_refusal",
+      "test_client_browser.py::test_a_slow_render_is_an_event_and_never_a_refusal"
+    ],
+    "removed_and_failed": "2026-10-06"
+  },
+  {
+    "id": "F-2026-10-06-2",
+    "title": "the cool-down after a refused scripted window held sends that attach to the dedicated window too",
+    "atlas": "The cool-down held the dedicated window too",
+    "fix": "60dd832",
+    "tests": [
+      "test_client_browser.py::test_the_cooldown_holds_scripted_windows_only",
+      "test_preflight.py::test_browser_cooldown_check_is_ok_when_the_dedicated_window_answers"
+    ],
+    "removed_and_failed": "2026-10-06"
+  },
+  {
+    "id": "F-2026-10-06-3",
+    "title": "a send whose close did not complete left its tab in the dedicated window; nothing swept them",
+    "atlas": "Sends whose close did not complete left their tabs",
+    "fix": "60dd832",
+    "tests": [
+      "test_client_browser.py::test_watchdog_closes_an_attached_tab_from_outside",
+      "test_dedicated_browser.py::test_leftover_tabs_are_chat_pages_other_than_the_own_tab",
+      "test_dedicated_browser.py::test_tidy_lists_then_closes_the_leftovers"
+    ],
+    "removed_and_failed": "2026-10-06"
   }
 ]

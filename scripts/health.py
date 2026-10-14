@@ -82,6 +82,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 import traceback
@@ -201,6 +202,50 @@ def _sandbox() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
+def mac_host_checks(cc_mod: Any) -> list[dict[str, Any]]:
+    """Check the actual Mac runtime, not Linux Xvfb/DBus prerequisites."""
+    return [
+        preflight.memory_check(cc_mod.available_mb(), cc_mod.MIN_AVAILABLE_MB),
+        preflight.load_check(preflight.os.getloadavg()[0], preflight.os.cpu_count()),
+        preflight.inflight_browsers_check(
+            cc_mod.scripted_browser_pids(), cc_mod.MAX_BROWSERS
+        ),
+        preflight.dedicated_browser_check(
+            cc_mod.CDP_MODE,
+            cc_mod.DEDICATED_URL,
+            cc_mod.dedicated_browser_version,
+        ),
+    ]
+
+
+def mac_link_checks(cc_mod: Any) -> list[dict[str, Any]]:
+    """Block if the browser CDP is unavailable; never fall back to Xvfb."""
+    from macos_cdp_auth import endpoint
+
+    try:
+        url = endpoint()
+        if not url:
+            raise ValueError("Mac dedicated Chrome CDP is not configured")
+        metadata = cc_mod.dedicated_browser_version(url)
+        browser = (
+            metadata.get("Browser", "") if isinstance(metadata, dict) else metadata
+        )
+    except (OSError, RuntimeError, TypeError, ValueError):
+        browser = ""
+    healthy = isinstance(browser, str) and browser.startswith("Chrome/")
+    return [
+        preflight.check(
+            "link",
+            "Chrome CDP link",
+            "ok" if healthy else "block",
+            "Dedicated macOS Chrome reachable via loopback CDP"
+            if healthy
+            else "Dedicated macOS Chrome is unreachable",
+            None if healthy else "Sign in to Chrome, restart its localhost CDP",
+        )
+    ]
+
+
 def _read_session_horizon(
     cc_mod: Any, browser: str
 ) -> tuple[tuple[str, float] | None, tuple[str, float] | None]:
@@ -217,6 +262,18 @@ def _read_session_horizon(
     what turns a raised exception into a check instead of a crash.
     """
     cs = cc_mod._helpers()
+    mac_mode = (
+        sys.platform == "darwin" and os.environ.get("CHATGPT_MACOS_CDP_MODE") == "1"
+    )
+    if mac_mode:
+        # Read only expiry metadata from this Mac's authenticated Chrome
+        # through its loopback CDP. Never touch Linux cookie SQLite/Keyring.
+        # CDP failures must block health, not claim an authenticated session.
+        if browser != "chrome":
+            raise ValueError("Dedicated macOS browser must be Chrome")
+        rows = probe_cookies.mac_cdp_cookie_rows()
+        return probe_cookies.session_horizon(rows, time.time()), None
+
     db, _app = cs.BROWSERS[browser]
     rows = probe_cookies.read_jar(Path(db))
     now = time.time()
@@ -310,7 +367,14 @@ def fetch_session_token(cc_mod: Any, browser: str) -> dict[str, Any]:
     try:
         chrome, keyring = _read_session_horizon(cc_mod, browser)
     except Exception as exc:
-        return session_token_check(None, None, error=str(exc)[:200])
+        # A CDP transport exception may include authentication material.
+        # The Mac adapter never records it, even in an error detail.
+        mac_mode = (
+            sys.platform == "darwin" and os.environ.get("CHATGPT_MACOS_CDP_MODE") == "1"
+        )
+        return session_token_check(
+            None, None, error=type(exc).__name__ if mac_mode else str(exc)[:200]
+        )
     return session_token_check(chrome, keyring)
 
 
@@ -770,14 +834,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     sandbox = _sandbox()
 
+    mac_mode = (
+        sys.platform == "darwin" and os.environ.get("CHATGPT_MACOS_CDP_MODE") == "1"
+    )
     checks: list[dict[str, Any]] = []
     _diag(diagnostic, "stage_start", stage="host")
-    host = preflight.host_checks(cc, None)
+    host = mac_host_checks(cc) if mac_mode else preflight.host_checks(cc, None)
     checks += host
     _diag(diagnostic, "stage_end", stage="host", **_state_counts(host))
 
     _diag(diagnostic, "stage_start", stage="link")
-    link = preflight.link_checks(preflight.WIRELESS_PATH)
+    link = (
+        mac_link_checks(cc)
+        if mac_mode
+        else preflight.link_checks(preflight.WIRELESS_PATH)
+    )
     checks += link
     _diag(diagnostic, "stage_end", stage="link", **_state_counts(link))
 

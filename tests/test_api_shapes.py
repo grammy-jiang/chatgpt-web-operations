@@ -299,6 +299,11 @@ EXCUSED = {
     "/backend-api/aip/connectors/links/<id>": "a write: deletes or updates a link",
     "/backend-api/projects": "a write: creates a project",
     "/backend-api/projects/<id>": "a write: updates a project",
+    "/backend-api/settings/user_last_used_model_config": (
+        "a write: the Power slider's own save of the account's model and effort, "
+        "sent by model_settings.py --default ... --apply; its effect is read back "
+        "through settings/user, which is recorded"
+    ),
     "/backend-api/hazelnuts/<id>": "a write: deletes a skill",
     "/backend-api/aip/connectors/mcp/refresh_actions": (
         "a refresh: makes ChatGPT re-read a server's tools (refresh_connector.py); "

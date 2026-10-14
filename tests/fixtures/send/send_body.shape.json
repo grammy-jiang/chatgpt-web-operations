@@ -1,0 +1,367 @@
+{
+ "fields": {
+  "action": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "browser_context": {
+   "fields": {
+    "instance_id": {
+     "formats": [
+      "uuid"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    }
+   },
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  },
+  "client_contextual_info": {
+   "fields": {
+    "app_name": {
+     "formats": [
+      "text"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "app_surface": {
+     "formats": [
+      "text"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "has_web_push_capabilities": {
+     "booleans": [
+      true
+     ],
+     "optional": false,
+     "types": [
+      "boolean"
+     ]
+    },
+    "web_push_notification_permission": {
+     "formats": [
+      "text"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    }
+   },
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  },
+  "client_prepare_state": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "conversation_mode": {
+   "fields": {
+    "gizmo_id": {
+     "formats": [
+      "g-p-id"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    },
+    "kind": {
+     "enum": [
+      "gizmo_interaction"
+     ],
+     "formats": [
+      "enum"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    }
+   },
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  },
+  "gizmo_id": {
+   "formats": [
+    "g-p-id"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "is_do_not_remember": {
+   "booleans": [
+    false
+   ],
+   "optional": false,
+   "types": [
+    "boolean"
+   ]
+  },
+  "local_function_names": {
+   "items": {
+    "formats": [
+     "text"
+    ],
+    "types": [
+     "string"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "messages": {
+   "items": {
+    "fields": {
+     "author": {
+      "fields": {
+       "metadata": {
+        "fields": {},
+        "optional": false,
+        "types": [
+         "object"
+        ]
+       },
+       "name": {
+        "optional": false,
+        "types": [
+         "null"
+        ]
+       },
+       "role": {
+        "enum": [
+         "user"
+        ],
+        "formats": [
+         "enum"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       }
+      },
+      "optional": false,
+      "types": [
+       "object"
+      ]
+     },
+     "channel": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "content": {
+      "fields": {
+       "content_type": {
+        "enum": [
+         "text"
+        ],
+        "formats": [
+         "enum"
+        ],
+        "optional": false,
+        "types": [
+         "string"
+        ]
+       },
+       "parts": {
+        "items": {
+         "formats": [
+          "text"
+         ],
+         "types": [
+          "string"
+         ]
+        },
+        "optional": false,
+        "types": [
+         "array"
+        ]
+       }
+      },
+      "optional": false,
+      "types": [
+       "object"
+      ]
+     },
+     "create_time": {
+      "optional": false,
+      "types": [
+       "number"
+      ]
+     },
+     "end_turn": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "id": {
+      "formats": [
+       "uuid"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "metadata": {
+      "fields": {},
+      "optional": false,
+      "types": [
+       "object"
+      ]
+     },
+     "recipient": {
+      "formats": [
+       "text"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "status": {
+      "enum": [
+       "finished_successfully"
+      ],
+      "formats": [
+       "enum"
+      ],
+      "optional": false,
+      "types": [
+       "string"
+      ]
+     },
+     "update_time": {
+      "optional": false,
+      "types": [
+       "null"
+      ]
+     },
+     "weight": {
+      "optional": false,
+      "types": [
+       "integer"
+      ]
+     }
+    },
+    "types": [
+     "object"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "model": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "parent_message_id": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "supported_encodings": {
+   "items": {
+    "formats": [
+     "text"
+    ],
+    "types": [
+     "string"
+    ]
+   },
+   "optional": false,
+   "types": [
+    "array"
+   ]
+  },
+  "thinking_effort": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "timezone": {
+   "formats": [
+    "text"
+   ],
+   "optional": false,
+   "types": [
+    "string"
+   ]
+  },
+  "timezone_offset_min": {
+   "optional": false,
+   "types": [
+    "integer"
+   ]
+  },
+  "turn_attribution": {
+   "fields": {
+    "turn_trigger": {
+     "formats": [
+      "text"
+     ],
+     "optional": false,
+     "types": [
+      "string"
+     ]
+    }
+   },
+   "optional": false,
+   "types": [
+    "object"
+   ]
+  }
+ },
+ "types": [
+  "object"
+ ]
+}

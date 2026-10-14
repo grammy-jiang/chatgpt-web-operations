@@ -32,6 +32,8 @@ LIBRARY_MODULES = {
     "chatgpt_client.py",
     "chatgpt_session.py",
     "chatgpt_cookies.py",
+    "macos_cdp_auth.py",  # macOS internal authentication helper
+    "mac_preflight.py",  # dispatch implementation behind preflight.py
 }
 
 REASONS = {
@@ -48,6 +50,12 @@ REASONS = {
         "hand when no send is in flight"
     ),
     "offline-only": "reads local files only",
+    "platform-login": (
+        "reads the dedicated window's platform.openai.com login, which the "
+        "ChatGPT live tiers never hold; its live samples are the daily "
+        "browser check and the weekly send check (probe_platform.json in each "
+        "run's evidence directory)"
+    ),
     "research-workdir": (
         "needs a research run's working directory and ledger; exercised by "
         "the research-pipeline orchestrator's own tests"
@@ -70,6 +78,10 @@ LIVE_COVERAGE: dict[str, str] = {
     "connect_connector.py": "manual-acceptance",
     "create_connector.py": "manual-acceptance",
     "create_project.py": PROJECT_LIFECYCLE,
+    "dedicated_browser.py": (
+        "live/test_browser_dedicated.py::"
+        "test_dedicated_browser_status_answers_and_a_window_attaches"
+    ),
     "deep_research.py": "manual-acceptance",
     "delete_connector.py": "manual-acceptance",
     "delete_project.py": PROJECT_LIFECYCLE,
@@ -112,6 +124,7 @@ LIVE_COVERAGE: dict[str, str] = {
     "probe_cookies.py": (
         "live/test_read_commands.py::test_probe_cookies_reads_this_machine_s_jar"
     ),
+    "probe_platform.py": "platform-login",
     "probe_send_gates.py": (
         "live/test_read_commands.py::test_probe_send_gates_reads_the_sentinel"
     ),
@@ -128,6 +141,7 @@ LIVE_COVERAGE: dict[str, str] = {
         "test_refresh_connector_lists_resolves_and_dry_runs_a_real_connector"
     ),
     "review_topic.py": "offline-only",
+    "triage.py": "offline-only",
     "round_status.py": "research-workdir",
     "search_chats.py": (
         "live/test_read_commands.py::test_search_chats_main_exits_as_documented"

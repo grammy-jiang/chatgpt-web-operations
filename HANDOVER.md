@@ -104,6 +104,144 @@ live guard refuses any plugin creation. The first T2 run found two defects
 the offline tests could not see (F-2026-09-29-17 and 18); both are fixed,
 and T1 and T2 pass. `Session.call` gained `binary=True` for the archive.
 
+**State at 2026-10-01.** The owner asked for a re-validation after
+ChatGPT's page changed. What had broken while every suite stayed green:
+the home page opened on the new **Work** surface for the shared browser
+profile and every send of 2026-09-30 typed into it and never posted (the
+Chat/Work toggle is no longer a radio; atlas F-2026-10-01-20), and the
+shared profile `/tmp/rp-browser-profile` was challenged by Cloudflare on
+every open from 2026-09-29 to 2026-10-01 while fresh profiles passed (the
+daily check read it as "logged out or challenged" for three mornings;
+F-2026-10-01-21). The client now reads the surface from the composer's
+label, presses Chat first and refuses a page that stays on Work; the
+composer wait names the challenge page; `page_snapshot` records the toggle;
+the daily comparison warns on the composer's label and the toggle. The
+composer fixture was re-recorded on a fresh profile and promoted, with a
+hand-written Work page beside it. Every live tier of this day ran with
+`RP_BROWSER_PROFILE=`; later the same day a fresh profile per window became
+the default, a refusal starts a cool-down of 1800 s, the logged-in
+no-composer shape is named, and the stale shared profile was renamed
+(F-2026-10-01-26; the wrappers set no profile and follow the default). The fresh
+profiles were refused as well: from 10:05 every scripted send's handshake
+(sentinel, `conversation/init`, `f/conversation/prepare`) was answered 403
+while the page still drew the bubble, so T4 failed and the client took the
+bubble for a post; it now stops with `handshake-refused`
+(F-2026-10-01-23), reads its failure evidence on the owner thread
+(F-2026-10-01-24), and the teardown skips `local-chatgpt:` placeholders
+(F-2026-10-01-25). The user's own Chrome sent and received normally in the
+same minute. HTTP: every tier and command passed (T1, T2, TL, L, the
+tunnel CRUD, the connector lifecycle). Browser: T3 passed; T4 and the
+browser-dependent acceptance sends are **not verified** today and are the
+first thing to run when a scripted window gets through again. Results and
+remaining limits: `VERIFICATION.md`, "Re-validation 2026-10-01".
+
+**State at 2026-10-01, afternoon.** The owner decided: a browser only for
+what HTTP cannot do (sends, Deep research's start, browser diagnostics), and
+that browser is a dedicated Chrome window on this machine -- own profile,
+debugging port on 127.0.0.1:9222, logged in by the owner by hand, kept alive
+by a systemd user unit -- that a send attaches to over CDP and opens one tab
+in (`scripts/dedicated_browser.py`; `BrowserSender._open_attached`;
+`RP_BROWSER_CDP` auto/off/URL; preflight's host check "dedicated browser";
+T3 `tests/live/test_browser_dedicated.py`). The experiment that decided it:
+11:43, through that window, every handshake 200 and the reply in 10 s,
+while the scripted window was refused the same hour. The scripted Xvfb
+window is the fallback. The afternoon's acceptance through the window found
+four more defects, all fixed with tests: a chat page's hidden composer
+(F-2026-10-01-27), the reply-stream wait that never ends there
+(F-2026-10-01-28), the tab a killed send leaves and the chat page taken for
+a refusal (F-2026-10-01-29), and an effort pinned on the window's "Auto"
+model (F-2026-10-01-30). Chrome synced the owner's extensions (23 from the
+Web Store) into the dedicated profile after the Google login, and a duplicate-tab blocker
+among them bounces every new tab opened on the home page (F-2026-10-01-32:
+named now, not fought; the owner removes them or signs the profile out of
+Chrome; measured again at 15:46, two of four browser checks bounced, so it
+is not a one-off). The effort pin was found again the same evening: the
+window's picker sat on "Instant", whose body carries a one-off model
+override that makes the server ignore a pinned level; the rewrite now drops
+it (F-2026-10-01-31), and `make live-send`'s effort test passes. The slider
+itself writes `PATCH /backend-api/settings/user_last_used_model_config`,
+which `model_settings.py --default ... --apply` now sends on request. The
+owner's two decisions of the evening: the web default is the preset one
+below Pro -- "Extra High" now -- set at 16:19 and kept by the rule in
+`model_settings.py` and preflight (ROADMAP.md, decisions 4 and 5); the
+dedicated window runs no extensions (`--disable-extensions`, restarted
+16:34), the removal being the owner's step with the sync trap named. Seen
+once, not measured: the T3 upload dry run failed twice right after that
+restart and passed from 16:50 on (atlas, "Seen, not measured"). The owner
+then asked why a tab cannot be specified: `RP_BROWSER_TAB` now chooses the
+tab a send drives -- the skill's own kept tab by default, `url:<prefix>` for
+a named one such as the owner's, `new` for one per window -- with a lock so
+two windows never share one; the extensions stay installed, inert under the
+switch. Results: `VERIFICATION.md`, "The dedicated browser window", "The
+effort pin, the same evening", "The owner's default and the window's
+extensions" and "The skill's own tab".
+
+Late evening, the owner's second ask: when the page changes, detect it and
+report it. What existed already -- the daily browser health with its DOM
+comparison, the weekly send, the shape drift of the read endpoints, the heal
+agent, the mails -- is in `~/.local/bin` (not this repo) and had fired three
+mornings running; the mails went to the local mailbox and said "logged out
+or challenged". What changed in the skill: a composer-missing message, event
+and `chatgpt-composer-missing.json` now carry the page's facts (challenge,
+login, composers and hidden ones, toggle, controls); ten more facts are
+compared with the fixture and a stale fixture names the ones it lacks; the
+weekly send records the POST body's shape and the wrapper compares it
+(`tests/fixtures/send/send_body.shape.json`). Two wrapper scripts were
+edited, each backed up as `*.bak-20261001`: `chatgpt-ops-send-check.sh`
+(the send-body comparison in its drift step) and `chatgpt-ops-heal.sh` (the
+page facts in the evidence, and the prompt's rule that a repeated "transient"
+is not one). The delivery channel (where the mail goes) is still the owner's
+open decision. The next scheduled runs are the proof: the daily browser check
+at 05:25 (the promoted `composer` fixture carries the new facts, so its row
+should read "matches ... no newer fact"), and Sunday's send at 05:40 (first
+`send_body.shape.json` recorded by cron).
+
+The owner then approved the layered design (2026-10-01 late evening, done
+into 2026-10-02 00:0x): layer 1 is `scripts/triage.py` (rules only; tested;
+registry `~/.local/state/chatgpt-ops/triage.json`), called by both cron
+wrappers after a new read-only reproduction step (`chatgpt-ops-repro.sh`,
+new in `~/.local/bin`); the agent (layer 3, `chatgpt-ops-heal.sh`) runs only
+on an escalate decision and gets the triage record and the reproduction in
+its evidence, may reproduce once more itself (allowlisted), and is told what
+a reproduced failure means; layer 4 is `chatgpt-ops-approve` (new in
+`~/.local/bin`: show, `--merge`, `--promote`, `--discard`). Layer 2 (a cheap
+model for novel signatures) is not built. Backups of the edited wrappers:
+`*.bak-20261002`. The model picker fact is recorded but not compared
+(`controls.picker` left `SNAPSHOT_DRIFT_KEYS` after the home page drew it on
+one load and not the next). The delivery channel stays the owner's open
+decision.
+
+2026-10-06: the first four scheduled days of the loop (`VERIFICATION.md`,
+"Four scheduled days") found three defects in the skill, fixed with tests
+(F-2026-10-06-1 to -3): a slow render under host load was counted as a
+refusal and bought a 30-minute cool-down each time; the cool-down held
+sends that attach to the dedicated window; sends whose close did not finish
+left their tabs in the window (31 by 10-06). The watchdog now closes an
+attached tab from outside, `dedicated_browser.py tidy --apply` sweeps the
+leftovers and the daily check runs it first (`chatgpt-ops-check.sh`,
+backup `.bak-20261006`). The host itself is the open problem: a load of
+10-17 on 4 cores from the owner's parallel pipelines, which no change here
+can fix; preflight's load and memory rows say so each morning.
+
+2026-10-12: the owner approved a read-only platform.openai.com probe in the
+scheduled checks, after the dedicated window's Platform login had gone
+stale unnoticed (login and MFA redone by hand on 2026-10-11 evening).
+`scripts/probe_platform.py` is the 35th command: under the browser slot it
+opens one tab on the Platform root through the debugging endpoint
+(`/json/new`, `/json/list`, `/json/close`; no Playwright, no page script, no
+input), classifies the settled address as VALID, LOGIN_REQUIRED,
+MFA_REQUIRED or ERROR, closes the tab, and reads the auth.openai.com
+session cookies' expiry from a copy of the profile's jar (three columns, no
+value). The daily browser check runs it after `health.py`
+(`check.log`: `platform=<STATE> platform_auth_days=<N>`), the Sunday send
+check runs it once more (`send-check.log`, same fields), and the Friday
+digest prints a "Platform" line. Anything but VALID, or 5 days or fewer
+left, is one WARN naming the state and the owner's action; never ALERT,
+never triage's repair agent. Wrappers edited in place in `~/.local/bin`
+(backups `*.bak-20261012`; that repository's other uncommitted hunks from
+2026-10-01 and 10-06 were left as they were). `TESTING.md` P14 and
+`VERIFICATION.md` ("The platform.openai.com probe") have the rest.
+
 ## Entry point, 2026-09-25
 
 For first use or missing access, read `references/setup.md` and the
@@ -429,7 +567,7 @@ current one; a T0 test fails if that table and `scripts/*.py` disagree, so
 | `probe_account.py` | HTTP | auth, `/backend-api/me`, one listing; exit 0 when reads work |
 | `probe_cookies.py` | local | which chatgpt.com cookies decrypt; never prints a value |
 | `probe_send_gates.py` | HTTP | proof-of-work, Turnstile, `so` status from the sentinel; **has no argparse, so `--help` runs the probe** |
-| `model_settings.py` | HTTP + local cookie | new: the Power slider's presets, the API's effort levels per model, the profile's cookie resolved to a preset |
+| `model_settings.py` | HTTP | the Power slider's presets, the API's effort levels per model, the account's record resolved to a preset and checked against the owner's rule (one preset below Pro); `--default below-pro --apply` sets it the way the slider does (2026-10-01) |
 | `profile_context.py` | HTTP + local cookie | added 2026-09-20 (Stage 1 item 1): custom instructions, memory usage, model + effort from cookie and server, one project's instructions and files; `--json PATH` for a run's archive |
 | `list_chats.py` | HTTP | extended: `--match`, `--pinned`, `--archived`, `--no-project-chats`, a flags column (project / pinned / archived / temporary) |
 | `list_projects.py` | HTTP | projects, instructions, chats inside one |

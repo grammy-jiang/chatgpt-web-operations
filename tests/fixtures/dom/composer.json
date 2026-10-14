@@ -11,12 +11,35 @@
     ],
     "tag": "div"
   },
-  "recorded_at": "2026-09-27T14:35:06Z",
+  "composers": {
+    "hidden": 0,
+    "total": 1,
+    "visible": 1
+  },
+  "controls": {
+    "attach_menu": true,
+    "picker": true,
+    "remove_chips": 0
+  },
+  "page": {
+    "challenge": false,
+    "login": false,
+    "title_kind": "chatgpt"
+  },
+  "recorded_at": "2026-10-01T13:13:42Z",
   "send_button": {
     "aria_label": null,
     "disabled": null,
     "found": false,
     "testid": null
+  },
+  "surface": {
+    "buttons": 2,
+    "found": true,
+    "pressed": [
+      "true",
+      "false"
+    ]
   },
   "turns": {
     "any": 0,
@@ -24,6 +47,16 @@
     "matched_any": [],
     "matched_user": [],
     "user": 0
+  },
+  "uploads": {
+    "accepts": [
+      "",
+      "image/*",
+      "image/*,video/*"
+    ],
+    "any_file": 1,
+    "inputs": 3,
+    "primary_found": false
   },
   "url": "https://chatgpt.com/"
 }

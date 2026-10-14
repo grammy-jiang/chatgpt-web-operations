@@ -188,6 +188,104 @@ def test_not_posted_records_an_event_with_the_screenshot_path(make_sender):
     assert events[0]["screenshot"].endswith("chatgpt-send-fail.png")
 
 
+HANDSHAKE = "https://chatgpt.com/backend-api/"
+
+
+def test_a_refused_handshake_with_no_message_request_is_not_a_post(make_sender):
+    """2026-10-01, a fresh scripted profile: the click fired the page's own
+    handshake (sentinel prepare, init), every answer was 403, no
+    f/conversation request followed, and the page still showed the bubble
+    at a local-chatgpt: address. The turn count alone must not make that a
+    post: the send stops with the handshake named, its own event, and no
+    provisional id for a conversation that does not exist
+    (F-2026-10-01-23)."""
+    sender = make_sender()
+    page = _ready_page(sender)
+    page.url = fp.sequence(
+        "https://chatgpt.com/g/g-p-x/project",
+        "https://chatgpt.com/g/g-p-x-s/c/local-chatgpt%3A1db76ec1-0360-4d93-96c4-b692dcd7ce77",
+    )
+
+    def refuse() -> None:
+        page.emit_response(
+            HANDSHAKE + "sentinel/chat-requirements/prepare", status=403, method="POST"
+        )
+        page.emit_response(HANDSHAKE + "conversation/init", status=403, method="POST")
+
+    page.set_locator(cc.BrowserSender.SEND_BUTTONS[0], raises={"click": refuse})
+
+    with pytest.raises(cc.TransportError, match="handshake was refused") as excinfo:
+        sender._send("hello", chat=None, name="task")
+
+    assert "403 on sentinel/chat-requirements/prepare" in str(excinfo.value)
+    assert "403 on conversation/init" in str(excinfo.value)
+    assert excinfo.value.status == 0
+    events = _events()
+    assert [e["kind"] for e in events] == ["handshake-refused"]
+    assert events[0]["refused"] == [
+        "/backend-api/sentinel/chat-requirements/prepare 403",
+        "/backend-api/conversation/init 403",
+    ]
+    assert events[0]["turns_before"] == 0
+    assert events[0]["turns_after"] == 1
+    assert events[0]["chars"] == 5
+    assert events[0]["screenshot"].endswith("chatgpt-send-fail.png")
+    assert not _page_calls(page, "keyboard.press")
+    left, record = cc.cooldown_remaining()
+    assert left > 0
+    assert record["kind"] == "handshake-refused"
+
+
+def test_a_refused_handshake_is_forgotten_once_the_message_request_went_out(
+    make_sender,
+):
+    """The page retries its handshake itself; a 403 followed by the
+    message's own POST answered 2xx is a post, judged by that POST."""
+    sender = make_sender()
+    page = _ready_page(sender)
+
+    def refuse_then_post() -> None:
+        page.emit_response(HANDSHAKE + "conversation/init", status=403, method="POST")
+        page.emit_request(HANDSHAKE + "f/conversation", method="POST")
+        page.emit_response(HANDSHAKE + "f/conversation", status=200, method="POST")
+
+    page.set_locator(
+        cc.BrowserSender.SEND_BUTTONS[0], raises={"click": refuse_then_post}
+    )
+
+    assert sender._send("hello", chat=None, name="task") == REAL_ID
+    assert _events() == []
+
+
+def test_a_handshake_refused_with_429_is_the_rate_limit(make_sender):
+    sender = make_sender()
+    page = _ready_page(sender)
+
+    def refuse() -> None:
+        page.emit_response(
+            HANDSHAKE + "f/conversation/prepare", status=429, method="POST"
+        )
+
+    page.set_locator(cc.BrowserSender.SEND_BUTTONS[0], raises={"click": refuse})
+
+    with pytest.raises(cc.TransportError, match="429 on f/conversation/prepare") as exc:
+        sender._send("hello", chat=None, name="task")
+    assert exc.value.status == 429
+    assert [e["kind"] for e in _events()] == ["handshake-refused"]
+
+
+def test_is_handshake_post_names_the_endpoint_and_nothing_else() -> None:
+    bs = cc.BrowserSender
+    assert bs.is_handshake_post("POST", HANDSHAKE + "conversation/init?x=1") == (
+        "/backend-api/conversation/init"
+    )
+    assert bs.is_handshake_post("POST", HANDSHAKE + "f/conversation/prepare") == (
+        "/backend-api/f/conversation/prepare"
+    )
+    assert bs.is_handshake_post("POST", HANDSHAKE + "f/conversation") == ""
+    assert bs.is_handshake_post("GET", HANDSHAKE + "conversation/init") == ""
+
+
 def test_a_missing_composer_records_an_event(make_sender):
     sender = make_sender()
     page = fp.Page()

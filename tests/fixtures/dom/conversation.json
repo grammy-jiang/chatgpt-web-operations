@@ -2,7 +2,7 @@
   "browser": "chrome",
   "composer": {
     "aria_label": "Ask ChatGPT",
-    "count": 1,
+    "count": 2,
     "found": true,
     "id": null,
     "in_form": true,
@@ -11,15 +11,20 @@
     ],
     "tag": "div"
   },
-  "recorded_at": "2026-09-27T14:33:39Z",
+  "recorded_at": "2026-10-01T03:48:13Z",
   "send_button": {
     "aria_label": null,
     "disabled": null,
     "found": false,
     "testid": null
   },
+  "surface": {
+    "buttons": 0,
+    "found": false,
+    "pressed": []
+  },
   "turns": {
-    "any": 1,
+    "any": 2,
     "articles": 0,
     "matched_any": [
       "[data-user-message-bubble=\"true\"]"
@@ -27,7 +32,7 @@
     "matched_user": [
       "[data-user-message-bubble=\"true\"]"
     ],
-    "user": 1
+    "user": 2
   },
   "url": "https://chatgpt.com/g/g-p-00000000000000000000000000000001-rp-test-sandbox/c/00000000-0000-4000-8000-000000000001"
 }

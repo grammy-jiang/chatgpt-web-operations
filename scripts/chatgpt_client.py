@@ -488,6 +488,28 @@ def transcript(conv: dict) -> list[dict]:
 # composer's own label (SKILL.md, "Reasoning effort"), so that path and its
 # cookie constant are gone.
 EFFORTS = ("min", "standard", "extended", "max")
+# The model an effort pin lands on when the page's own model cannot take one.
+# The page builds the body with the model its own picker holds; in the
+# dedicated browser window (2026-10-01) that was "gpt-5-6", the picker's
+# "Auto", and a body carrying ``thinking_effort: standard`` on it came back
+# with no effort at all. The account's thinking model (settings/user,
+# ``last_used_model_config.web``, the "Medium"/"High"/"Extra High" presets)
+# takes every level in EFFORTS. ``--model`` still wins when given.
+EFFORT_MODEL = "gpt-5-6-thinking"
+# The two body fields the page sets together when its picker holds a model
+# other than the account's default ("one-off override"). The server ignores
+# a ``thinking_effort`` on a body that carries ``one_off_model_override:
+# true`` (measured 2026-10-01, F-2026-10-01-31), so a pin removes both.
+ONE_OFF_FIELDS = ("requested_default_model", "one_off_model_override")
+
+
+def takes_effort(model: str) -> bool:
+    """Whether ``model`` is one the catalog lists with ``thinking_efforts``
+    (``model_settings.effort_levels_of``, 2026-10-01: the ``-thinking``,
+    ``-pro`` and ``-wm`` slugs); "gpt-5-6", "gpt-5-6-instant" and "auto"
+    are not."""
+    slug = (model or "").lower()
+    return any(mark in slug for mark in ("thinking", "-pro", "-wm"))
 
 
 # Requests the send page makes that a scripted send never needs. Blocking
@@ -540,13 +562,34 @@ def rewrite_send_body(
     for Deep research. Returns ``body`` itself, unchanged, when ``effort``,
     ``model``, ``search`` and ``hints`` are all blank/false/empty: nothing to
     rewrite, so nothing is copied.
+
+    An effort or model pin also drops the page's ``requested_default_model``
+    and ``one_off_model_override`` (``ONE_OFF_FIELDS``). The page sets the
+    two together when its picker holds a model other than the account's
+    default -- the "Instant" position a fresh dedicated profile starts on
+    builds ``model: "gpt-5-6"``, ``requested_default_model:
+    "gpt-5-6-thinking"``, ``one_off_model_override: true`` and no
+    ``thinking_effort`` at all. Measured 2026-10-01 through the dedicated
+    window (F-2026-10-01-31): the same body with ``thinking_effort``
+    pinned came back with no effort recorded while the two fields were on
+    it, and with the pinned level once they were not. A search or a hint
+    alone leaves them, because the page's own model is then what is sent.
     """
     hint_list = list(hints)
     if not effort and not model and not search and not hint_list:
         return body
     out = dict(body)
+    if effort or model:
+        for field in ONE_OFF_FIELDS:
+            out.pop(field, None)
     if effort:
         out["thinking_effort"] = effort
+        # An effort on a model that takes none is dropped by the server
+        # (2026-10-01: "standard" on the window's "gpt-5-6" came back with
+        # no effort recorded), so the pin moves the model too unless the
+        # caller named one.
+        if not model and not takes_effort(str(out.get("model") or "")):
+            out["model"] = EFFORT_MODEL
     if model:
         out["model"] = model
     if search or hint_list:
@@ -634,12 +677,107 @@ BROWSER_WAIT_SECONDS = float(os.environ.get("RP_BROWSER_WAIT_SECONDS", "900"))
 # generous: it covers a full resolve_new_conversation timeout plus a send.
 NEW_CHAT_WAIT_SECONDS = float(os.environ.get("RP_NEW_CHAT_WAIT_SECONDS", "600"))
 SLOT_DIR = Path(os.environ.get("RP_BROWSER_SLOT_DIR", "/tmp/rp-browser-slots"))
-# One Chrome profile shared by every send, so the app bundle is fetched
-# once instead of once per send. Safe to share because MAX_BROWSERS is a
-# cross-process lock: two windows never exist at the same moment. Set
-# RP_BROWSER_PROFILE to an empty string to go back to a fresh profile.
-_profile = os.environ.get("RP_BROWSER_PROFILE", "/tmp/rp-browser-profile")
-PROFILE_DIR = Path(_profile) if _profile else None
+# One Chrome profile per window by default: Playwright's temporary one,
+# thrown away with the window. RP_BROWSER_PROFILE=<dir> keeps a persistent
+# profile at <dir> instead, which saves the app bundle between windows
+# (measured: 505 kB and 420 responses for a fresh load, 144 kB and 354 cache
+# hits with a profile) and is safe to share because MAX_BROWSERS is a
+# cross-process lock. From 2026-09-20 to 2026-10-01 the default was the
+# shared /tmp/rp-browser-profile. It met Cloudflare's "Verify you are human"
+# page on every open from 2026-09-29 while fresh profiles did not
+# (F-2026-10-01-21), and a profile left on the Work surface opened there on
+# 2026-09-30 (F-2026-10-01-20): state in a shared profile outlives the window
+# that caused it, and a fresh profile carries none. The bundle is the price
+# (F-2026-10-01-26).
+
+
+def profile_dir_from(value: str | None) -> Path | None:
+    """``RP_BROWSER_PROFILE`` as a directory, or None for a fresh profile
+    per window (unset or empty)."""
+    return Path(value) if value else None
+
+
+PROFILE_DIR = profile_dir_from(os.environ.get("RP_BROWSER_PROFILE"))
+
+# The dedicated browser (2026-10-01): a Chrome the owner launches with its own
+# profile and a debugging port on 127.0.0.1, logs in to once by hand, and
+# keeps alive (scripts/dedicated_browser.py, its systemd user unit). A send
+# attaches to it over CDP and drives one tab there (its own, kept across
+# sends, by default: RP_BROWSER_TAB below), so the browser Cloudflare sees is
+# a normally launched one carrying a human's login, not a Playwright-launched
+# window: measured 2026-10-01 11:43, every handshake 200 and the reply in
+# 10 s, while the scripted window had every handshake refused the same hour.
+# Only what needs a browser goes this way -- a send, Deep research's start,
+# the browser diagnostics; every read and every other write stays HTTP.
+# RP_BROWSER_CDP: unset or "auto" attaches when the dedicated browser answers
+# and uses the scripted window otherwise; "off" never attaches; a URL names
+# another debugging endpoint.
+DEDICATED_PORT = int(os.environ.get("RP_DEDICATED_PORT", "9222"))
+DEDICATED_URL = f"http://127.0.0.1:{DEDICATED_PORT}"
+DEDICATED_PROFILE_DIR = Path(
+    os.environ.get("RP_DEDICATED_PROFILE_DIR")
+    or "~/.local/share/chatgpt-web-operations/chrome"
+).expanduser()
+CDP_MODE = os.environ.get("RP_BROWSER_CDP", "").strip() or "auto"
+# RP_BROWSER_TAB: which tab of the dedicated window a send drives (the
+# owner's question of 2026-10-01 evening, "why can't you specify which tab").
+# "own", the default since then, keeps one tab of the skill's own across
+# sends -- remembered by its target id in tab_file(), made when missing,
+# never closed at the end -- so no tab is opened and closed per send and the
+# owner's own tab is never touched. "url:<prefix>" drives the first existing
+# tab whose address starts with the prefix (the owner's chatgpt.com tab for
+# "url:https://chatgpt.com/") and falls back to the own tab when none does.
+# "new" opens a tab per window and closes it at the end (the behaviour of
+# 2026-10-01 daytime). A kept tab is held under tab_lock() while in use; a
+# second window finding it held opens a tab of its own and closes it
+# afterwards, so two sends never share one tab.
+TAB_MODE = os.environ.get("RP_BROWSER_TAB", "").strip() or "own"
+
+
+def tab_mode_parts(mode: str | None = None) -> tuple[str, str]:
+    """``("own", "")``, ``("new", "")`` or ``("url", "<prefix>")`` from
+    ``RP_BROWSER_TAB`` (``TAB_MODE`` by default); anything unknown, and a
+    bare ``url:``, read as "own"."""
+    chosen = (TAB_MODE if mode is None else mode).strip()
+    if chosen.lower() == "new":
+        return "new", ""
+    if chosen.lower().startswith("url:") and chosen[4:].strip():
+        return "url", chosen[4:].strip()
+    return "own", ""
+
+
+def dedicated_browser_version(
+    url: str = DEDICATED_URL, timeout: float = 3.0
+) -> dict[str, Any] | None:
+    """``GET <url>/json/version`` of a Chrome debugging endpoint on this
+    machine (``Browser``, ``User-Agent``, ...), or None when nothing answers
+    there. Local only; never a credential."""
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(
+            f"{url.rstrip('/')}/json/version", timeout=timeout
+        ) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def cdp_endpoint(mode: str | None = None, probe: Any = None) -> str:
+    """The debugging endpoint a send attaches to, or "" for the scripted
+    window. ``mode`` defaults to ``CDP_MODE``: "off" never attaches, "auto"
+    attaches when ``probe`` (default ``dedicated_browser_version``) finds
+    the dedicated browser at ``DEDICATED_URL``, anything else is a URL."""
+    chosen = (CDP_MODE if mode is None else mode).strip()
+    if chosen.lower() == "off":
+        return ""
+    if chosen.lower() == "auto":
+        check = dedicated_browser_version if probe is None else probe
+        return DEDICATED_URL if check(DEDICATED_URL) else ""
+    return chosen
+
+
 DISK_CACHE_BYTES = int(os.environ.get("RP_DISK_CACHE_BYTES", str(256 * 1024**2)))
 PAGE_LOAD_MS = int(os.environ.get("RP_PAGE_LOAD_MS", "150000"))
 # Playwright launches Chrome with its own temporary profile. Matching on that
@@ -679,7 +817,7 @@ def scripted_markers() -> tuple[str, ...]:
     """Argument substrings that mark a browser process as ours: Playwright's
     temporary profile path (``PW_MARKER``) and, when a shared profile is
     configured, its ``--user-data-dir``. The second was missing until
-    2026-09-28: the shared-profile window a send uses by default carried no
+    2026-09-28: the shared-profile window a send used by default then carried no
     "playwright" in its arguments, so it was invisible to preflight's
     in-flight check and to the sender's own lifetime watchdog, whose kill
     set is ``_own_pids & scripted_browser_pids()``."""
@@ -727,6 +865,10 @@ def xvfb_pids() -> set[int]:
 def _process_argvs() -> Generator[tuple[int, list[str]]]:
     """``(pid, argv)`` for every process ``/proc`` shows; one that ends
     while we look is skipped."""
+    if sys.platform == "darwin":
+        # This macOS port must attach to the owner-controlled Chrome CDP.
+        # It must never enumerate or terminate the owner's Chrome processes.
+        return
     for entry in Path("/proc").iterdir():
         if not entry.name.isdigit():
             continue
@@ -1591,7 +1733,8 @@ def chat_load_backoff_ms(retry: int) -> int:
 # "Attach photos" and "Attach photos or videos"; only the first carries no
 # image accept filter). The busy indicators an upload shows while the
 # backend's process_upload_stream runs. The dialogs Escape may clear. The
-# Chat/Work surface toggle, left alone when absent. Every selector the client
+# Chat/Work surface toggle and Cloudflare's challenge page, below. Every
+# selector the client
 # hands to Playwright is one of these named constants (tests/test_dom_coverage.py
 # refuses a bare literal), so tier R can prove each one against a recorded
 # page or a reason has to be written down for why it cannot.
@@ -1601,7 +1744,99 @@ UPLOAD_BUSY_SELECTOR = (
     '[aria-label*="Uploading" i], [aria-busy="true"], [role="progressbar"]'
 )
 DIALOG_SELECTOR = '[role="dialog"], [role="alertdialog"]'
+# The Chat/Work surface toggle. A send belongs to the Chat surface: Work is
+# the Codex-style "tpp" surface (its chats list under
+# conversations?conversation_origin=tpp, its models are the "-wm" slugs), and
+# a message submitted there never posts through f/conversation. Until
+# 2026-09-27 the toggle was a radio group ("Chat"/"Work"); since 2026-10-01 it
+# is a group of aria-pressed buttons, and the composer itself says which
+# surface it is on: aria-label "Ask ChatGPT" on Chat, "Work with ChatGPT" on
+# Work. A profile last left on Work opens there (the shared profile did on
+# 2026-09-30: every send typed its text and none posted), so every path that
+# loads a composer presses Chat first (BrowserSender._ensure_chat_surface).
 CHAT_SURFACE_RADIO_RE = re.compile(r"^Chat$", re.I)
+# How long find_composer waits for a chat page's second, transient composer
+# to go before it settles for the visible one.
+COMPOSER_SETTLE_SECONDS = float(os.environ.get("RP_COMPOSER_SETTLE_SECONDS", "10"))
+# One more wait when the composer is in the page but not yet visible after
+# the first wait (F-2026-10-06-1): six of the eight "logged-in page without a
+# composer" refusals of 2026-10-03/04 were pages whose facts counted one
+# composer -- a slow render under host load (load 10 on 4 cores, Chrome at
+# 8.7 GB), each of which started a 30-minute cool-down for nothing.
+COMPOSER_SLOW_SECONDS = float(os.environ.get("RP_COMPOSER_SLOW_SECONDS", "30"))
+SURFACE_GROUP_SELECTOR = '[role="group"][aria-label="Composer mode"]'
+SURFACE_PRESSED_SELECTOR = f'{SURFACE_GROUP_SELECTOR} button[aria-pressed="true"]'
+SURFACE_UNPRESSED_SELECTOR = f'{SURFACE_GROUP_SELECTOR} button[aria-pressed="false"]'
+WORK_COMPOSER_LABEL_RE = re.compile(r"^Work with ChatGPT$", re.I)
+# Cloudflare's Turnstile interstitial ("Verify you are human"): its widget
+# iframe and its notice. The scripted window met it on its shared profile
+# from 2026-09-29 to 2026-10-01 while a fresh profile (RP_BROWSER_PROFILE=)
+# and the user's own Chrome passed. A composer that never appears names it
+# (find_composer), so the report says which it was; nothing here interacts
+# with the challenge, and nothing ever will (SKILL.md, "The transport split").
+CHALLENGE_SELECTOR = 'iframe[src*="challenges.cloudflare.com"]'
+CHALLENGE_TEXT_RE = re.compile(r"verify you are human", re.I)
+CHALLENGE_REASON = "Cloudflare's 'Verify you are human' challenge is on the page"
+# A page that is logged in -- its sidebar lists conversations -- but whose
+# composer never renders is the third shape of the same refusal (2026-10-01
+# 10:33, a fresh profile on the project page): the HTML and bundle loaded,
+# every API request the page made was refused, so the project and its
+# composer never came. The sidebar links are the one logged-in sign a
+# recording cannot keep (href is dropped), so this selector is excused from
+# tier R by name.
+LOGGED_IN_SELECTOR = 'a[href^="/c/"]'
+# Page facts a snapshot records beyond the composer, so a page that changed
+# is named as such instead of "logged out or challenged" (the owner's ask of
+# 2026-10-01 evening, after three mornings of that line). Attributes only.
+ATTACH_MENU_SELECTOR = (
+    'button[aria-label="Add files and more"], button[data-testid="composer-plus-btn"]'
+)
+PICKER_SELECTOR = (
+    'button[aria-label="Select ChatGPT model"], '
+    'button[data-testid="model-switcher-dropdown-button"]'
+)
+# A logged-out page's way in. Best effort: no logged-out page is recorded, so
+# the selector is the login route's own path and the welcome buttons' ids.
+LOGIN_SELECTOR = (
+    'a[href^="/auth/login"], button[data-testid="login-button"], '
+    'button[data-testid="welcome-login-button"]'
+)
+REFUSED_REASON = (
+    "the page is logged in (its sidebar lists conversations) but the composer "
+    "never rendered; the page's own requests are being refused"
+)
+# The composer is in the page (page_snapshot counted it) but never became
+# visible: the page or the host is slow. Not a refusal, so no cool-down.
+SLOW_RENDER_REASON = (
+    "the composer is in the page but did not become visible in time; the page "
+    "or the host is slow, not a refusal"
+)
+# The same symptom on an existing chat's page is that chat, not the window:
+# an unreadable or deleted conversation renders its sidebar and no composer.
+# Named apart so it never starts the cool-down (2026-10-01 13:38: a chat
+# page's composer missing was taken for a refusal and stopped every send for
+# half an hour).
+CHAT_PAGE_REASON = (
+    "the page is logged in but this chat's composer never rendered; the "
+    "conversation may be unreadable (read_chat.py tells)"
+)
+# A navigation that lands and is then sent back: the dedicated profile had
+# synced the owner's extensions after the Google login (2026-10-01), and a
+# duplicate-tab blocker among them bounced every new tab opened on an
+# address another tab already held -- the home page, where the owner's own
+# tab sits. Named apart so the report says what happened and no cool-down
+# starts (F-2026-10-01-32).
+BOUNCED_REASON = (
+    "the tab was sent back right after loading; another tab holds the same "
+    "address and an extension in this profile (a duplicate-tab blocker) "
+    "redirected it"
+)
+
+
+def page_on_chatgpt(url: str) -> bool:
+    """Whether ``url`` is a chatgpt.com page at all."""
+    return str(url).startswith("https://chatgpt.com/")
+
 
 # What the composer shows after an upload, read from its own DOM. Scoped to
 # the composer's <form> when one is found (SEND_BUTTONS shows the send
@@ -1671,8 +1906,44 @@ SNAPSHOT_JS = """
         scope.querySelector('form button[type="submit"]');
     const articles = all(['article[data-testid^="conversation-turn"]']);
     const turnRoots = articles.length ? articles : all(spec.user_turn);
+    const group = document.querySelector(spec.surface_group);
+    const groupButtons = group ? Array.from(group.querySelectorAll('button')) : [];
+    const composers = all(spec.composer);
+    const shown = (el) => {
+        const box = el.getBoundingClientRect();
+        return box.width > 0 && box.height > 0
+            && getComputedStyle(el).visibility !== 'hidden';
+    };
+    const visibleComposers = composers.filter(shown).length;
+    const fileInputs = Array.from(document.querySelectorAll('input[type="file"]'));
+    const accepts = fileInputs.map((i) => i.getAttribute('accept') || '').sort();
+    const removeChips = Array.from(document.querySelectorAll('button[aria-label]'))
+        .filter((b) => (b.getAttribute('aria-label') || '').startsWith('Remove '))
+        .length;
+    const title = document.title || '';
     return {
         url: location.href,
+        composers: {
+            total: composers.length,
+            visible: visibleComposers,
+            hidden: composers.length - visibleComposers,
+        },
+        uploads: {
+            inputs: fileInputs.length,
+            primary_found: Boolean(document.querySelector(spec.upload_primary)),
+            any_file: accepts.filter((a) => a === '').length,
+            accepts: accepts,
+        },
+        controls: {
+            attach_menu: Boolean(document.querySelector(spec.attach_menu)),
+            picker: Boolean(document.querySelector(spec.picker)),
+            remove_chips: removeChips,
+        },
+        page: {
+            title_kind: title ? (/chatgpt/i.test(title) ? 'chatgpt' : 'other') : null,
+            challenge: Boolean(document.querySelector(spec.challenge)),
+            login: Boolean(document.querySelector(spec.login)),
+        },
         composer: {
             found: Boolean(composer),
             count: all(spec.composer).length,
@@ -1696,9 +1967,15 @@ SNAPSHOT_JS = """
             matched_user: matched(spec.user_turn),
             matched_any: matched(spec.chat_turn),
         },
+        surface: {
+            found: Boolean(group),
+            buttons: groupButtons.length,
+            pressed: groupButtons.map((b) => b.getAttribute('aria-pressed')),
+        },
         html: {
             composer: form ? form.outerHTML : null,
             turns: turnRoots.map((el) => el.outerHTML),
+            surface: group ? group.outerHTML : null,
         },
     };
 }
@@ -1819,6 +2096,12 @@ class _SnapshotSanitizer(HTMLParser):
                 SNAPSHOT_KEEP_PREFIXES
             ):
                 text = "" if value is None else str(value)[:SNAPSHOT_VALUE_LIMIT]
+                if name == "class":
+                    # Tailwind container-query variants ("@max-xs/...:px-2.5",
+                    # on the Chat/Work toggle since 2026-10-01) carry an "@"
+                    # the fixture hygiene rule reads as an address, and no
+                    # selector of ours names such a token.
+                    text = " ".join(t for t in text.split() if not t.startswith("@"))
                 kept.append(f' {name}="{_html_escape(text, quote=True)}"')
         self.parts.append(f"<{tag}{''.join(kept)}>")
 
@@ -1862,9 +2145,11 @@ def page_snapshot(page: Any) -> dict[str, Any]:
     markup they were read from: ``composer`` (found, count, which of
     ``COMPOSER_SELECTORS`` matched, tag, id, aria-label, in_form),
     ``send_button`` (found, testid, aria_label, disabled), ``turns`` (user,
-    any, articles, and which alternatives matched), ``url`` and ``html``
-    (``composer``: the composer's form; ``turns``: one string per turn),
-    every string already through ``sanitize_html``. Whatever the page
+    any, articles, and which alternatives matched), ``surface`` (the
+    Chat/Work toggle group: found, its button count, each button's
+    aria-pressed), ``url`` and ``html`` (``composer``: the composer's form;
+    ``turns``: one string per turn; ``surface``: the toggle group), every
+    string already through ``sanitize_html``. Whatever the page
     returned that is not a dict becomes an empty group, never an error:
     a snapshot is evidence, and evidence that cannot be gathered is an
     empty record, not a failed check."""
@@ -1872,6 +2157,12 @@ def page_snapshot(page: Any) -> dict[str, Any]:
         "composer": list(COMPOSER_SELECTORS),
         "user_turn": list(USER_TURN_SELECTORS),
         "chat_turn": list(CHAT_TURN_SELECTORS),
+        "surface_group": SURFACE_GROUP_SELECTOR,
+        "upload_primary": UPLOAD_INPUT_SELECTOR,
+        "attach_menu": ATTACH_MENU_SELECTOR,
+        "picker": PICKER_SELECTOR,
+        "challenge": CHALLENGE_SELECTOR,
+        "login": LOGIN_SELECTOR,
     }
     raw = page.evaluate(SNAPSHOT_JS, spec)
     facts: dict[str, Any] = dict(raw) if isinstance(raw, dict) else {}
@@ -1880,6 +2171,7 @@ def page_snapshot(page: Any) -> dict[str, Any]:
     )
     composer_html = markup.get("composer")
     turns_html = markup.get("turns")
+    surface_html = markup.get("surface")
     facts["html"] = {
         "composer": sanitize_html(composer_html)
         if isinstance(composer_html, str)
@@ -1889,24 +2181,113 @@ def page_snapshot(page: Any) -> dict[str, Any]:
             for turn in (turns_html if isinstance(turns_html, list) else [])
             if isinstance(turn, str)
         ],
+        "surface": sanitize_html(surface_html) if isinstance(surface_html, str) else "",
     }
-    for group in ("composer", "send_button", "turns"):
+    for group in SNAPSHOT_GROUPS:
         if not isinstance(facts.get(group), dict):
             facts[group] = {}
     facts.setdefault("url", str(getattr(page, "url", "")))
     return facts
 
 
+# The fact groups a snapshot carries (every one a dict, empty when the page
+# did not answer). The last four arrived on 2026-10-01 evening.
+SNAPSHOT_GROUPS = (
+    "composer",
+    "send_button",
+    "turns",
+    "surface",
+    "composers",
+    "uploads",
+    "controls",
+    "page",
+)
+
+
+def page_facts_compact(facts: dict[str, Any]) -> dict[str, Any]:
+    """The few page facts worth an event or a line of a mail: whether the
+    challenge widget or a login route is on the page, how many composers
+    the selector matches and how many of them are hidden, whether the
+    Chat/Work toggle, the attach menu and the model picker are there, and
+    what kind of title the page has. Empty when ``facts`` has none of it
+    (a page that did not answer the snapshot script)."""
+    page = facts.get("page") if isinstance(facts.get("page"), dict) else {}
+    composers = (
+        facts.get("composers") if isinstance(facts.get("composers"), dict) else {}
+    )
+    surface = facts.get("surface") if isinstance(facts.get("surface"), dict) else {}
+    controls = facts.get("controls") if isinstance(facts.get("controls"), dict) else {}
+    if not page and not composers and not surface and not controls:
+        return {}
+    return {
+        "challenge": bool(page.get("challenge")),
+        "login": bool(page.get("login")),
+        "composers": int(composers.get("total") or 0),
+        "hidden": int(composers.get("hidden") or 0),
+        "toggle": bool(surface.get("found")),
+        "attach_menu": bool(controls.get("attach_menu")),
+        "picker": bool(controls.get("picker")),
+        "title": page.get("title_kind"),
+    }
+
+
+def page_facts_summary(facts: dict[str, Any]) -> str:
+    """``page_facts_compact`` as one short phrase for a message, or ""."""
+    compact = page_facts_compact(facts)
+    if not compact:
+        return ""
+    yes_no = lambda flag: "yes" if flag else "no"  # noqa: E731
+    return (
+        f"page: challenge={yes_no(compact['challenge'])}, "
+        f"login={yes_no(compact['login'])}, "
+        f"composers={compact['composers']} ({compact['hidden']} hidden), "
+        f"toggle={yes_no(compact['toggle'])}, "
+        f"attach-menu={yes_no(compact['attach_menu'])}, "
+        f"picker={yes_no(compact['picker'])}, "
+        f"title={compact['title'] or '-'}"
+    )
+
+
+def page_facts_quietly(page: Any) -> dict[str, Any]:
+    """``page_snapshot`` for a message or an event: {} when the page gave
+    none. Never raises: it decorates an error, it does not replace it."""
+    try:
+        return page_snapshot(page)
+    except Exception:
+        return {}
+
+
+def page_facts_for_message(facts: dict[str, Any]) -> str:
+    """`` [page: ...]`` to append to a composer-missing message, or ""."""
+    summary = page_facts_summary(facts)
+    return f" [{summary}]" if summary else ""
+
+
+def composer_in_page_but_slow(facts: dict[str, Any]) -> bool:
+    """Whether the facts describe a page that holds a composer the wait did
+    not see: at least one composer counted, no challenge widget, no login
+    route. That page is slow, not refusing (F-2026-10-06-1)."""
+    compact = page_facts_compact(facts)
+    return bool(
+        compact
+        and compact["composers"] >= 1
+        and not compact["challenge"]
+        and not compact["login"]
+    )
+
+
 def snapshot_document(facts: dict[str, Any]) -> str:
-    """The one HTML file a replay loads for a snapshot: the sanitized turns
-    and the composer's form inside a minimal document that carries no text
-    node at all (``tests/test_fixture_hygiene.py`` checks that)."""
+    """The one HTML file a replay loads for a snapshot: the sanitized turns,
+    the Chat/Work toggle group and the composer's form inside a minimal
+    document that carries no text node at all
+    (``tests/test_fixture_hygiene.py`` checks that)."""
     markup: dict[str, Any] = (
         facts["html"] if isinstance(facts.get("html"), dict) else {}
     )
     turns = [turn for turn in markup.get("turns") or [] if isinstance(turn, str)]
+    surface = str(markup.get("surface") or "")
     composer = str(markup.get("composer") or "")
-    body = "\n".join([*turns, composer]).strip()
+    body = "\n".join(part for part in (*turns, surface, composer) if part).strip()
     return (
         "<!doctype html>\n"
         '<html><head><meta charset="utf-8">'
@@ -1925,10 +2306,29 @@ SNAPSHOT_DRIFT_KEYS = (
     ("composer", "matched"),
     ("composer", "tag"),
     ("composer", "id"),
+    ("composer", "aria_label"),  # "Ask ChatGPT"; "Work with ChatGPT" is Work
     ("composer", "in_form"),
     ("send_button", "found"),
     ("send_button", "testid"),
     ("send_button", "aria_label"),
+    ("surface", "found"),  # the Chat/Work toggle group (since 2026-10-01)
+    # Since 2026-10-01 evening: the facts that changed on the page that day
+    # without any selector above noticing (a hidden second composer, the
+    # upload input renamed, the controls beside the composer), and the two
+    # that say what a page without a composer is instead.
+    ("composers", "visible"),
+    ("composers", "hidden"),
+    ("uploads", "inputs"),
+    ("uploads", "primary_found"),
+    ("uploads", "any_file"),
+    ("controls", "attach_menu"),
+    # not ("controls", "picker"): the home page's composer carried the model
+    # picker at 23:13 on 2026-10-01 and not at 00:02 the next morning, with
+    # nothing else changed -- a layout the page chooses, not a change to
+    # follow; the fact is still recorded, just not compared.
+    ("controls", "remove_chips"),
+    ("page", "challenge"),
+    ("page", "login"),
 )
 
 
@@ -1936,7 +2336,9 @@ def snapshot_drift(recorded: dict[str, Any], fixture: dict[str, Any]) -> list[st
     """The names (``group.key``) of the ``SNAPSHOT_DRIFT_KEYS`` facts that
     differ between ``recorded`` (a fresh ``page_snapshot``) and ``fixture``
     (the committed one). Empty means the page still looks the way the
-    selectors were last proven against."""
+    selectors were last proven against. A fact the fixture never recorded
+    (one added to the keys after the fixture was promoted) is not drift --
+    ``snapshot_unproven`` names those, and a re-recording promotes them."""
     drift: list[str] = []
     for group, key in SNAPSHOT_DRIFT_KEYS:
         mine: dict[str, Any] = (
@@ -1945,25 +2347,168 @@ def snapshot_drift(recorded: dict[str, Any], fixture: dict[str, Any]) -> list[st
         theirs: dict[str, Any] = (
             fixture[group] if isinstance(fixture.get(group), dict) else {}
         )
+        if key not in theirs:
+            continue
         if mine.get(key) != theirs.get(key):
             drift.append(f"{group}.{key}")
     return drift
 
 
+def snapshot_unproven(fixture: dict[str, Any]) -> list[str]:
+    """The ``SNAPSHOT_DRIFT_KEYS`` facts ``fixture`` does not carry: compared
+    by nobody until the page is re-recorded and promoted."""
+    missing: list[str] = []
+    for group, key in SNAPSHOT_DRIFT_KEYS:
+        theirs = fixture.get(group) if isinstance(fixture.get(group), dict) else {}
+        if key not in theirs:
+            missing.append(f"{group}.{key}")
+    return missing
+
+
+def challenge_page(page: Any) -> bool:
+    """Whether ``page`` shows Cloudflare's Turnstile interstitial instead of
+    ChatGPT: its widget iframe (``CHALLENGE_SELECTOR``) or its notice
+    (``CHALLENGE_TEXT_RE``). Read-only: nothing here touches the challenge,
+    and a page that cannot be read is simply not one."""
+    with contextlib.suppress(Exception):
+        if page.locator(CHALLENGE_SELECTOR).count():
+            return True
+    with contextlib.suppress(Exception):
+        if page.get_by_text(CHALLENGE_TEXT_RE).count():
+            return True
+    return False
+
+
+def page_logged_in(page: Any) -> bool:
+    """Whether ``page`` shows a logged-in sidebar (``LOGGED_IN_SELECTOR``).
+    Read-only; a page that cannot be read is not one."""
+    with contextlib.suppress(Exception):
+        return page.locator(LOGGED_IN_SELECTOR).count() > 0
+    return False
+
+
 def find_composer(page: Any, timeout_ms: int = 60_000) -> Any:
     """Wait for the composer on ``page`` and return its locator. When it
-    never appears, raise the same ``TransportError`` a send raises ("logged
-    out or challenged"); the sender adds its screenshot around this."""
+    never appears, raise the same ``TransportError`` a send raises: naming
+    Cloudflare's challenge when that is what the page shows
+    (``CHALLENGE_REASON``; the browser profile is what is challenged, and a
+    fresh one, ``RP_BROWSER_PROFILE=``, passed on 2026-10-01 while the
+    shared one did not), else "logged out or challenged". The sender adds
+    its screenshot around this."""
     from playwright.sync_api import TimeoutError as PWTimeout
 
     composer = page.locator(COMPOSER_SELECTOR)
+    # A chat page keeps the home page's composer in the DOM, hidden, ahead
+    # of the thread's own for a while (2026-10-01, through the dedicated
+    # window: "strict mode violation ... resolved to 2 elements"; waiting on
+    # the first match then waited on the hidden one for 60 s). So the wait
+    # is on the first *visible* match, whichever that is.
+    visible = composer.filter(visible=True)
     try:
-        composer.wait_for(state="visible", timeout=timeout_ms)
+        visible.first.wait_for(state="visible", timeout=timeout_ms)
     except PWTimeout:
-        raise TransportError(
-            f"composer did not appear at {page.url} (logged out or challenged)"
-        ) from None
+        if not page_on_chatgpt(str(page.url)):
+            raise TransportError(
+                f"composer did not appear: the tab is on {str(page.url)!r}, not on "
+                f"chatgpt.com; {BOUNCED_REASON}"
+            ) from None
+        # What the page is instead, in the message itself: the challenge
+        # widget, a login route, how many composers (hidden ones included),
+        # the toggle and the controls (page_facts_summary). Three mornings
+        # of "logged out or challenged" (2026-09-29 to 10-01) said none of it.
+        page_facts = page_facts_quietly(page)
+        facts = page_facts_for_message(page_facts)
+        if challenge_page(page):
+            raise TransportError(
+                f"composer did not appear at {page.url}: {CHALLENGE_REASON}; the "
+                f"browser profile is what is challenged, not the account{facts}"
+            ) from None
+        if composer_in_page_but_slow(page_facts):
+            # The page holds a composer the wait did not see: give it
+            # COMPOSER_SLOW_SECONDS more, and name a slow render -- never a
+            # refusal -- when that is not enough either (F-2026-10-06-1).
+            try:
+                visible.first.wait_for(
+                    state="visible", timeout=int(COMPOSER_SLOW_SECONDS * 1000)
+                )
+            except PWTimeout:
+                waited = timeout_ms / 1000 + COMPOSER_SLOW_SECONDS
+                raise TransportError(
+                    f"composer did not appear at {page.url}: {SLOW_RENDER_REASON} "
+                    f"({waited:.0f} s){facts}"
+                ) from None
+        elif page_logged_in(page):
+            if "/c/" in str(page.url):
+                raise TransportError(
+                    f"composer did not appear at {page.url}: {CHAT_PAGE_REASON}{facts}"
+                ) from None
+            raise TransportError(
+                f"composer did not appear at {page.url}: {REFUSED_REASON} "
+                f"(references/failure-atlas.md, F-2026-10-01-23){facts}"
+            ) from None
+        else:
+            raise TransportError(
+                f"composer did not appear at {page.url} (logged out or "
+                f"challenged){facts}"
+            ) from None
+    # The strict locators a send fills and clicks need exactly one match.
+    # Give the hidden extra one a moment to go; if it stays, drive the
+    # visible one.
+    deadline = time.monotonic() + COMPOSER_SETTLE_SECONDS
+    while composer.count() > 1 and time.monotonic() < deadline:
+        page.wait_for_timeout(250)
+    if composer.count() > 1:
+        return visible if visible.count() == 1 else visible.first
     return composer
+
+
+def _composer_label(composer: Any) -> str:
+    """The composer's aria-label, or "" when it cannot be read."""
+    with contextlib.suppress(Exception):
+        return str(composer.first.get_attribute("aria-label") or "")
+    return ""
+
+
+def ensure_chat_surface(page: Any, composer: Any) -> str:
+    """Put ``page`` on the Chat surface, where a send posts through
+    ``f/conversation``: return ``"chat"`` when it already is there (or has
+    no toggle at all, like an existing chat's page), ``"switched"`` when
+    Chat had to be pressed, and raise ``TransportError`` naming the Work
+    surface when it could not be.
+
+    Which surface the page is on is read from the composer's own label
+    (``WORK_COMPOSER_LABEL_RE``). On Work the toggle's other button
+    (``SURFACE_UNPRESSED_SELECTOR``, the group of 2026-10-01) is pressed and
+    the label is read again for up to ten seconds. The radio of 2026-09-27
+    (``CHAT_SURFACE_RADIO_RE``), when present and unchecked, is pressed as
+    before. Module-level like ``find_composer``, so ``tests/replay`` can run
+    it on a recorded page; ``BrowserSender`` adds the event and the
+    screenshot around it (on 2026-09-30 every send on the shared profile
+    typed its text on Work and reported "not posted").
+    """
+    label = _composer_label(composer)
+    if not WORK_COMPOSER_LABEL_RE.match(label):
+        chat_toggle = page.get_by_role("radio", name=CHAT_SURFACE_RADIO_RE)
+        if chat_toggle.count() and chat_toggle.first.is_visible():
+            state = chat_toggle.first.get_attribute("aria-checked") or ""
+            if state != "true":
+                chat_toggle.first.click(timeout=3_000)
+                page.wait_for_timeout(500)
+                return "switched"
+        return "chat"
+    other = page.locator(SURFACE_UNPRESSED_SELECTOR)
+    if other.count() and other.first.is_visible():
+        other.first.click(timeout=3_000)
+        for _ in range(20):
+            page.wait_for_timeout(500)
+            label = _composer_label(composer)
+            if not WORK_COMPOSER_LABEL_RE.match(label):
+                return "switched"
+    raise TransportError(
+        f"the composer at {page.url} is on the Work surface ({label!r}) and the "
+        "Chat/Work toggle did not switch it back; a message typed there never "
+        "posts through f/conversation"
+    )
 
 
 def chat_load_failure(page: Any) -> str:
@@ -2015,11 +2560,16 @@ def text_taken(expected: str, actual: str) -> bool:
 STATE_DIR = Path("~/.local/state/chatgpt-web-operations").expanduser()
 EVENT_KINDS = (
     "composer-missing",  # the composer never appeared: logged out or challenged
+    "navigation-bounced",  # the tab was sent off chatgpt.com right after loading
+    "challenge-page",  # the composer never appeared: Cloudflare's challenge was up
+    "surface-switched",  # the page opened on the Work surface; Chat was pressed
+    "work-surface",  # the page stayed on the Work surface; the send was abandoned
     "composer-blocked",  # a modal covered it and Escape did not clear it politely
     "chat-load-failed",  # "Could not load this ChatGPT conversation", retries spent
     "fill-fallback",  # fill() was not read back; retyped through the keyboard
     "text-not-taken",  # the retype did not take either; the send was abandoned
     "not-posted",  # submitted, but nothing shows it reached ChatGPT (post_evidence)
+    "handshake-refused",  # the send handshake was refused and no message POST followed
     "post-unseen",  # posted (request or URL), but no new user turn was counted
     "posted-no-id",  # posted, but the new chat's /c/<id> never showed; resolved later
     "send-error",  # any other browser failure on the send path
@@ -2040,6 +2590,150 @@ def default_screenshot_dir() -> Path:
     return Path(
         os.environ.get("RP_SCREENSHOT_DIR") or STATE_DIR / "screenshots"
     ).expanduser()
+
+
+# After Cloudflare refuses a scripted window -- its challenge page
+# (challenge-page), a send handshake answered 4xx/5xx (handshake-refused), or
+# a logged-in page whose composer never renders (composer-missing with
+# logged_in) -- no scripted window is opened for RP_BROWSER_COOLDOWN_SECONDS
+# (default 1800; 0 disables). Measured 2026-10-01: seven windows in forty
+# minutes went from GO to 403 on every handshake, and binnacle-jobs retried
+# eleven times on 2026-09-30 into the same wall. The last refusal is one JSON
+# record, RP_REFUSAL_FILE or <state>/browser-refusal.json; preflight's host
+# group reports the cool-down, and BrowserSender refuses to open during it
+# with the time it ends (F-2026-10-01-26). This is politeness, not a solver:
+# the window is not opened at all, and nothing about it changes.
+COOLDOWN_SECONDS = float(os.environ.get("RP_BROWSER_COOLDOWN_SECONDS", "1800"))
+
+
+def refusal_file() -> Path:
+    """Where the last refusal is kept: ``RP_REFUSAL_FILE`` or the default."""
+    return Path(
+        os.environ.get("RP_REFUSAL_FILE") or STATE_DIR / "browser-refusal.json"
+    ).expanduser()
+
+
+def tab_file() -> Path:
+    """Where the skill's own tab in the dedicated window is remembered
+    (``RP_TAB_FILE`` or the default): its CDP target id and last address.
+    Its ``.lock`` sibling is the advisory lock a window holds on the kept
+    tab while driving it (``tab_lock``)."""
+    return Path(
+        os.environ.get("RP_TAB_FILE") or STATE_DIR / "dedicated-tab.json"
+    ).expanduser()
+
+
+def tab_record() -> dict[str, Any]:
+    """The remembered own tab (``target_id``, ``url``, ``since``), or {};
+    never raises."""
+    try:
+        data = json.loads(tab_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def remember_tab(target_id: str, url: str) -> None:
+    """Write the own tab's target id and address; never raises."""
+    path = tab_file()
+    with contextlib.suppress(OSError):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"target_id": target_id, "url": url, "since": time.time()}),
+            encoding="utf-8",
+        )
+
+
+@contextlib.contextmanager
+def tab_lock() -> Generator[bool, None, None]:
+    """Hold the kept tab's advisory lock for the window: yields True holding
+    it, False -- holding nothing -- when another process has it or the lock
+    file cannot be made. Released when the ``with`` block ends."""
+    import fcntl
+
+    path = tab_file().with_suffix(".lock")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(path, "a+")  # noqa: SIM115  # held for the window
+    except OSError:
+        yield False
+        return
+    try:
+        try:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            yield False
+            return
+        yield True
+    finally:
+        with contextlib.suppress(OSError):
+            fcntl.flock(handle, fcntl.LOCK_UN)
+        handle.close()
+
+
+def page_target_id(ctx: Any, page: Any) -> str:
+    """A tab's CDP target id, read through a short-lived session, or ""."""
+    try:
+        session = ctx.new_cdp_session(page)
+        info = session.send("Target.getTargetInfo")
+        target = str((info.get("targetInfo") or {}).get("targetId") or "")
+        with contextlib.suppress(Exception):
+            session.detach()
+        return target
+    except Exception:
+        return ""
+
+
+def note_refusal(kind: str, url: str, detail: str) -> str:
+    """Record that Cloudflare refused a scripted window just now (``kind``
+    is the event kind). Never raises; returns the path written, or ""."""
+    now = time.time()
+    record = {
+        "at": now,
+        "at_iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now)),
+        "kind": kind,
+        "url": url,
+        "detail": detail[:300],
+    }
+    path = refusal_file()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    except OSError as exc:
+        logger.warning("refusal could not be recorded at %s: %s", path, exc)
+        return ""
+    return str(path)
+
+
+def cooldown_remaining(now: float | None = None) -> tuple[float, dict[str, Any]]:
+    """Seconds left of the cool-down after the last refusal, and that
+    record; ``(0.0, {})`` when none applies: no record, an unreadable one,
+    an expired one, or ``COOLDOWN_SECONDS`` at 0."""
+    if COOLDOWN_SECONDS <= 0:
+        return 0.0, {}
+    try:
+        record = json.loads(refusal_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0.0, {}
+    if not isinstance(record, dict) or not isinstance(record.get("at"), (int, float)):
+        return 0.0, {}
+    left = (
+        float(record["at"]) + COOLDOWN_SECONDS - (time.time() if now is None else now)
+    )
+    return (left, record) if left > 0 else (0.0, {})
+
+
+def cooldown_message(left: float, record: dict[str, Any]) -> str:
+    """The one line a refused window opening reports."""
+    at = time.strftime("%H:%M:%S", time.localtime(float(record.get("at", 0))))
+    until = time.strftime(
+        "%H:%M:%S", time.localtime(float(record.get("at", 0)) + COOLDOWN_SECONDS)
+    )
+    return (
+        f"no scripted window: Cloudflare refused the last one at {at} "
+        f"({record.get('kind', 'refusal')}); the cool-down ends at {until} "
+        f"({left:.0f} s left); RP_BROWSER_COOLDOWN_SECONDS=0 overrides"
+    )
 
 
 def record_event(kind: str, **fields: Any) -> str:
@@ -2124,6 +2818,18 @@ class BrowserSender:
     UPLOAD_QUIET_MS = 15_000
     UPLOAD_MAX_MS = 180_000
     RECORD_ENDPOINT = "/backend-api/f/conversation"
+    # The page's own send handshake, made right after the click and before
+    # the message's POST: the sentinel pair, prepare, init. On 2026-10-01 the
+    # scripted window (a fresh profile) had every one of them answered 403
+    # while the user's own Chrome passed, and the page still showed the
+    # message's bubble, moved to a local-chatgpt: address and wrote "Unknown
+    # error" under it; the message never left the browser (F-2026-10-01-23).
+    HANDSHAKE_ENDPOINTS = (
+        "/backend-api/sentinel/chat-requirements/prepare",
+        "/backend-api/sentinel/chat-requirements/finalize",
+        "/backend-api/f/conversation/prepare",
+        "/backend-api/conversation/init",
+    )
 
     # This host is memory-tight and swaps under load. One scripted page for a
     # send cost about 1.65 GB with the first four flags alone, measured on the
@@ -2245,7 +2951,28 @@ class BrowserSender:
         # click (post_evidence).
         self._send_requests = 0
         self._send_statuses: list[int] = []
+        # The handshake answers that were not 2xx, as (path, status), in
+        # order (is_handshake_post); _send reads only what came after its
+        # own click, like the two above.
+        self._handshake_refusals: list[tuple[str, int]] = []
         self._watched_page: Any = None
+        # The debugging endpoint this window is attached to (cdp_endpoint),
+        # or "" when it is a scripted window of our own.
+        self.attached_to: str = ""
+        # The CDP target id of our tab in the dedicated browser, so a signal
+        # handler can close it through the browser's HTTP endpoint from any
+        # thread (close_tab_from_outside); and the SIGTERM disposition this
+        # window replaced, restored on exit.
+        self._target_id: str = ""
+        # How the attached window got its tab (tab_mode_parts, _pick_tab):
+        # "own" / "url" for a kept tab found, "own-made" for a kept tab just
+        # made, "new" for a tab per window, "busy" for a fresh tab because
+        # the kept one is held by another window; "" for a scripted window.
+        self.tab_how: str = ""
+        # The endpoint __enter__ chose (cdp_endpoint), so _open and the
+        # cool-down agree on which kind of window this is; None until then.
+        self._endpoint: str | None = None
+        self._previous_sigterm: Any = None
         self._stack = contextlib.ExitStack()
         self.page: Any = None
         # Playwright's sync objects may only be used from the thread that
@@ -2258,11 +2985,34 @@ class BrowserSender:
         self._own_pids: set[int] = set()
 
     def __enter__(self) -> BrowserSender:
+        # No window during the cool-down after a refusal (cooldown_remaining):
+        # the caller gets the time it ends and the rate-limit status, which
+        # is what a dispatcher's ladder already knows how to wait on.
+        # The cool-down holds scripted windows only: a send that attaches to
+        # the dedicated window is not the window Cloudflare refused. On
+        # 2026-10-04 it held the daily check and the weekly send for 30 min
+        # while the dedicated window was fine (F-2026-10-06-2).
+        self._endpoint = cdp_endpoint()
+        if (
+            sys.platform == "darwin"
+            and os.environ.get("CHATGPT_MACOS_CDP_MODE") == "1"
+            and not self._endpoint
+        ):
+            raise TransportError(
+                "macOS requires explicit RP_BROWSER_CDP=http://127.0.0.1:9233; "
+                "refusing a scripted fallback"
+            )
+        if not self._endpoint:
+            left, record = cooldown_remaining()
+            if left > 0:
+                self._owner.shutdown(wait=False)
+                raise TransportError(cooldown_message(left, record), 429)
         # Hold a slot for the whole window, so the cap counts open windows and
         # not merely concurrent opens. It is released by the exit stack.
         self._stack.enter_context(browser_slot())
         self._owner.submit(self._open).result()
         self._stack.callback(self._closed.set)
+        self._install_sigterm_exit()
         threading.Thread(
             target=self._watchdog,
             args=(time.monotonic() + BROWSER_MAX_SECONDS,),
@@ -2283,6 +3033,18 @@ class BrowserSender:
         while not self._closed.wait(5):
             if time.monotonic() < deadline:
                 continue
+            if self.attached_to:
+                # A hung call on an attached tab has no process of ours to
+                # kill; closing the tab through the browser's endpoint makes
+                # the call raise and keeps the tab from being left behind
+                # (F-2026-10-06-3: 18 leftover chat tabs by 2026-10-05).
+                closed = self.close_tab_from_outside()
+                logger.warning(
+                    "send window exceeded %.0f s; %s its tab in the dedicated "
+                    "browser from outside",
+                    BROWSER_MAX_SECONDS,
+                    "closed" if closed else "could not close",
+                )
             victims = self._own_pids & scripted_browser_pids()
             logger.warning(
                 "send window exceeded %.0f s; killing %d scripted browser "
@@ -2309,10 +3071,138 @@ class BrowserSender:
             self._closed.set()
             self._owner.shutdown(wait=True)
             self.page = None
+            if self._previous_sigterm is not None:
+                with contextlib.suppress(ValueError):  # not the main thread
+                    signal.signal(signal.SIGTERM, self._previous_sigterm)
+                self._previous_sigterm = None
+
+    def _install_sigterm_exit(self) -> None:
+        """SIGTERM ends the window cleanly. A ``timeout``-killed send left its
+        tab open in the dedicated window twice on 2026-10-01, because the
+        default disposition ends the process before ``__exit__`` can close
+        the tab (F-2026-10-01-29). Main thread only, and only when nothing
+        else installed a handler; ``__exit__`` restores what was there."""
+        if threading.current_thread() is not threading.main_thread():
+            return
+        if signal.getsignal(signal.SIGTERM) is not signal.SIG_DFL:
+            return
+        self._previous_sigterm = signal.SIG_DFL
+        signal.signal(signal.SIGTERM, self._on_sigterm)
+
+    def _on_sigterm(self, signum: int, frame: Any) -> None:
+        """Close our tab from outside the owner thread, then leave through
+        ``SystemExit`` so every ``with`` block on the way out runs."""
+        self.close_tab_from_outside()
+        raise SystemExit(128 + int(signum))
+
+    def close_tab_from_outside(self) -> bool:
+        """Close this window's own tab through the dedicated browser's HTTP
+        endpoint (``/json/close/<target>``), from any thread: the one
+        Playwright-free way to end a blocked call on the owner thread, which
+        raises once its target is gone. False for a scripted window of our
+        own (it dies with the process) or when the endpoint did not answer."""
+        if not self.attached_to or not self._target_id:
+            return False
+        import urllib.request
+
+        url = f"{self.attached_to.rstrip('/')}/json/close/{self._target_id}"
+        for _attempt in range(2):  # a loaded browser can miss one 3 s window
+            try:
+                with urllib.request.urlopen(url, timeout=3):
+                    return True
+            except Exception:
+                continue
+        return False
 
     def _open(self) -> None:
         from playwright.sync_api import sync_playwright
 
+        # rewrite_send_body only has work to do when one of these is set;
+        # block_unused must not be handed a hook otherwise, or every send
+        # (even one pinning nothing) would pay the extra JSON round trip.
+        rewrites = bool(self.effort or self.model or self.search or self.hints)
+        rewrite = self._rewrite_send_route if rewrites else None
+        endpoint = self._endpoint if self._endpoint is not None else cdp_endpoint()
+        if endpoint:
+            self._open_attached(sync_playwright, endpoint, rewrite)
+        else:
+            self._open_scripted(sync_playwright, rewrite)
+        if self.record_send_body:
+            self.page.on("request", self._record_request)
+
+    def _open_attached(self, sync_playwright: Any, endpoint: str, rewrite: Any) -> None:
+        """Owner thread only. One tab in the dedicated browser (SKILL.md,
+        "Sending through the dedicated browser window"): attach over CDP,
+        take its default context -- the owner's own profile and login, so
+        no cookie is injected and no display is started -- and open one
+        page. Closing disconnects and closes that one tab; the owner's
+        window and its tabs stay, and the watchdog has no process of ours to
+        kill (``_own_pids`` stays empty). Routes go on the page, never on the
+        context, so the owner's own tab in that window is never blocked or
+        rewritten."""
+        pw = self._stack.enter_context(sync_playwright())
+        browser = pw.chromium.connect_over_cdp(endpoint)
+        # Browser.close on a connected browser disconnects; it never closes
+        # the window it was attached to.
+        self._stack.callback(browser.close)
+        contexts = list(browser.contexts)
+        ctx = (
+            contexts[0]
+            if contexts
+            else browser.new_context(
+                viewport={"width": self.WIDTH, "height": self.HEIGHT}
+            )
+        )
+        self.attached_to = endpoint
+        logger.info(
+            "attached to the dedicated browser at %s (Chrome %s)",
+            endpoint,
+            getattr(browser, "version", "?"),
+        )
+        self.page, self.tab_how = self._pick_tab(ctx)
+        self._target_id = page_target_id(ctx, self.page)
+        if self.tab_how == "own-made":
+            remember_tab(self._target_id, str(self.page.url))
+        if self.tab_how in ("new", "busy"):
+            self._stack.callback(self.page.close)
+        else:
+            with contextlib.suppress(Exception):
+                self.page.bring_to_front()
+        logger.info("tab: %s (%s)", self.tab_how, self.page.url)
+        block_unused(self.page, allow_project=bool(self.project), rewrite_send=rewrite)
+
+    def _pick_tab(self, ctx: Any) -> tuple[Any, str]:
+        """Owner thread only. The tab this window drives, per
+        ``RP_BROWSER_TAB`` (``tab_mode_parts``), and how it got it: a kept
+        tab -- "url" for the first tab whose address starts with the prefix,
+        "own" for the remembered own tab, "own-made" for an own tab made now
+        -- is locked for the window and never closed by it (only
+        ``close_tab_from_outside`` on SIGTERM closes it); "new" and "busy"
+        name a tab of this window's own that closes with it, "busy" because
+        another window holds the kept tab."""
+        kind, prefix = tab_mode_parts()
+        if kind == "new":
+            return ctx.new_page(), "new"
+        if not self._stack.enter_context(tab_lock()):
+            logger.warning(
+                "the kept tab is held by another window; this one opens its own"
+            )
+            return ctx.new_page(), "busy"
+        if kind == "url":
+            for page in list(ctx.pages):
+                if str(page.url).startswith(prefix):
+                    return page, "url"
+        wanted = str(tab_record().get("target_id") or "")
+        if wanted:
+            for page in list(ctx.pages):
+                if page_target_id(ctx, page) == wanted:
+                    return page, "own"
+        return ctx.new_page(), "own-made"
+
+    def _open_scripted(self, sync_playwright: Any, rewrite: Any) -> None:
+        """Owner thread only. A window of our own on an Xvfb display, with
+        the owner's Chrome cookies injected: the path every send took until
+        2026-10-01, and the fallback when no dedicated browser answers."""
         cs = _helpers()
         if str(HELPERS) not in sys.path:
             sys.path.insert(0, str(HELPERS))
@@ -2322,9 +3212,8 @@ class BrowserSender:
         # The exported jar reaches the context unchanged: effort, model and
         # search never touch a cookie here (measured 2026-09-20: rewriting
         # oai-last-model-config pinned neither the send nor the composer's
-        # own label). What pins them is the route registered below, only
-        # when one of the three is set, which rewrites the f/conversation
-        # POST body in flight (rewrite_send_body / _rewrite_send_route).
+        # own label). What pins them is the route registered below
+        # (rewrite_send_body / _rewrite_send_route).
         cookies = chatgpt_cookies.export(cs.pick_browser(self.browser))
         self._stack.enter_context(virtual_display(self.visible))
         pw = self._stack.enter_context(sync_playwright())
@@ -2335,18 +3224,8 @@ class BrowserSender:
         self._own_pids = scripted_browser_pids() - before
         self._desktop_check()
         ctx.add_cookies(cookies)
-        # rewrite_send_body only has work to do when one of these is set;
-        # block_unused must not be handed a hook otherwise, or every send
-        # (even one pinning nothing) would pay the extra JSON round trip.
-        rewrites = bool(self.effort or self.model or self.search or self.hints)
-        block_unused(
-            ctx,
-            allow_project=bool(self.project),
-            rewrite_send=self._rewrite_send_route if rewrites else None,
-        )
+        block_unused(ctx, allow_project=bool(self.project), rewrite_send=rewrite)
         self.page = ctx.new_page()
-        if self.record_send_body:
-            self.page.on("request", self._record_request)
 
     def _desktop_check(self) -> None:
         """Right after launch: is this window where it belongs, on the Xvfb
@@ -2495,6 +3374,11 @@ class BrowserSender:
         including no attachments.
         """
         doc = {**doc, "stream_file": self.record_send_body + STREAM_SUFFIX}
+        if self.attached_to:
+            doc["stream_skipped"] = (
+                "the reply stream is not read through the dedicated browser "
+                "(references/failure-atlas.md, F-2026-10-01-28)"
+            )
         if self.attachments:
             doc["attachments"] = self.attachments
         with contextlib.suppress(Exception):
@@ -2562,6 +3446,18 @@ class BrowserSender:
         path = url.split("?", 1)[0].split("#", 1)[0]
         return path.endswith(cls.RECORD_ENDPOINT)
 
+    @classmethod
+    def is_handshake_post(cls, method: str, url: str) -> str:
+        """The ``HANDSHAKE_ENDPOINTS`` path ``url`` is a POST to, else "".
+        Query and fragment stripped, like ``is_send_post``."""
+        if method != "POST":
+            return ""
+        path = url.split("?", 1)[0].split("#", 1)[0]
+        for endpoint in cls.HANDSHAKE_ENDPOINTS:
+            if path.endswith(endpoint):
+                return endpoint
+        return ""
+
     def _watch_send_posts(self, page: Any) -> None:
         """Hook ``page`` once: count each send POST and keep each answer's
         status, for ``post_evidence``. A second send on the same page adds
@@ -2585,6 +3481,41 @@ class BrowserSender:
             req = response.request
             if self.is_send_post(req.method, req.url):
                 self._send_statuses.append(int(response.status))
+            handshake = self.is_handshake_post(req.method, req.url)
+            if handshake and not 200 <= int(response.status) < 300:
+                self._handshake_refusals.append((handshake, int(response.status)))
+
+    def _handshake_refused(
+        self, page: Any, refused: list[tuple[str, int]], turns_before: int, chars: int
+    ) -> TransportError:
+        """The event and the error for a send whose handshake was refused
+        and whose message request never followed (F-2026-10-01-23): never
+        "not posted" with a retry hint, because the page's own bubble and
+        its local-chatgpt: address would make the next attempt read the
+        same, and never a provisional id, because no conversation exists."""
+        record_event(
+            "handshake-refused",
+            url=str(page.url),
+            refused=[f"{path} {status}" for path, status in refused],
+            turns_before=turns_before,
+            turns_after=page.locator(USER_TURN_SELECTOR).count(),
+            chars=chars,
+            screenshot=self._screenshot("chatgpt-send-fail.png"),
+        )
+        names = ", ".join(
+            f"{status} on {path.removeprefix('/backend-api/')}"
+            for path, status in refused[:4]
+        )
+        status = 429 if any(s == 429 for _, s in refused) else 0
+        note_refusal("handshake-refused", str(page.url), names)
+        return TransportError(
+            "message was not posted: ChatGPT's send handshake was refused "
+            f"({names}) and no f/conversation request followed; the bubble on "
+            "the page is the page's own optimism. This window's requests are "
+            "being refused, not the account (references/failure-atlas.md, "
+            "F-2026-10-01-23)",
+            status,
+        )
 
     def _record_send_stream(self, info: Any) -> None:
         """Write this send's own reply stream to a sibling ``.stream.txt``.
@@ -2756,13 +3687,86 @@ class BrowserSender:
         self._check_rate_limit_dialog()
         try:
             return find_composer(self.page)
-        except TransportError:
-            record_event(
-                "composer-missing",
-                url=str(self.page.url),
-                screenshot=self._screenshot("chatgpt-composer-missing.png"),
-            )
+        except TransportError as exc:
+            # Which it was is in the message (find_composer). The challenge
+            # page is its own event, so the weekly digest counts it apart
+            # from a logged-out session and the fix names the profile; a
+            # logged-in page without a composer is the refusal's third shape.
+            # Both start the cool-down (note_refusal); a logged-out page does
+            # not, because the next window may be a signed-in one.
+            url = str(self.page.url)
+            shot = self._screenshot("chatgpt-composer-missing.png")
+            if BOUNCED_REASON in str(exc):
+                record_event("navigation-bounced", url=url, screenshot=shot)
+                raise
+            # The page's facts beside the screenshot (attributes only), and
+            # the compact ones in the event, so the morning mail and the
+            # heal evidence can tell a challenge from a login page from a
+            # changed page without opening the screenshot.
+            page = self._page_facts("chatgpt-composer-missing.json")
+            if CHALLENGE_REASON in str(exc):
+                record_event("challenge-page", url=url, screenshot=shot, page=page)
+                note_refusal("challenge-page", url, str(exc))
+            elif SLOW_RENDER_REASON in str(exc):
+                # In the page, not visible in time: the host or the page is
+                # slow. Counted apart (slow_render), and never a refusal.
+                record_event(
+                    "composer-missing",
+                    url=url,
+                    logged_in=True,
+                    slow_render=True,
+                    screenshot=shot,
+                    page=page,
+                )
+            elif REFUSED_REASON in str(exc):
+                record_event(
+                    "composer-missing",
+                    url=url,
+                    logged_in=True,
+                    screenshot=shot,
+                    page=page,
+                )
+                note_refusal("composer-missing", url, str(exc))
+            elif CHAT_PAGE_REASON in str(exc):
+                record_event(
+                    "composer-missing",
+                    url=url,
+                    logged_in=True,
+                    screenshot=shot,
+                    page=page,
+                )
+            else:
+                record_event(
+                    "composer-missing",
+                    url=url,
+                    logged_in=False,
+                    screenshot=shot,
+                    page=page,
+                )
             raise
+
+    def _page_facts(self, name: str) -> dict[str, Any]:
+        """Owner thread only. Write the page's snapshot facts (no markup,
+        ``page_snapshot`` minus ``html``) as ``name`` beside the screenshots
+        and return the compact facts for the event; {} and nothing written
+        when the page gave none. Never raises."""
+        try:
+            facts = page_snapshot(self.page)
+        except Exception:
+            return {}
+        compact = page_facts_compact(facts)
+        if not compact:
+            return {}
+        record = {key: value for key, value in facts.items() if key != "html"}
+        record["recorded_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        path = self.screenshot_dir / name
+        with contextlib.suppress(OSError, TypeError, ValueError):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(record, indent=2, sort_keys=True, default=str) + "\n",
+                encoding="utf-8",
+            )
+        return compact
 
     # Uploading the prompt instead of pasting it looked like the answer to slow
     # ProseMirror rendering, and the upload itself works: the file arrives and
@@ -2871,21 +3875,39 @@ class BrowserSender:
         except TransportError:
             raise
         except Exception as exc:  # playwright errors have no common base here
+            screenshot, limited = self._failure_evidence("chatgpt-send-error.png")
             record_event(
                 "send-error",
                 url=str(getattr(self.page, "url", "")),
                 error=str(exc)[:200],
-                screenshot=self._screenshot("chatgpt-send-error.png"),
+                screenshot=screenshot,
             )
             # Only now does the notice mean anything: the send was tried and
             # it failed. Before the attempt it may be stale history nagging,
             # and treating that as a block is what cost runs.
-            limited = self._rate_limited_now()
             if limited:
                 raise TransportError(
                     f"ChatGPT is rate-limiting this account: {limited}", 429
                 ) from exc
             raise TransportError(f"browser send failed: {exc}"[:300]) from exc
+
+    def _failure_evidence(self, name: str) -> tuple[str, str]:
+        """``(screenshot path, rate-limit notice)`` for a failed send, read
+        on the owner thread, from any thread. Playwright's sync objects
+        refuse another thread, and until 2026-10-01 ``send``'s error path
+        read both from the calling thread: the screenshot answered "Cannot
+        switch to a different thread" and the notice read as absent, every
+        time (F-2026-10-01-24). An owner thread that cannot answer gives
+        no evidence rather than a second failure."""
+
+        def read() -> tuple[str, str]:
+            return self._screenshot(name), self._rate_limited_now()
+
+        try:
+            return self._owner.submit(read).result(timeout=60)
+        except Exception as exc:  # the window may already be gone
+            logger.warning("no failure evidence: %s", str(exc)[:120])
+            return "", ""
 
     def probe_composer(self) -> str:
         """Load the page a send would compose on and wait for its composer;
@@ -2926,7 +3948,31 @@ class BrowserSender:
         )
         if url and "/c/" in url:
             self._await_chat(url)
-        return self._composer()
+        composer = self._composer()
+        self._ensure_chat_surface(composer)
+        return composer
+
+    def _ensure_chat_surface(self, composer: Any) -> None:
+        """Owner thread only. ``ensure_chat_surface`` on the page
+        ``_load_composer`` loaded, with the sender's own evidence: a page
+        that stays on Work is a ``work-surface`` event with a screenshot
+        before the ``TransportError`` goes up (a message typed there never
+        posts, so "not posted" and a retry would be the wrong answer); a
+        page that had to be switched is a ``surface-switched`` event, so
+        the weekly digest counts how often the page opens on Work."""
+        page = self.page
+        try:
+            outcome = ensure_chat_surface(page, composer)
+        except TransportError:
+            record_event(
+                "work-surface",
+                url=str(page.url),
+                screenshot=self._screenshot("chatgpt-work-surface.png"),
+            )
+            raise
+        if outcome == "switched":
+            record_event("surface-switched", url=str(page.url))
+            logger.info("composer: the page opened on the Work surface; Chat pressed")
 
     def _chat_load_failure(self) -> str:
         """The text of ChatGPT's "could not load this conversation" notice if
@@ -3150,13 +4196,6 @@ class BrowserSender:
         # belongs.
         composer = self._load_composer(url)
         logger.info("send: composer ready at %s", page.url)
-        # Chat surface only: leave the surface toggle alone when absent.
-        chat_toggle = page.get_by_role("radio", name=CHAT_SURFACE_RADIO_RE)
-        if chat_toggle.count() and chat_toggle.first.is_visible():
-            state = chat_toggle.first.get_attribute("aria-checked") or ""
-            if state != "true":
-                chat_toggle.first.click(timeout=3_000)
-                page.wait_for_timeout(500)
         turns_before = page.locator(USER_TURN_SELECTOR).count()
         new_chat = not chat
         self._watch_send_posts(page)
@@ -3185,16 +4224,25 @@ class BrowserSender:
         # record_send_body's stream capture is not missed; its value is not
         # read until the post-click checks below have confirmed the message
         # actually posted -- see _record_send_stream.
+        # Through the dedicated browser the reply stream is not read:
+        # Response.finished() on the f/conversation stream never returned
+        # there (2026-10-01, over 100 s after the reply had arrived;
+        # F-2026-10-01-28), and nothing can interrupt it. The record then
+        # says stream_skipped.
+        wants_stream = bool(
+            self.record_send_body and self.record_stream and not self.attached_to
+        )
         capture = (
             page.expect_response(
                 self._is_send_stream_response, timeout=max(budget, 60_000)
             )
-            if self.record_send_body and self.record_stream
+            if wants_stream
             else contextlib.nullcontext()
         )
         # Only what happens after this mark belongs to this send.
         requests_mark = self._send_requests
         statuses_mark = len(self._send_statuses)
+        refusals_mark = len(self._handshake_refusals)
 
         def evidence() -> tuple[str, ...]:
             return post_evidence(
@@ -3204,6 +4252,14 @@ class BrowserSender:
                 turns_now=page.locator(USER_TURN_SELECTOR).count(),
                 statuses=self._send_statuses[statuses_mark:],
             )
+
+        def refused_and_silent() -> list[tuple[str, int]]:
+            """The handshake answers refused since the click, while no
+            message request has followed them (F-2026-10-01-23). Empty once
+            an f/conversation POST went out: then its own status decides."""
+            if self._send_requests > requests_mark:
+                return []
+            return self._handshake_refusals[refusals_mark:]
 
         with capture as info:
             sent = self._click_send(page, budget)
@@ -3223,19 +4279,39 @@ class BrowserSender:
                 else:
                     self._focus_composer(composer)
                     page.keyboard.press("Enter")
+            # The page's handshake refused and no message request after it:
+            # the page shows the bubble anyway, so the turn count reads as a
+            # post, and the reply stream a recording waits for can never
+            # come. Give the page's own retry ten seconds (it retried init
+            # once, 1.4 s later, on 2026-10-01), then stop here.
+            if refused_and_silent():
+                for _ in range(10):
+                    page.wait_for_timeout(1_000)
+                    if not refused_and_silent():
+                        break
+                else:
+                    raise self._handshake_refused(
+                        page, refused_and_silent(), turns_before, len(text)
+                    )
         logger.info("send: submitted; confirming the post")
         # Confirm the post (post_evidence): the POST's own answer, a new
         # chat's real /c/ URL, or one more user turn; then wait for the
         # real /c/ URL a new chat is given.
         found: tuple[str, ...] = ()
-        for _ in range(90):
+        for i in range(90):
             page.wait_for_timeout(1_000)
             found = evidence()
             if found and "/c/" in page.url and not is_provisional(page.url):
                 break
+            if i >= 15 and refused_and_silent():
+                break
         url_now = str(page.url)
         turns_after = page.locator(USER_TURN_SELECTOR).count()
         statuses = self._send_statuses[statuses_mark:]
+        if refused_and_silent():
+            raise self._handshake_refused(
+                page, refused_and_silent(), turns_before, len(text)
+            )
         if found:
             if "turn" not in found:
                 # Posted, and the page did not show it the way the send
@@ -3252,7 +4328,7 @@ class BrowserSender:
                     chars=len(text),
                     screenshot=self._screenshot("chatgpt-post-unseen.png"),
                 )
-            if self.record_send_body and self.record_stream:
+            if wants_stream:
                 self._record_send_stream(info)
             if "/c/" in url_now:
                 return chat_id(url_now)  # may be provisional; the caller resolves it

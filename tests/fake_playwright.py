@@ -242,6 +242,17 @@ class Locator:
     def nth(self, i: int) -> Locator:
         return Locator(self.page, self.selector, self._state, index=i)
 
+    def filter(self, **kw: Any) -> Locator:
+        """``Locator.filter(visible=True)``: a narrower view, keyed by the
+        filter so a test can configure what it reports; until a test does,
+        it reports what the unfiltered locator reports (count, raises,
+        attributes), the way one visible element filtered is still that
+        element."""
+        key = f"{self.selector} >> filter({sorted(kw.items())!r})"
+        state = self.page._locator_states.get(key) or self._state
+        self.page.calls.append(("locator", self.selector, "filter", (), kw))
+        return Locator(self.page, key, state)
+
     @property
     def first(self) -> Locator:
         return self.nth(0)
@@ -414,6 +425,7 @@ class Page:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
         self._url: Any = "about:blank"
+        self.target_id = "TARGET-1"  # what new_cdp_session answers for this tab
         self.last_goto_url: str | None = None
         self.goto_raises: BaseException | None = None
         self.reload_raises: BaseException | None = None
@@ -423,6 +435,13 @@ class Page:
         self._script_results: dict[str, Any] = {}
         self._event_handlers: dict[str, list] = {}
         self._pending_responses: list[Response] = []
+        self.routes: list[tuple[str, Any]] = []
+
+    def route(self, pattern: str, handler: Any) -> None:
+        """``Page.route``: the attached-browser path routes on the page, never
+        on the owner's context."""
+        self.routes.append((pattern, handler))
+        self.calls.append(("page", "route", (pattern,), {}))
 
     # -- navigation ----------------------------------------------------
     @property
@@ -497,6 +516,10 @@ class Page:
     def close(self) -> None:
         self.calls.append(("page", "close", (), {}))
         self.closed = True
+
+    def bring_to_front(self) -> None:
+        """``Page.bring_to_front``: a kept tab is raised, never closed."""
+        self.calls.append(("page", "bring_to_front", (), {}))
 
     def on(self, event: str, handler: Any) -> None:
         self.calls.append(("page", "on", (event,), {}))
@@ -633,6 +656,13 @@ class BrowserContext:
         self.closed = True
         self.calls.append(("context", "close", (), {}))
 
+    def new_cdp_session(self, page: Page) -> CDPSession:
+        """``BrowserContext.new_cdp_session``: the attached path reads a
+        tab's target id through it (``Page.target_id``, "TARGET-1" unless a
+        test names another, so two tabs can be told apart)."""
+        self.calls.append(("context", "new_cdp_session", (), {}))
+        return CDPSession(getattr(page, "target_id", "TARGET-1"))
+
     def trigger_route(
         self, url: str, method: str = "GET", post_data: str | None = None
     ) -> Route:
@@ -646,11 +676,33 @@ class BrowserContext:
         return route
 
 
+class CDPSession:
+    """A raw CDP session: answers Target.getTargetInfo with a fixed id."""
+
+    def __init__(self, target_id: str = "TARGET-1") -> None:
+        self.target_id = target_id
+        self.sent: list[tuple[str, dict | None]] = []
+        self.detached = False
+
+    def send(self, method: str, params: dict | None = None) -> dict:
+        self.sent.append((method, params))
+        if method == "Target.getTargetInfo":
+            return {"targetInfo": {"targetId": self.target_id, "type": "page"}}
+        return {}
+
+    def detach(self) -> None:
+        self.detached = True
+
+
 class Browser:
     def __init__(self) -> None:
         self.calls: list[tuple] = []
         self.closed = False
         self.new_context_result: BrowserContext | None = None
+        # A browser connected over CDP exposes the window's default context
+        # here; a launched one has none until new_context().
+        self.contexts: list[BrowserContext] = []
+        self.version = "154.0.8037.92"
 
     def new_context(self, **kw: Any) -> BrowserContext:
         self.calls.append(("browser", "new_context", (), kw))
@@ -674,6 +726,17 @@ class BrowserType:
         self.launch_persistent_context_result: BrowserContext | None = None
         self.launch_raises: BaseException | None = None
         self.launch_persistent_context_raises: BaseException | None = None
+        self.connect_over_cdp_calls: list[str] = []
+        self.connect_result: Browser | None = None
+        self.connect_raises: BaseException | None = None
+
+    def connect_over_cdp(self, endpoint_url: str, **kw: Any) -> Browser:
+        """``pw.chromium.connect_over_cdp``: attach to a running browser."""
+        self.connect_over_cdp_calls.append(endpoint_url)
+        if self.connect_raises is not None:
+            raise self.connect_raises
+        self.connect_result = self.connect_result or Browser()
+        return self.connect_result
 
     def launch(self, **kw: Any) -> Browser:
         self.launch_calls.append(kw)

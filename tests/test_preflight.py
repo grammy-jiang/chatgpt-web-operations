@@ -105,6 +105,105 @@ class _FakeSenderBlocked:
         )
 
 
+class _FakeSenderChallenged:
+    """The composer never appeared because Cloudflare's challenge was up
+    (2026-09-29 to 2026-10-01): the fix names the profile, never the login."""
+
+    def __init__(self, browser: str) -> None:
+        self.browser = browser
+
+    def __enter__(self) -> _FakeSenderChallenged:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def probe_composer(self) -> str:
+        raise RuntimeError(
+            "composer did not appear at https://chatgpt.com/: Cloudflare's 'Verify "
+            "you are human' challenge is on the page; the browser profile is what "
+            "is challenged, and a fresh profile (RP_BROWSER_PROFILE=) passes"
+        )
+
+
+class _FakeSenderWork:
+    """The page opened on the Work surface and stayed there (2026-10-01)."""
+
+    def __init__(self, browser: str) -> None:
+        self.browser = browser
+
+    def __enter__(self) -> _FakeSenderWork:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def probe_composer(self) -> str:
+        raise RuntimeError(
+            "the composer at https://chatgpt.com/ is on the Work surface ('Work "
+            "with ChatGPT') and the Chat/Work toggle did not switch it back; a "
+            "message typed there never posts through f/conversation"
+        )
+
+
+class _FakeSenderCooldown:
+    """No window was opened: the cool-down after a refused one still runs."""
+
+    def __init__(self, browser: str) -> None:
+        self.browser = browser
+
+    def __enter__(self) -> _FakeSenderCooldown:
+        raise RuntimeError(
+            "no scripted window: Cloudflare refused the last one at 10:33:00 "
+            "(handshake-refused); the cool-down ends at 11:03:00 (900 s left); "
+            "RP_BROWSER_COOLDOWN_SECONDS=0 overrides"
+        )
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def probe_composer(self) -> str:
+        return "https://chatgpt.com/"
+
+
+class _FakeSenderRefused:
+    """The page loaded logged in, its composer never rendered (2026-10-01)."""
+
+    def __init__(self, browser: str) -> None:
+        self.browser = browser
+
+    def __enter__(self) -> _FakeSenderRefused:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def probe_composer(self) -> str:
+        raise RuntimeError(
+            "composer did not appear at https://chatgpt.com/g/g-p-x/project: the "
+            "page is logged in (its sidebar lists conversations) but the composer "
+            "never rendered; the page's own requests are being refused "
+            "(references/failure-atlas.md, F-2026-10-01-23)"
+        )
+
+
+class _FakeSenderAttached:
+    """The composer appeared through the dedicated browser (2026-10-01)."""
+
+    def __init__(self, browser: str) -> None:
+        self.browser = browser
+        self.attached_to = "http://127.0.0.1:9222"
+
+    def __enter__(self) -> _FakeSenderAttached:
+        return self
+
+    def __exit__(self, *exc: object) -> bool:
+        return False
+
+    def probe_composer(self) -> str:
+        return "https://chatgpt.com/"
+
+
 class _FakeSenderBusy:
     """Every window slot taken: a failure that names its own cause."""
 
@@ -184,6 +283,12 @@ def _fake_cc(
         ChatGPTSession=lambda browser: session,
         BrowserSender=sender_cls,
         ensure_desktop_env_calls=[],
+        cooldown_remaining=lambda: (0.0, {}),
+        COOLDOWN_SECONDS=1800.0,
+        cdp_endpoint=lambda *a, **k: "",
+        CDP_MODE="off",
+        DEDICATED_URL="http://127.0.0.1:9222",
+        dedicated_browser_version=lambda url=None: None,
     )
     ns.ensure_desktop_env = lambda: ns.ensure_desktop_env_calls.append(True)
     return ns
@@ -620,6 +725,8 @@ def test_host_checks_returns_five_checks_without_a_workdir(
         "virtual displays",
         "browser tooling",
         "keyring bus",
+        "browser cool-down",
+        "dedicated browser",
     ]
     assert all(c["state"] == "ok" for c in checks)
 
@@ -630,7 +737,7 @@ def test_host_checks_adds_disk_space_last_with_a_workdir(
     client = _fake_cc(None)
     checks = preflight.host_checks(client, tmp_path)
     assert [c["name"] for c in checks][-1] == "disk space"
-    assert len(checks) == 7
+    assert len(checks) == 9
 
 
 def test_host_checks_reflects_a_low_memory_client(clean_host: None) -> None:
@@ -921,6 +1028,50 @@ def test_model_effort_check_reports_no_match_without_blocking() -> None:
     assert "matches no preset" in c["detail"]
 
 
+def test_model_effort_check_is_ok_when_the_record_is_the_rule_s_preset() -> None:
+    extra_high = {
+        "position": 4,
+        "title": "Extra High",
+        "model": "gpt-5-6-thinking",
+        "effort": "max",
+        "lane": "thinking",
+    }
+    c = preflight.model_effort_check(
+        {"model": "gpt-5-6-thinking", "effort": "max"}, extra_high, 5, extra_high
+    )
+    assert c["state"] == "ok"
+    assert "= the rule's preset 'Extra High'" in c["detail"]
+    assert c["fix"] is None
+
+
+def test_model_effort_check_warns_when_the_record_drifted_from_the_rule() -> None:
+    """The owner's rule (2026-10-01): the default is one preset below Pro.
+    A record elsewhere is a warn with the command that sets it, never a
+    block -- a send works at any preset."""
+    medium = {
+        "position": 2,
+        "title": "Medium",
+        "model": "gpt-5-6-thinking",
+        "effort": "standard",
+        "lane": "thinking",
+    }
+    extra_high = {
+        "position": 4,
+        "title": "Extra High",
+        "model": "gpt-5-6-thinking",
+        "effort": "max",
+        "lane": "thinking",
+    }
+    c = preflight.model_effort_check(
+        {"model": "gpt-5-6-thinking", "effort": "standard"}, medium, 5, extra_high
+    )
+    assert c["state"] == "warn"
+    assert "preset 'Medium'" in c["detail"]
+    assert "wants 'Extra High' (gpt-5-6-thinking/max)" in c["detail"]
+    assert c["fix"] == preflight.DEFAULT_RULE_FIX
+    assert "--default below-pro --apply" in c["fix"]
+
+
 def test_fetch_model_effort_resolves_the_servers_own_record() -> None:
     backend = _Backend(
         {
@@ -931,6 +1082,8 @@ def test_fetch_model_effort_resolves_the_servers_own_record() -> None:
     c = preflight.fetch_model_effort(_FakeSession(backend))
     assert c["state"] == "ok"
     assert "Extra High" in c["detail"]
+    # the rule is applied too: Extra High is the last effort preset here
+    assert "= the rule's preset 'Extra High'" in c["detail"]
 
 
 def test_fetch_model_effort_tolerates_a_non_dict_response() -> None:
@@ -1149,6 +1302,141 @@ def test_browser_composer_check_blocks_on_logged_out_or_challenged() -> None:
     assert c["fix"] == preflight.LOGIN_FIX
 
 
+def test_browser_composer_check_names_the_challenge_and_the_profile_fix() -> None:
+    cc = SimpleNamespace(BrowserSender=_FakeSenderChallenged)
+    c = preflight.browser_composer_check(cc, "chrome")
+    assert c["state"] == "block"
+    assert "Verify you are human" in c["detail"]
+    assert c["fix"] == preflight.CHALLENGE_FIX
+    assert "RP_BROWSER_PROFILE=" in c["fix"]
+    assert "log in" not in c["fix"]
+
+
+def test_browser_composer_check_names_the_work_surface_fix() -> None:
+    cc = SimpleNamespace(BrowserSender=_FakeSenderWork)
+    c = preflight.browser_composer_check(cc, "chrome")
+    assert c["state"] == "block"
+    assert "Work surface" in c["detail"]
+    assert c["fix"] == preflight.WORK_FIX
+
+
+def test_browser_composer_check_says_through_which_browser_the_composer_came():
+    cc = SimpleNamespace(BrowserSender=_FakeSenderAttached)
+    c = preflight.browser_composer_check(cc, "chrome")
+    assert c["state"] == "ok"
+    assert "through the dedicated browser at http://127.0.0.1:9222" in c["detail"]
+    plain = preflight.browser_composer_check(
+        SimpleNamespace(BrowserSender=_FakeSenderOK), "chrome"
+    )
+    assert "dedicated" not in plain["detail"]
+
+
+ALIVE = {"Browser": "Chrome/154.0.8037.92", "Protocol-Version": "1.3"}
+
+
+def test_dedicated_browser_check_is_ok_when_the_window_answers() -> None:
+    c = preflight.dedicated_browser_check(
+        "auto", "http://127.0.0.1:9222", lambda u: ALIVE
+    )
+    assert (c["group"], c["name"], c["state"]) == ("host", "dedicated browser", "ok")
+    assert "Chrome/154.0.8037.92 answers at http://127.0.0.1:9222" in c["detail"]
+
+
+def test_dedicated_browser_check_blocks_with_the_start_fix_when_nothing_answers():
+    c = preflight.dedicated_browser_check(
+        "auto", "http://127.0.0.1:9222", lambda u: None
+    )
+    assert c["state"] == "block"
+    assert "nothing answers at http://127.0.0.1:9222" in c["detail"]
+    assert c["fix"] == preflight.DEDICATED_FIX
+
+
+def test_dedicated_browser_check_probes_an_explicit_url_and_honours_off() -> None:
+    seen: list[str] = []
+
+    def probe(url: str) -> dict:
+        seen.append(url)
+        return ALIVE
+
+    c = preflight.dedicated_browser_check("http://127.0.0.1:9333", "http://x", probe)
+    assert seen == ["http://127.0.0.1:9333"]
+    assert c["state"] == "ok"
+    off = preflight.dedicated_browser_check("off", "http://x", probe)
+    assert off["state"] == "ok"
+    assert "scripted window" in off["detail"]
+    assert seen == ["http://127.0.0.1:9333"]
+
+
+def test_browser_composer_check_names_the_cooldown_and_its_end() -> None:
+    cc = SimpleNamespace(BrowserSender=_FakeSenderCooldown)
+    c = preflight.browser_composer_check(cc, "chrome")
+    assert c["state"] == "block"
+    assert "cool-down ends at 11:03:00" in c["detail"]
+    assert c["fix"] == preflight.COOLDOWN_FIX
+
+
+def test_browser_composer_check_names_the_refused_requests_on_a_logged_in_page():
+    cc = SimpleNamespace(BrowserSender=_FakeSenderRefused)
+    c = preflight.browser_composer_check(cc, "chrome")
+    assert c["state"] == "block"
+    assert "requests are being refused" in c["detail"]
+    assert c["fix"] == preflight.REFUSED_FIX
+    assert "log in" not in c["fix"]
+
+
+def test_browser_cooldown_check_is_ok_without_a_recent_refusal() -> None:
+    c = preflight.browser_cooldown_check(0.0, {}, 1800.0)
+    assert (c["group"], c["name"], c["state"]) == ("host", "browser cool-down", "ok")
+    assert "1800 s" in c["detail"]
+
+
+def test_browser_cooldown_check_blocks_while_the_cooldown_runs() -> None:
+    record = {"at": 1_790_000_000.0, "kind": "handshake-refused"}
+    c = preflight.browser_cooldown_check(900.0, record, 1800.0)
+    assert c["state"] == "block"
+    assert "handshake-refused" in c["detail"]
+    assert "900 s of the 1800 s" in c["detail"]
+    assert c["fix"] == preflight.COOLDOWN_FIX
+
+
+def test_browser_cooldown_check_is_ok_when_the_dedicated_window_answers() -> None:
+    """F-2026-10-06-2: the cool-down holds scripted windows only. With the
+    dedicated window answering, a running cool-down is an ok row that says
+    which windows it holds, never a block."""
+    record = {"at": 0.0, "kind": "composer-missing"}
+    c = preflight.browser_cooldown_check(900.0, record, 1800.0, attached=True)
+    assert c["state"] == "ok"
+    assert "holds scripted windows only" in c["detail"]
+    assert c["fix"] is None
+    blocked = preflight.browser_cooldown_check(900.0, record, 1800.0, attached=False)
+    assert blocked["state"] == "block"
+
+
+def test_host_checks_pass_the_attached_window_to_the_cooldown_check() -> None:
+    client = _fake_cc(None)
+    client.cooldown_remaining = lambda: (600.0, {"at": 0.0, "kind": "challenge-page"})
+    client.cdp_endpoint = lambda *a, **k: "http://127.0.0.1:9222"
+    cooldown = next(
+        c
+        for c in preflight.host_checks(client, None)
+        if c["name"] == "browser cool-down"
+    )
+    assert cooldown["state"] == "ok" and "scripted windows only" in cooldown["detail"]
+    client.cdp_endpoint = lambda *a, **k: ""
+    cooldown = next(
+        c
+        for c in preflight.host_checks(client, None)
+        if c["name"] == "browser cool-down"
+    )
+    assert cooldown["state"] == "block"
+
+
+def test_browser_cooldown_check_says_so_when_disabled() -> None:
+    c = preflight.browser_cooldown_check(0.0, {}, 0.0)
+    assert c["state"] == "ok"
+    assert "disabled" in c["detail"]
+
+
 def test_browser_composer_check_names_a_busy_slot_without_blaming_the_login() -> None:
     """A failure before the page even opened must not be dressed as a login
     problem: the detail names the cause and there is no fix line to mislead."""
@@ -1206,6 +1494,42 @@ def test_browser_composer_check_warns_and_names_the_drift_from_the_fixture(
     assert "differs from the fixture recorded 2026-09-27T12:00:00Z" in c["detail"]
     assert "composer.matched, composer.id, send_button.testid" in c["detail"]
     assert c["fix"] == preflight.SNAPSHOT_FIX
+
+
+def test_browser_composer_check_names_the_facts_a_stale_fixture_lacks(
+    tmp_path: Path,
+) -> None:
+    """A fixture promoted before SNAPSHOT_DRIFT_KEYS grew (2026-10-01
+    evening) compares nothing for the new facts; the ok row says which, and
+    how to close the gap, instead of reading as a full match."""
+    fixture = tmp_path / "composer.json"
+    fixture.write_text(json.dumps(SNAPSHOT_FACTS), encoding="utf-8")
+    cc = SimpleNamespace(BrowserSender=_FakeSenderSnapshot)
+    c = preflight.browser_composer_check(
+        cc, "chrome", snapshot_dir=str(tmp_path / "dom"), fixture=fixture
+    )
+    assert c["state"] == "ok"
+    assert "matches the fixture recorded 2026-09-27T12:00:00Z" in c["detail"]
+    assert "newer fact(s) not in the fixture yet" in c["detail"]
+    assert "composers.visible" in c["detail"] and "page.challenge" in c["detail"]
+    assert "make refresh-dom-fixtures" in c["detail"]
+
+
+class _FakeSenderBlockedWithFacts(_FakeSenderBlocked):
+    def probe_composer(self) -> str:
+        raise RuntimeError(
+            "composer did not appear at https://chatgpt.com/ (logged out or "
+            "challenged) [page: challenge=no, login=no, composers=2 (2 hidden), "
+            "toggle=yes, attach-menu=yes, picker=yes, title=chatgpt]"
+        )
+
+
+def test_browser_composer_check_keeps_the_page_facts_in_a_block_detail() -> None:
+    cc = SimpleNamespace(BrowserSender=_FakeSenderBlockedWithFacts)
+    c = preflight.browser_composer_check(cc, "chrome")
+    assert c["state"] == "block"
+    assert c["detail"].endswith("picker=yes, title=chatgpt]")
+    assert c["fix"] == preflight.LOGIN_FIX
 
 
 def test_browser_composer_check_is_ok_with_a_snapshot_and_no_fixture_yet(
@@ -1267,6 +1591,11 @@ def test_the_fake_senders_offer_nothing_the_real_sender_does_not() -> None:
     expected = {
         _FakeSenderOK: ["probe_composer"],
         _FakeSenderBlocked: ["probe_composer"],
+        _FakeSenderChallenged: ["probe_composer"],
+        _FakeSenderWork: ["probe_composer"],
+        _FakeSenderCooldown: ["probe_composer"],
+        _FakeSenderRefused: ["probe_composer"],
+        _FakeSenderAttached: ["probe_composer"],
         _FakeSenderBusy: ["probe_composer"],
         _FakeSenderSnapshot: ["snapshot_page"],
     }

@@ -121,6 +121,12 @@ def _isolated_recording_environment(
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("RP_EVENTS_FILE", str(tmp_path / "rp-evidence" / "events.jsonl"))
     monkeypatch.setenv("RP_SCREENSHOT_DIR", str(tmp_path / "rp-evidence" / "shots"))
+    monkeypatch.setenv(
+        "RP_REFUSAL_FILE", str(tmp_path / "rp-evidence" / "browser-refusal.json")
+    )
+    monkeypatch.setenv(
+        "RP_TAB_FILE", str(tmp_path / "rp-evidence" / "dedicated-tab.json")
+    )
 
 
 @pytest.fixture(autouse=True)

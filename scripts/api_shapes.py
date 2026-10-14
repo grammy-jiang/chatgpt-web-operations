@@ -926,6 +926,94 @@ def _is_read(path: str, read: set[str]) -> bool:
     )
 
 
+# ---------------------------------------------------------------------------
+# the send body: a request's shape, recorded by the weekly send
+# ---------------------------------------------------------------------------
+
+# The f/conversation POST body is a request, not a response, so it has no
+# Endpoint above and lives beside the DOM fixtures rather than under http/
+# (every http/ shape must be a registered endpoint). The weekly send records
+# it (tests/live/test_send_cli_roundtrip.py, with RP_SNAPSHOT_DIR) as
+# send_body.shape.json; the committed one was taken from a recorded send of
+# 2026-10-01 evening (the picker on a thinking preset, so thinking_effort is
+# present and required). A field the client depends on going missing or
+# changing type is breaking; a new field is information.
+SEND_BODY_NAME = "send_body"
+SEND_BODY_DIR = SKILL_DIR / "tests" / "fixtures" / "send"
+SEND_BODY_FILE = SEND_BODY_DIR / f"{SEND_BODY_NAME}{SHAPE_SUFFIX}"
+# What chatgpt_client.rewrite_send_body sets or removes, and what the server
+# reads of them (2026-10-01: one_off_model_override made it ignore the
+# pinned effort), plus the message itself.
+SEND_BODY_READ = frozenset(
+    {
+        "action",
+        "model",
+        "thinking_effort",
+        "system_hints",
+        "requested_default_model",
+        "one_off_model_override",
+        "parent_message_id",
+        "conversation_mode",
+        "conversation_mode.kind",
+        "messages",
+        "messages[]",
+        "messages[].author",
+        "messages[].author.role",
+        "messages[].content",
+        "messages[].content.content_type",
+        "messages[].content.parts",
+    }
+)
+
+
+def send_body_shape(body: dict[str, Any]) -> dict[str, Any]:
+    """The shape of one recorded ``f/conversation`` body: field names,
+    types and formats, never a value (``infer``)."""
+    return infer(body if isinstance(body, dict) else {})
+
+
+def write_send_body_shape(body: dict[str, Any], out_dir: str | Path) -> Path:
+    """``<out_dir>/send_body.shape.json`` from a recorded body."""
+    out = Path(out_dir).expanduser()
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / f"{SEND_BODY_NAME}{SHAPE_SUFFIX}"
+    path.write_text(
+        json.dumps(send_body_shape(body), indent=1, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def load_send_body_shape(path: str | Path = SEND_BODY_FILE) -> dict[str, Any] | None:
+    """The committed (or any) send-body shape, or None when there is none."""
+    try:
+        data = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def compare_send_body(
+    fresh: dict[str, Any], committed: dict[str, Any]
+) -> dict[str, list[str]]:
+    """``breaking`` / ``other`` / ``added`` lines for one fresh send-body
+    shape against the committed one, the way ``compare`` reports an
+    endpoint: breaking when a field in ``SEND_BODY_READ`` was removed or
+    retyped."""
+    report: dict[str, list[str]] = {"breaking": [], "other": [], "added": []}
+    for path, change, detail in drift(fresh, committed):
+        entry = f"{SEND_BODY_NAME}: {path} {change}" + (
+            f" ({detail})" if detail else ""
+        )
+        if change == "added":
+            report["added"].append(entry)
+        elif _is_read(path, SEND_BODY_READ):
+            report["breaking"].append(entry)
+        else:
+            report["other"].append(entry)
+    return report
+
+
 def compare(
     fresh: dict[str, dict[str, Any]],
     committed: dict[str, dict[str, Any]],

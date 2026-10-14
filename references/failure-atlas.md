@@ -589,3 +589,343 @@ The rules that came out of them are in `worker-rounds.md`.
   would take is unknown, and a plugin cannot be deleted, so
   `manage_plugins.py` refuses such an archive before any request
   (2026-09-29).
+- **(F-2026-09-29-19) read_chat ended in a traceback on a deleted
+  conversation.** Checking that the chats of a deleted worker project were
+  gone, `read_chat.py <id>` raised the client's `TransportError` (HTTP 404,
+  "Conversation has been deleted. Start a new chat.") as a traceback. It now
+  prints the server's reason in one line and exits 3 for a 404, since a retry
+  cannot help, and exits 4 with one line for any other failed read, which may
+  be transient.
+- **(F-2026-10-01-20) The page opened on the Work surface, and the send
+  typed into it.** On 2026-09-30 every send on the shared profile (runs of
+  binnacle-jobs, 03:17 to 08:35 UTC) typed its text and was reported "not
+  posted" with `post_requests: 0`; the failure screenshot shows the home page
+  with **Work** pressed in the Chat/Work toggle, "What should we work on?",
+  the model "GPT-6.1 Sol Light" and a "Choose project / Plugins / Open
+  desktop app" bar: the Work surface, where a message never posts through
+  `f/conversation`. The client had handled the toggle since 2026-09-27 as a
+  radio named "Chat" (`CHAT_SURFACE_RADIO_RE`), and on 2026-10-01 the toggle
+  is a `div[role="group"][aria-label="Composer mode"]` holding two
+  `button[aria-pressed]`, so the radio lookup found nothing and left the
+  page on Work. Measured 2026-10-01 in the user's own Chrome (Claude in
+  Chrome): the composer's own label says which surface the page is on, "Ask
+  ChatGPT" on Chat and "Work with ChatGPT" on Work; pressing Work fires
+  `conversation/init`, `beacons/home?product=work_tab` and
+  `composer/items?entrypoint=work`; the user's own page opened on Chat while
+  its cookie `oai-chat-surface-mode` and localStorage
+  `oai/apps/tpp/chat-surface-mode` both read "work", so the stored value does
+  not predict the surface and only the page can be asked. What changed:
+  `ensure_chat_surface` (module-level, like `find_composer`) reads the label,
+  presses the toggle's unpressed button (`SURFACE_UNPRESSED_SELECTOR`) and
+  reads the label again for up to ten seconds; every path that loads a
+  composer (`_load_composer`: a send, `preflight --browser`,
+  `measure_window`, the T3 upload) goes through it; a switch is a
+  `surface-switched` event and a page that stays on Work is a `work-surface`
+  event with a screenshot and a `TransportError` naming the surface, never
+  "not posted"; `preflight` offers `WORK_FIX`; `page_snapshot` records the
+  toggle (`surface`) and the daily comparison now warns on
+  `composer.aria_label` and `surface.found`. The lesson is F-2026-09-29-10's
+  again, one level up: the page can be on a surface where the request a
+  send is judged by can never happen; ask the page which surface it is on
+  before typing.
+- **(F-2026-10-01-21) "composer did not appear (logged out or challenged)"
+  for three mornings while the page was Cloudflare's challenge.** The daily
+  browser check was ALERT on 2026-09-29, 2026-09-30 and 2026-10-01 with that
+  detail and the login fix; its screenshot was the Turnstile interstitial
+  ("Verify you are human"), HTTP reads worked in the same run, the user's
+  own Chrome was not challenged, and the heal agent read the same evidence
+  and called it "an account/network question for the owner". Measured
+  2026-10-01 09:42-09:44: the shared profile `/tmp/rp-browser-profile` met the
+  challenge again; a fresh profile (`RP_BROWSER_PROFILE=`) got the composer
+  in 20 s, and every browser tier then passed on fresh profiles. The profile
+  is what is challenged, not the account, the host or the page. What
+  changed: `find_composer` names the challenge when the page shows it
+  (`challenge_page`: the widget iframe or the notice text), the event is
+  `challenge-page` instead of `composer-missing`, and `preflight` offers
+  `CHALLENGE_FIX`, which names the profile. Nothing solves, waits out or
+  evades the challenge, and no clearance cookie is copied beyond the jar the
+  browser always received; the fresh profile is the operator's choice. The
+  lesson: a check that says "A or B" for three days has not measured either;
+  the screenshot had the answer on the first morning.
+- **(F-2026-10-01-22) The first promotion of a page with the toggle was
+  refused for an "@".** The toggle's buttons carry Tailwind container-query
+  classes (`@max-xs/home-mode-toggle:px-2.5`), and `make refresh-dom-fixtures`
+  refused the recording ("an '@' outside 'user@example.invalid'"): the
+  hygiene rule reads any "@" as an address. `sanitize_html` now drops the
+  class tokens that start with "@"; no selector of ours names one.
+- **(F-2026-10-01-23) The page's send handshake was refused, and the bubble
+  on the page read as a post.** Every send of the T4 tier between 10:05 and
+  10:18 on fresh profiles ended with a `local-chatgpt:` placeholder and "the
+  posted message did not create a conversation"; one logged send
+  (`--record-send-body`) ended after 120 s with "Timeout 120000ms exceeded
+  while waiting for event response". An instrumented send (every request,
+  response and websocket frame of the window logged by a scratch script)
+  showed what the page did after the click: `POST
+  sentinel/chat-requirements/prepare` 403, `POST conversation/init` 403
+  (retried 1.4 s later, 403 again), `POST f/conversation/prepare` 403 at
+  load, and no `f/conversation` request at all; the page still rendered the
+  user's bubble, moved to `/c/local-chatgpt:<uuid>` and wrote "Unknown error
+  / Retry" under it, and its sidebar read "Unable to load history". The
+  user's own Chrome sent the same message into the same project in the same
+  minute and got its reply (its `f/conversation` POST was answered 503
+  first; the page's retry went through), and the skill's HTTP session read
+  the account normally throughout. So Cloudflare refuses the scripted
+  window's API requests, in two shapes: the interstitial page on the shared
+  profile (F-2026-10-01-21) and 403 answers to the page's own fetches on a
+  fresh one; `preflight --browser` reading GO on a fresh profile proved only
+  that the page's HTML and bundle load. What changed in the client: the
+  response hook keeps every non-2xx answer to the handshake endpoints
+  (`HANDSHAKE_ENDPOINTS`: the sentinel pair, `f/conversation/prepare`,
+  `conversation/init`); a send whose handshake was refused and that made no
+  `f/conversation` request stops after a ten-second grace with a
+  `handshake-refused` event (the refused paths and statuses, a screenshot)
+  and a `TransportError` naming them, instead of taking the optimistic
+  bubble as a post, returning a placeholder id or waiting 120 s for a reply
+  stream that cannot come; a 429 among the refusals keeps the rate-limit
+  status. The lesson: the turn count is the page's opinion, and the page is
+  optimistic; only the page's own requests say whether a message left the
+  browser (F-2026-09-29-10 read the wire for the positive case; this is the
+  negative one). What the client cannot do is make the requests acceptable:
+  that is Cloudflare's call on this window, and nothing here will try
+  (SKILL.md, "The transport split").
+- **(F-2026-10-01-24) A failed send's screenshot and rate-limit check ran on
+  the wrong thread.** `send()`'s error path read `_screenshot` and
+  `_rate_limited_now` from the calling thread; Playwright's sync objects
+  refuse it ("Cannot switch to a different thread"), so the `send-error`
+  event of 2026-10-01 10:22 had no screenshot and the notice always read as
+  absent. Found in the logged send's `client.log`. Both reads go through the
+  owner thread now (`_failure_evidence`). The lesson of 2026-09-20
+  (preflight's `_composer`) once more: a Playwright call off the owner thread
+  fails every time, and a fake that does not care about threads passes it.
+- **(F-2026-10-01-25) The live teardown PATCHed a `local-chatgpt:`
+  placeholder.** `tests/live/minting.delete_sandbox_chat` skipped only
+  `WEB:` ids; the T4 tests of 2026-10-01 handed it the page's own
+  placeholder, and the guard refused the PATCH ("outside the sandbox") on
+  top of the real failure. It skips both placeholders now.
+- **(F-2026-10-01-26) A shared browser profile kept the refusal alive, and
+  nothing kept the next window from running into it.** The shared profile
+  `/tmp/rp-browser-profile` was the default from 2026-09-20 (one bundle
+  fetch per night instead of one per window) and carried its state across
+  windows: the Turnstile loop of 2026-09-28, the Work surface of 2026-09-30,
+  the challenge page of 2026-09-29 to 2026-10-01. Fresh profiles carried
+  none of it; on 2026-10-01 they were refused only after seven windows in
+  forty minutes, and binnacle-jobs had retried eleven times into the same
+  wall on 2026-09-30. What changed: a fresh profile per window is the
+  default (`RP_BROWSER_PROFILE=<dir>` opts into a persistent one, and the
+  daily and weekly wrappers set none, so they follow the default); after a
+  refusal (`challenge-page`, `handshake-refused`, or a logged-in page whose
+  composer never renders, `composer-missing` with `logged_in`) no scripted
+  window is opened for `RP_BROWSER_COOLDOWN_SECONDS` (1800 s; 0 disables):
+  `BrowserSender` refuses with the time the cool-down ends and status 429,
+  preflight's host group reports "browser cool-down", and the refusal is one
+  record in `~/.local/state/chatgpt-web-operations/browser-refusal.json`;
+  `find_composer` names the logged-in shape (`REFUSED_REASON`,
+  `LOGGED_IN_SELECTOR`). The stale shared profile was renamed
+  `/tmp/rp-browser-profile.stale-20261001`, not reused. The lesson: state
+  that outlives a window should not be shared by default, and after a
+  refusal the correct move is to stop, say until when, and not try again at
+  once. None of this makes a window acceptable to Cloudflare; it stops the
+  skill from making things worse and names what happened.
+- **(F-2026-10-01-27) A chat page keeps a hidden composer ahead of its
+  own, and the strict wait fell on it.** Through the dedicated window a
+  continuation into an existing chat failed at 12:24 with "strict mode
+  violation: locator(COMPOSER_SELECTOR) resolved to 2 elements"; a probe
+  eight seconds after load found one. Waiting on the first match then
+  waited 60 s on the hidden one (13:38, the T4 round trip's conversation
+  snapshot). `find_composer` now waits on the first *visible* match, gives
+  the extra one `COMPOSER_SETTLE_SECONDS` (10 s) to go, and drives the
+  visible one if it stays; the recorded pages still match exactly once.
+- **(F-2026-10-01-28) Through the dedicated browser the reply stream never
+  finishes.** `--record-send-body`'s stream capture, `Response.finished()`
+  on the `f/conversation` response, blocked for over 100 s after the reply
+  had arrived (a scratch probe at 13:27), and two acceptance sends (search
+  12:24, the connector call 12:51) ran into their 20-minute outer timeouts
+  while the sends themselves had posted and replied. Why CDP never reports
+  that streamed body complete on the attached tab is not established. The
+  sender skips the stream wait when attached and the record says
+  `stream_skipped`; the Deep research widget path never needed the stream,
+  and the older MCP-only `export` route (its session id comes from the
+  stream) is not available through the window.
+- **(F-2026-10-01-29) A killed send left its tab in the dedicated window,
+  and a chat page's missing composer read as a refusal.** Two
+  timeout-killed sends (12:49, 13:11) left their tabs open: the default
+  SIGTERM disposition ends the process before `__exit__` closes the tab,
+  and the next attached windows (measure_window 13:11, health 13:14) failed
+  on a tab that never navigated ("composer did not appear at about:blank"),
+  not reproduced once the leaked tabs were gone. The window now installs a
+  SIGTERM handler (main thread, default disposition only) that closes its
+  own tab through the browser's HTTP endpoint (`/json/close/<target>`) and
+  leaves through `SystemExit`, restored on exit. And at 13:38 a chat page
+  whose composer never rendered (F-2026-10-01-27) was classified as a
+  refused window and stopped every send for half an hour: on a `/c/` page
+  the reason is now the chat's (`CHAT_PAGE_REASON`) and no refusal is
+  noted.
+- **(F-2026-10-01-30) An effort pinned on the window's own model recorded
+  no effort.** The dedicated profile's picker holds "Auto", so the page
+  builds the body with `model: gpt-5-6`, and `thinking_effort: standard`
+  rewritten onto it came back with no effort recorded (T4's effort test,
+  13:1x; the recorded body of the search send shows the rewrite went out).
+  `rewrite_send_body` now moves the model to `EFFORT_MODEL`
+  (`gpt-5-6-thinking`) when the body's model takes no effort
+  (`takes_effort`) and no `--model` was given; a named model still wins.
+- **(F-2026-10-01-32) The dedicated profile synced the owner's extensions,
+  and a duplicate-tab blocker bounced every new tab opened on the home
+  page.** The Google login in the dedicated window signed Chrome in as
+  well, and between 11:38 and 12:07 Chrome synced the owner's extensions
+  into the profile: 33 entries in its extension settings, 23 of them Web
+  Store extensions (AdBlock, MetaMask, 2FAS, Bitwarden, the Claude and
+  Gemini extensions, "Clutter Free - Prevent duplicate tabs" among them),
+  the rest Chrome's own components. From then on a new tab navigated to `https://chatgpt.com/`
+  -- the address the owner's own tab held -- was sent straight back to
+  where it came from (measured 14:05: the navigation request went out, the
+  frame navigated, and one second later the tab was back on the previous
+  page; a project page, held by no other tab, stayed). `preflight
+  --browser`, `health --browser` and `measure_window` therefore waited 60 s
+  on `about:blank` and blamed the login, while sends into the project
+  worked. What changed: a composer wait that ends on a tab no longer on
+  chatgpt.com names the bounce (`BOUNCED_REASON`, event
+  `navigation-bounced`, no cool-down), and `dedicated_browser.py status`
+  lists the profile's Web Store extensions with the advice. What the
+  skill does not do is fight the extension: the dedicated profile should
+  carry none, which is the owner's setting to make (sign the profile out
+  of Chrome, not out of chatgpt.com, or remove them). The same evening the
+  owner chose removal, and the window stopped running them meanwhile:
+  `dedicated_browser.py` launches Chrome with `--disable-extensions`
+  (restarted 16:34 through its unit, port back in 12 s; the debugging
+  endpoint listed no extension target where it had listed 11, three browser
+  preflights in a row found the composer, the picker and the login kept),
+  `status` reports `extensions_disabled`, and the removal advice names the
+  sync trap: sign the profile out of Chrome first, or removing a synced
+  extension removes it from the owner's own Chrome too. On the way, `stop`
+  at 16:30 missed the browser: a running Chrome rewrites its own
+  `/proc/<pid>/cmdline` into one space-joined string, which
+  `argv_tokens` now splits (the first `stop` of the day had run against a
+  young process whose cmdline was still NUL-separated).
+- **(F-2026-10-01-31) A pinned effort is ignored when the body carries the
+  page's one-off model override.** The morning's `--effort standard` through
+  the dedicated window recorded no effort, and the recorded body was read
+  as "the page dropped `thinking_effort`". Measured in the evening, without
+  touching the account's record: the window's picker sat on "Instant"
+  (Power slider position 0), and at that position the page builds `model:
+  "gpt-5-6"`, `requested_default_model: "gpt-5-6-thinking"`,
+  `one_off_model_override: true` and no `thinking_effort` (the page sets
+  the flag whenever `requested_default_model` is set). Moving the slider to
+  "High" in a probe tab fired `PATCH
+  /backend-api/settings/user_last_used_model_config?model_slug=gpt-5-6-thinking&thinking_effort=extended`
+  (empty body; the page's `save-chat-last-used-model` mutation), the picker
+  kept the position across a reload, and the body carried `model:
+  "gpt-5-6-thinking"`, `thinking_effort: "extended"` and neither one-off
+  field. Three sandbox sends then separated the cause: that body with
+  `standard` pinned in flight recorded `standard` (S1); the same body with
+  the two one-off fields added recorded no effort (S2a); the Instant shape
+  with the fix below recorded `standard` (S3); `tests/live/test_send_effort.py`
+  passed (62.8 s). The reply's `metadata.thinking_effort` is present
+  exactly when a level applied (the owner's own chat of 15:24 carried
+  `max`), so the morning's "the metadata dropped it" was the absence of a
+  level, not of the field. What changed: `rewrite_send_body` drops
+  `requested_default_model` and `one_off_model_override` (`ONE_OFF_FIELDS`)
+  whenever an effort or a model is pinned, and leaves them for a search or
+  hint alone. The account's `last_used_model_config` stayed `gpt-5-6-thinking`
+  / `extended` through every test send, read before and after; the skill
+  still never calls the PATCH.
+- **(F-2026-10-06-1) A slow render was counted as a refusal, and each one
+  cost a 30-minute cool-down.** Between 2026-10-03 and 10-04 the events file
+  holds eight "logged-in page without a composer" refusals; six of them
+  carry page facts that count one composer (`composers=1 (0 hidden)`,
+  `challenge=no`, `login=no`), and the latest screenshot (10-04 22:00)
+  shows the page whole, on the Work surface, composer and all: the 60 s
+  wait had expired, the facts were read a moment later, and the composer
+  was there. The host was at a load of 10 on 4 cores with the dedicated
+  Chrome peaking at 8.7 GB; pages rendered slowly, nothing refused anything.
+  The refusal started `note_refusal` each time, so every slow page bought 30
+  minutes without any window. What changed: `find_composer` reads the page
+  facts once, and a page that holds a composer the wait did not see (no
+  challenge, no login route: `composer_in_page_but_slow`) gets
+  `COMPOSER_SLOW_SECONDS` (30 s, `RP_COMPOSER_SLOW_SECONDS`) more; a
+  composer that shows is returned like any other, and one that does not is
+  named a slow render (`SLOW_RENDER_REASON`), recorded as `composer-missing`
+  with `slow_render: true`, never a refusal.
+- **(F-2026-10-06-2) The cool-down held the dedicated window too.**
+  `__enter__` checked the cool-down before choosing the window, so a
+  refusal of a scripted window held every send, including the ones that
+  attach to the dedicated window, which Cloudflare had not refused. On
+  2026-10-04 one refusal at 05:11 held the daily check at 05:25 and the
+  weekly send at 05:40 (T3 failed in 2 s) while the window was fine; the
+  repair agent's first real run named exactly that. What changed:
+  `__enter__` resolves the endpoint first and consults the cool-down only
+  when no dedicated window answers; `_open` reuses that choice;
+  preflight's "browser cool-down" is an ok row that says which windows it
+  holds when the dedicated window answers.
+- **(F-2026-10-06-3) Sends whose close did not complete left their tabs in
+  the window.** By 2026-10-05 the window carried 18 chat tabs that no
+  failure event named, by 10-06 morning 31: sends that posted and whose
+  tab close did not finish under the load (the attached watchdog had no
+  process of ours to kill, so a hung call kept its tab). What changed: the
+  watchdog closes an attached tab through the browser's endpoint when a
+  send outlives its ceiling (`close_tab_from_outside`, two attempts), and
+  `dedicated_browser.py tidy [--apply]` names and closes the leftover chat
+  tabs (a conversation page other than the skill's own kept tab); the daily
+  browser check runs it before its own composer check and the mail carries
+  the count. Measured 10-06 08:46: 31 closed, the window back to the
+  owner's tab and the skill's own.
+
+## Re-validation after the Work surface, 2026-10-01
+
+### The effort pin, 2026-10-01 evening (F-2026-10-01-31, fixed the same evening)
+
+What was believed at 14:00: the page's `f/conversation` body no longer
+carried `thinking_effort` and the reply's metadata no longer recorded it,
+so the level had moved to an unknown carrier. What the evening measured,
+in order and without a `discover_endpoints.py` pass:
+
+| Step | How | What it settled |
+|------|-----|-----------------|
+| the picker's state | a probe tab on the sandbox project page, the model menu opened (no send) | "Instant", Power slider `aria-valuenow` 0 of 0-4; opening the menu makes no request |
+| the slider moved to "High" | `ArrowRight` twice on the slider, then `Escape` | `PATCH /backend-api/settings/user_last_used_model_config?model_slug=gpt-5-6-thinking&thinking_effort=extended`, then `f/conversation/prepare` with `model: gpt-5-6-thinking`, `thinking_effort: extended`; no cookie or localStorage key changed; after a reload the picker still read "High" |
+| S1, a pinned send (`effort=standard`) on the High body | `BrowserSender` through the window, `record_send_body` | original `thinking_effort: extended`, no one-off fields; sent `standard`; the reply recorded `standard` |
+| S2a, the morning's shape reproduced | the same, with `requested_default_model` and `one_off_model_override: true` added before the pin | the reply recorded no effort |
+| S3, the Instant shape with the fix | model `gpt-5-6`, no effort, both one-off fields, then the fixed `rewrite_send_body` | sent `gpt-5-6-thinking` / `standard`, no one-off fields; the reply recorded `standard` |
+| `make live-send`, the effort test | `CHATGPT_LIVE=send`, one send | 1 passed in 62.8 s |
+| the account's record | `GET /backend-api/settings/user` before and after each send | `web`: `gpt-5-6-thinking` / `extended` throughout |
+
+The page names the body's fields in its bundle
+(`one_off_model_override: null != requested_default_model || undefined`),
+and `client_contextual_info.app_surface` reads `codex_browser` in the
+dedicated window; which `juices` surface a send without any pin inherits
+there is not measured, and a pinned send does not depend on it.
+
+The owner then set the default: "Extra High" for the web surface
+(`PATCH ...user_last_used_model_config?model_slug=gpt-5-6-thinking&thinking_effort=max`
+over HTTP at 16:19, 200; `settings/user` read `web` and `default` = `max`
+after, `windows_app` kept `extended`; a probe tab's picker read "Extra
+High"), with the rule behind it recorded in the skill: one preset below Pro
+(`model_settings.below_pro_preset`, `--default below-pro --apply`,
+preflight's drift warning; SKILL.md, "Reasoning effort").
+
+Seen, not measured: right after the window's restart at 16:34 the T3
+upload dry run failed twice (16:36, 16:40) and `attach_files` through the
+client once more at 16:41, each with no "Remove" chip and no send button
+after the upload; from 16:43 every probe through a plain tab, a tab with the
+client's routes, and the client's own `attach_files` (16:50: `POST
+/backend-api/files` 200, the blob `PUT`, `process_upload_stream`, the chip
+in 8.4 s) worked, and T3 passed at 16:52. The composer's `input#upload-files`
+is gone; the generic fallback (`input[type="file"]:not([accept*="image"])`)
+finds the third of three inputs, which is the right one. Whether the first
+minutes after a Chrome start, or a 429 the console showed at 16:43, made
+the three uploads fail is not known; `_upload_files` still reports nothing
+when a chip never appears, which is the next thing to make loud.
+
+What the morning's evidence said, before anything was changed, in the
+order it was read:
+
+| Evidence | Where | What it settled |
+|----------|-------|-----------------|
+| check.log: ALERT 09-29, 09-30, 10-01, "composer did not appear" | `~/.local/state/chatgpt-ops/check.log` | the browser path had failed three days running; HTTP checks in the same runs were ok |
+| the composer-missing screenshot | `~/.local/state/chatgpt-web-operations/screenshots/` | Cloudflare's "Verify you are human", not a logged-out page |
+| the send-fail screenshot of 09-30 18:35 | same directory | the composer filled, on the **Work** surface, model "GPT-6.1 Sol Light" |
+| events.jsonl 09-30: `not-posted` with `post_requests: 0`, then `composer-missing` | `~/.local/state/chatgpt-web-operations/events.jsonl` | no `f/conversation` POST was ever made; later windows were challenged |
+| the user's own Chrome, through Claude in Chrome | chatgpt.com | logged in, on Chat, not challenged; composer, turn and upload selectors unchanged; the toggle is `aria-pressed` buttons |
+| `preflight.py --browser` on the shared profile, then with `RP_BROWSER_PROFILE=` | this session | challenged; GO |
+| `probe_account.py`, `probe_send_gates.py`, `model_settings.py`, `probe_cookies.py` | this session | reads ok, three gates required, five presets unchanged, 33 cookies readable, 90 days left |
+| the T4 tier on fresh profiles, then one send with `--record-send-body`, then an instrumented send | this session, 10:05-10:25 | every scripted send's handshake (sentinel, init, prepare) answered 403; no `f/conversation` request; the page drew the bubble anyway (F-2026-10-01-23) |
+| the same message sent from the user's own Chrome into the sandbox | Claude in Chrome, 10:24 | `f/conversation` 503, then the page's retry; the reply arrived in 8 s; the chat is `6abda84e-2418-83ec-9644-1be4b7bb082c`, deleted in the cleanup |

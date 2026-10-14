@@ -624,6 +624,8 @@ class _FakeProcRoot:
 def test_scripted_browser_pids_of_an_empty_proc_is_empty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # These fake /proc cases model the Linux implementation, even on macOS.
+    monkeypatch.setattr(cc.sys, "platform", "linux")
     monkeypatch.setattr(cc, "Path", lambda p: _FakeProcRoot([]))
     assert cc.scripted_browser_pids() == set()
 
@@ -631,6 +633,8 @@ def test_scripted_browser_pids_of_an_empty_proc_is_empty(
 def test_scripted_browser_pids_matches_only_playwrights_chrome_or_chromium(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # On macOS no /proc scan runs: the dedicated CDP browser is never owned.
+    monkeypatch.setattr(cc.sys, "platform", "linux")
     entries = [
         _FakeProcEntry("111", b"/opt/google/chrome\x00--flag\x00...playwright...\x00"),
         _FakeProcEntry("222", b"/usr/lib/chromium\x00playwright-marker\x00"),

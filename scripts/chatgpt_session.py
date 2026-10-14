@@ -58,8 +58,13 @@ DEFAULT_BASE = "https://chatgpt.com"
 BASE_ENV = "CHATGPT_BASE_URL"
 LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "::1"})
 UA = (
-    "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/140.0 Safari/537.36"
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
+    if sys.platform == "darwin"
+    else (
+        "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/140.0 Safari/537.36"
+    )
 )
 
 # name -> (cookie DB, GNOME-keyring "application" attribute for the OS-crypt key)
@@ -687,6 +692,22 @@ def _cookie_pairs(browser: str) -> tuple[list[tuple[str, str]], dict[str, Any] |
     substitute a fresher session before joining them into a header
     (module docstring, "Session token renewal").
     """
+    if sys.platform == "darwin" and os.environ.get("CHATGPT_MACOS_CDP_MODE") == "1":
+        # Browser-request cookies remain in process memory only.
+        from macos_cdp_auth import browser_cookies
+
+        jar = browser_cookies()
+        pairs = [(str(c["name"]), str(c["value"])) for c in jar]
+        records = [
+            (
+                str(c["name"]),
+                str(c["value"]),
+                float(c["expires"]) if c.get("expires", -1) > 0 else None,
+            )
+            for c in jar
+            if str(c["name"]).startswith(SESSION_COOKIE_PREFIX)
+        ]
+        return pairs, chrome_session_record(records)
     db, app = BROWSERS[browser]
     if not db.exists():
         fail(f"{browser} cookie DB not found at {db}")
@@ -751,6 +772,17 @@ def _cookie_header(browser: str) -> str:
 
 def pick_browser(choice: str = "auto") -> str:
     """Return the browser to use; 'auto' picks one with a ChatGPT session."""
+    if sys.platform == "darwin" and os.environ.get("CHATGPT_MACOS_CDP_MODE") == "1":
+        from macos_cdp_auth import endpoint
+
+        if endpoint() is None:
+            fail(
+                "macOS: set RP_BROWSER_CDP=http://127.0.0.1:9233 "
+                "and sign in to the dedicated Chrome profile"
+            )
+        if choice not in ("auto", "chrome"):
+            fail("macOS CDP mode supports only the dedicated Chrome browser")
+        return "chrome"
     if choice != "auto":
         if choice not in BROWSERS:
             fail(f"unknown browser {choice!r}; choose one of {', '.join(BROWSERS)}")

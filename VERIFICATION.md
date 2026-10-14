@@ -1,3 +1,273 @@
+# Re-validation after ChatGPT's page change — 2026-10-01
+
+The owner asked for every feature to be re-checked after ChatGPT changed its
+site. Measured on this Raspberry Pi 5 against the same Pro account, tree
+`0b44c42` plus this day's fixes, between 09:37 and 10:40 local time. The
+2026-09-25 record below stays the acceptance baseline; this section records
+what changed since, what was re-run, and what was found.
+
+## What the page change did to the skill
+
+Two things had broken while every suite stayed green, both found by reading
+the daily check's evidence before changing anything (the order and the
+sources are in `references/failure-atlas.md`, "Re-validation after the Work
+surface, 2026-10-01"):
+
+| Found | Evidence | Fixed by |
+|-------|----------|----------|
+| The home page can open on the new **Work** surface, and a send typed there never posts: every send of 2026-09-30 on the shared profile reported "not posted" with no `f/conversation` request. The Chat/Work toggle the client pressed since 2026-09-27 (a radio named "Chat") is now a group of `aria-pressed` buttons, so the press found nothing | the 2026-09-30 18:35 failure screenshot (Work pressed, "What should we work on?", model "GPT-6.1 Sol Light"); `events.jsonl` (`post_requests: 0`); the user's own Chrome through Claude in Chrome (toggle DOM, composer labels "Ask ChatGPT" / "Work with ChatGPT", the requests a switch fires) | `chatgpt_client.ensure_chat_surface`, run by every path that loads a composer; events `surface-switched` and `work-surface`; preflight's `WORK_FIX`; `page_snapshot` records the toggle and the daily comparison warns on `composer.aria_label` and `surface.found` (F-2026-10-01-20) |
+| The daily browser check read "composer did not appear (logged out or challenged)" on 2026-09-29, 09-30 and 10-01 while the page was Cloudflare's "Verify you are human" interstitial; the shared profile `/tmp/rp-browser-profile` was challenged on every open, a fresh profile was not | the composer-missing screenshot; `preflight.py --browser` on the shared profile (challenged, 09:42) and with `RP_BROWSER_PROFILE=` (GO, 09:44); HTTP reads ok in the same runs; the user's Chrome not challenged | `find_composer` names the challenge page (`challenge_page`), event `challenge-page`, preflight's `CHALLENGE_FIX`; nothing solves or evades it (F-2026-10-01-21) |
+| The first promotion of a page carrying the toggle was refused by the fixture hygiene rule for the "@" in a Tailwind class | `make refresh-dom-fixtures` | `sanitize_html` drops class tokens that start with "@" (F-2026-10-01-22) |
+
+Everything else the selectors read is unchanged on 2026-10-01: the composer
+(`div.ProseMirror[contenteditable][role=textbox]`, in a form), the user-turn
+bubble, the three file inputs (only the "Attach files" one has no image
+filter), the send button appearing only once text is in the composer, and
+the upload chip's "Remove <name>" label. The five Power presets, the four
+effort levels, the three send gates and the server's `last_used_model_config`
+read exactly as on 2026-09-25; the Work surface's own model catalog
+(`tpp/models/`, the `-wm` slugs) is separate and out of scope. The new
+endpoints the page calls are listed in `references/endpoint-discovery.md`,
+"Seen on 2026-10-01".
+
+Each fix was removed once in a throwaway worktree of `0b44c42` with the new
+tests copied in: the 17 named tests failed there (`tests/findings.json`,
+`removed_and_failed`).
+
+## What was run
+
+| Check | Result |
+| --- | --- |
+| `make lint` | Ruff clean, 132 files. |
+| `make test` (T0 and the coverage gate) | 2,425 passed, every module above its gate (95 % core / 90 % other); 2,407 before this day's tests. |
+| `make replay` (tier R) | 40 passed, on the re-recorded `composer` fixture (home page, Chat pressed, the toggle in the markup) and the hand-written `composer-work-synthetic` page. |
+| `make loopback` (tier L) | 43 passed. |
+| `make live-local` (TL) | 4 passed. |
+| `make live-read` (T1) | 39 passed in 166 s. |
+| `make live-write` (T2) | 4 passed in 67 s: project create/delete, instructions and memory-scope round trips, the sandbox plugin's new release (0.1.1790814504), install, skill switch, uninstall. |
+| `make live-browser` (T3, fresh profile) | 1 passed in 20 s: one upload, the chip's "Remove rp-test-…" label, the send button enabled; `composer-attached` recorded with the new facts (composer "New chat in rp-test-sandbox", no toggle on a project page). |
+| `make live-send` (T4, fresh profiles) | **2 failed, 1 error in 814 s.** Every send's handshake was refused and the client took the page's bubble for a post (F-2026-10-01-23); the teardown then PATCHed a placeholder (F-2026-10-01-25). Both fixed; the tier was not re-run, see below. |
+| HTTP probes by hand | `probe_account.py` CLEAR (`/me` 200); `probe_send_gates.py` three gates required; `model_settings.py` five presets and the server record unchanged; `probe_cookies.py` 33 of 33 cookies readable, session 90 days. |
+| `manage_tunnels.py` by hand | dry run, create (`tunnel_6abda946ace88191a4006cee9715830e`), get, update preview, update `--apply` (read back), delete preview, delete `--confirm` (verified), get 404. The original tunnel untouched. |
+| Connector commands by hand | `create_connector.py` dry run and create (`asdk_app_6abda94ec61c8191929b85ccb2723511` on the existing tunnel); `connect_connector.py` (`link_6abda95c…`, six tools, `full_access`); `list_connectors.py --match` (1 link, 1 app); `refresh_connector.py` (six tools); `delete_connector.py` dry run and `--confirm` (link, then app); the listing and the plugin list empty afterwards. |
+| Other reads by hand | `profile_context.py --project`, `project_settings.py --show`, `manage_plugins.py list` (6), `list_chats.py --match`, `list_projects.py --id --chats`, `list_automations.py --filter all` (31), `list_skills.py --apps` (3 skills, 22 apps), `search_chats.py` (0 hits for a minute-old marker: the indexing lag of 2026-09-25 again). |
+| `preflight.py --browser` by hand | shared profile: challenged (the interstitial), 09:42; `RP_BROWSER_PROFILE=`: GO at 09:44 and 09:58, the second recording promoted as `tests/fixtures/dom/composer.*`. |
+| Scripted sends by hand | 10:19 one logged send (`--record-send-body`): 120 s waiting for a reply stream, no `f/conversation` request; 10:23 an instrumented send: `sentinel/chat-requirements/prepare` 403, `conversation/init` 403 twice, `f/conversation/prepare` 403, the bubble drawn, "Unknown error" under it; 10:33 one more on a fresh profile: the sidebar rendered, the composer never did (`composer-missing`). Cloudflare refuses the scripted window's requests in every shape it has today. |
+| The user's own Chrome | one send into the sandbox at 10:24 (`f/conversation` 503, then the page's retry), the reply in 8 s; the chat was deleted by the T2 sandbox sweep at 10:28. |
+
+**Not verified today, because every scripted window's requests were
+refused:** the batch send (two prompts, one window), a continuation with
+two attachments, `--search`, `--effort` and `--model` pins with the recorded
+body and stream, a connector tool call through `--system-hint`, Deep
+research start/status/fetch/export, `round_status.py --collect` on a live
+reply, `measure_window.py`, `discover_endpoints.py` and `health.py
+--browser`. All of them passed on 2026-09-25, their code did not change
+except for the surface and handshake checks above, and their offline tests
+pass. Run them when a scripted window gets through again (one window at a
+time, `RP_BROWSER_PROFILE=`), in this order: `make live-send`, then the
+sends of `SKILL.md`'s "Combining them" with `--json` records, then Deep
+research, then `measure_window.py`, `discover_endpoints.py` and `health.py
+--browser --record-shapes`, then `clean_chats.py --project <sandbox>
+--delete --backup DIR --apply`.
+
+## The follow-up, same day (F-2026-10-01-26)
+
+The owner asked for the shared-profile problem to be fixed. What changed,
+committed the same day:
+
+- A fresh profile per window is the default; `RP_BROWSER_PROFILE=<dir>` opts
+  into a persistent one. The daily and weekly wrappers in `~/.local/bin` set
+  no profile, so they follow the default without a change. The stale shared
+  profile was renamed `/tmp/rp-browser-profile.stale-20261001` (174 MB; the
+  owner may delete it).
+- After a refusal (`challenge-page`, `handshake-refused`, or a logged-in
+  page whose composer never renders) no scripted window opens for
+  `RP_BROWSER_COOLDOWN_SECONDS` (1800 s; 0 disables). `BrowserSender`
+  refuses with the time the cool-down ends and status 429; `preflight.py`
+  and `health.py` report it as the host check "browser cool-down"; the
+  record is `~/.local/state/chatgpt-web-operations/browser-refusal.json`.
+- `find_composer` names the third shape of the refusal, a logged-in page
+  without a composer, instead of "logged out or challenged".
+
+Not changed, and still the owner's: whether Cloudflare's refusal of this
+host's scripted Chrome is per window or per host (one `preflight.py
+--browser` after a quiet hour, then one a day, settles it: the events file
+and the refusal record keep the answers); `binnacle-jobs`, which failed
+every send on 2026-09-30 for the reasons above and now gets a fast,
+named failure plus the cool-down instead of eleven retries.
+
+Probe after the change, 11:21-11:23 (one fresh window each): `preflight.py
+--browser` GO (the page and its composer load), then one real send into the
+sandbox refused in 40 s with the reason named -- `403 on conversation/init,
+403 on sentinel/chat-requirements/prepare, 403 on conversation/init`, no
+`f/conversation` request -- and the cool-down set until 11:53. So at 11:23
+the browser send path is still refused on this host while every HTTP path
+works; the client now says so at once instead of after five minutes.
+
+## The dedicated browser window (2026-10-01, afternoon)
+
+The owner's decision after the morning: a browser only for what HTTP cannot
+do, and that browser is one the owner launched and logged in to. The
+experiment before any code changed, 11:38-11:45: a Chrome started by hand
+with its own profile (`~/.local/share/chatgpt-web-operations/chrome`) and
+`--remote-debugging-port=9222`, the owner logged in to chatgpt.com in it,
+and a scratch Playwright script attached over CDP, opened a tab on the
+sandbox project, filled the composer with the skill's own page functions
+and clicked send:
+
+| What | Result |
+| --- | --- |
+| `navigator.webdriver` in that tab | false (a normally launched browser) |
+| `conversation/init`, `sentinel/chat-requirements/prepare`, `finalize`, `f/conversation/prepare` | all 200 (the scripted window: all 403 at 11:22) |
+| `f/conversation` | 200; the reply `RP-CDP-c5183fa9` in 10 s; the address `/c/6abdbaea-…` |
+| read back, backup, delete over HTTP | `read_chat.py`: the turn finished (`gpt-5-6`, no effort); `clean_chats.py --id --delete --backup --apply`; 404 afterwards |
+
+Then the integration (`dedicated_browser.py`; `BrowserSender._open_attached`;
+`RP_BROWSER_CDP`; preflight's "dedicated browser" check; T3
+`tests/live/test_browser_dedicated.py`), with the offline gates and the
+live tiers below.
+
+| Check through the dedicated window | Result |
+| --- | --- |
+| `preflight.py --browser` | GO, "through the dedicated browser at http://127.0.0.1:9222"; the window's own tab untouched. |
+| `send_prompt.py` (one prompt, sandbox) | posted with a real id at once, reply in 73 s, renamed, deleted, 404. |
+| `make live-browser` (T3) | 2 passed: the upload dry run (chip "Remove rp-test-…", send enabled) and the window check; `composer-attached` recorded. |
+| `make live-send` (T4), first run | 1 passed (pin/unpin/archive/unarchive on a minted chat), 2 failed: the effort pin on the window's "Auto" model recorded no effort (F-2026-10-01-30), and the round trip's conversation snapshot waited on a chat page's hidden composer (F-2026-10-01-27). |
+| `make live-send` (T4), after the fixes | 2 passed (the chat flags and the CLI round trip with its attachment, backup and 404; `conversation` and `composer-filled` recorded and promoted), 1 failed: the effort pin, whose cause was found and fixed the same evening (F-2026-10-01-31, the table below). |
+| batch send, two prompts in one window | both posted with real ids, both replies exact, both renamed. |
+| continuation with two attachments | failed on the chat page's hidden composer (F-2026-10-01-27); fixed, not re-run. |
+| `--search --effort standard --record-send-body` | posted; the reply used web search (`search=yes`) and the recorded body carried `search` and `standard`; the model stayed `gpt-5-6`, so no effort was recorded (F-2026-10-01-30); the stream wait never ended and the outer 20-minute timeout killed the command (F-2026-10-01-28). |
+| `--model gpt-5-6-instant` | the reply recorded `gpt-5-6-instant`. |
+| connector tool call (`--system-hint plugin:plugin_<app>`) | the MCP server ran `run_command echo RP-CONN-…` at 12:52:31 (`client=openai-mcp`); the recorded body carried the hint; the stream wait hung as above. |
+| Deep research `start`, `status --wait`, `fetch`, `export --force` | DONE in about 3 min; 4,456 Markdown characters and 160 sources; DOCX 14,274 bytes; PDF 39,505 bytes. |
+| `round_status.py --collect [--apply]` on a crafted ledger | the orphan reply classified collectable, archived, the ledger entry marked collected; `review_topic.py`: no integrity problem. |
+| `measure_window.py`, `health.py --browser`, `preflight.py --browser` | pass whenever the home page is not already open in the owner's tab; from 13:54 all three failed on a tab bounced back to `about:blank` by the duplicate-tab blocker that Chrome sync had installed in the profile (F-2026-10-01-32: measured 14:05, a navigation to the home page sent back in one second, a project page kept). The failure now names the bounce; the extensions are the owner's to remove.; measured again 15:46-15:48 after the owner called it a one-off: four checks, two passed (`preflight` twice) and two bounced (`preflight`, `health`), the blocker still enabled in the profile (`disable_reasons: []`). |
+| `discover_endpoints.py` | its own diagnostic browser; 4 endpoints in 20 s. |
+| cleanup | the disposable connector's link and app deleted; 6 sandbox chats backed up and deleted; the window keeps only the owner's tab. |
+
+A note the owner must read: logging the dedicated profile in to the Google
+account signed that Chrome in too, and Chrome synced the owner's 23 Web
+Store extensions into the profile (AdBlock, MetaMask, 2FAS, Bitwarden, the
+Claude and Gemini extensions, a duplicate-tab blocker among them). Every
+send's tab runs them, and the duplicate-tab blocker is what broke the
+browser checks from 13:54 (F-2026-10-01-32). Sign the profile out of Chrome
+(not out of chatgpt.com) or remove the extensions; `dedicated_browser.py
+status` shows when the profile is clean. The skill was not changed to work
+around them.
+
+### The effort pin, the same evening (F-2026-10-01-31)
+
+The owner asked where the effort is configured. Measured through the
+dedicated window, four sandbox sends in all, each deleted afterwards, the
+account's record read before and after each and unchanged
+(`gpt-5-6-thinking` / `extended` for `web`):
+
+| Step | Result |
+| --- | --- |
+| the picker on the sandbox project page (probe tab, no send) | "Instant", Power slider position 0 of 0-4; opening the menu makes no request. |
+| the slider moved to "High" | `PATCH /backend-api/settings/user_last_used_model_config?model_slug=gpt-5-6-thinking&thinking_effort=extended`; the on-load `prepare` then carried `gpt-5-6-thinking` / `extended`; the picker kept "High" across a reload; no cookie or localStorage key changed. |
+| S1: `effort=standard` pinned on the High body | original `extended`, sent `standard`, reply recorded `standard`; the body carried no `requested_default_model` / `one_off_model_override`. |
+| S2a: the morning's shape reproduced (`one_off_model_override: true`, `requested_default_model` added before the pin) | reply recorded no effort -- the cause. |
+| S3: the Instant shape (`model: gpt-5-6`, no effort, both fields) through the fixed rewrite | sent `gpt-5-6-thinking` / `standard` without the fields; reply recorded `standard`. |
+| `make live-send`, `tests/live/test_send_effort.py` | 1 passed in 62.8 s. |
+| fix removed (worktree at the previous commit) | the new rewrite test fails, as the ledger requires. |
+| offline gates with the fix | lint clean; 2,497 passed; replay 40; loopback 43. |
+
+### The owner's default and the window's extensions, 16:19-16:52
+
+| Step | Result |
+| --- | --- |
+| the web default set to "Extra High" | `PATCH /backend-api/settings/user_last_used_model_config?model_slug=gpt-5-6-thinking&thinking_effort=max` over HTTP at 16:19: 200 `{"success": true}`; `settings/user` then read `web` and `default` = `max` (`ios_app` already `max`, `windows_app` kept `extended`); a probe tab in the dedicated window read "Extra High" in its picker. |
+| `model_settings.py` | the report ends "rule 'below-pro' (one preset below Pro): preset 'Extra High' (model=gpt-5-6-thinking effort=max); the record matches it". |
+| the rule in the skill | `below_pro_preset`, `--default below-pro [--apply]`, preflight's warn on drift; unit tests over the recorded catalog and hand-built presets (a renamed Pro found by lane, an effort-less neighbour skipped); T1 `test_model_settings_resolves_the_account_s_preset` and `test_run_group_resolves_what_a_send_inherits`: 2 passed. |
+| the window restarted without extensions | `dedicated_browser.py stop` at 16:34 (the 16:30 attempt had missed the browser: Chrome's rewritten one-string cmdline, fixed by `argv_tokens`), the unit's restart 1, port back in 12 s; `status`: `extensions_disabled` true, 23 Web Store extensions in the profile; `/json`: 0 extension targets (11 before); picker "Extra High"; `preflight --browser` three times: composer appeared, no bounce. |
+| `make live-browser` (T3) | 1 passed, 1 failed at 16:36 and again at 16:40 (the upload dry run: no chip, no send button); 2 passed at 16:52. The client's own `attach_files` at 16:50 showed the upload requests and the chip in 8.4 s (atlas, "Seen, not measured"). |
+| offline gates | lint clean; 2,515 passed once the slider's write endpoint was excused from the recorded-shapes rule; replay 40; loopback 43. |
+
+### The skill's own tab, 17:15-17:18
+
+The owner asked why a tab cannot be specified. `RP_BROWSER_TAB` (`own` by
+default, `url:<prefix>`, `new`) now says which tab of the window a send
+drives; measured with the default:
+
+| Step | Result |
+| --- | --- |
+| `preflight --browser`, no own tab yet | GO; the window went from one page (the owner's) to two; `dedicated-tab.json` written with the new tab's target id; `status`: "the skill's own tab is open at https://chatgpt.com/". |
+| a sandbox send, `--effort extended` pinned | the own tab reused (still two pages), the reply recorded `extended`, the chat deleted; `status` then named the own tab at the chat's address. |
+| `preflight --browser` again | the own tab reused (two pages), composer found; the run's verdict was DO NOT START because the HTTP read path answered 403 and then "rate limited" -- the day's request volume on the read side, not the browser. |
+| two `preflight --browser` at once | both found the composer (one GO, one blocked by the same read-path limit); the lock's fallback to a fresh tab is covered by the unit test and was not caught in the act. |
+| offline gates | lint clean; 2,525 passed; replay 40; loopback 43. |
+
+The read-path 403/429 at 17:17 is a reminder that the live tiers and the
+probes of one afternoon add up; the skill's own cool-down and preflight's
+block are the right answer, and nothing else was run against the account
+until 22:5x, when `/backend-api/me` answered 200 again.
+
+### Detect and report a page change, 22:50-23:25
+
+The owner's second ask. The monitoring that exists lives in `~/.local/bin`
+(daily browser health with the DOM comparison at 05:25, the weekly send at
+Sunday 05:40, the heal agent, mails to the local mailbox); what the skill
+gained and how it was checked:
+
+| Step | Result |
+| --- | --- |
+| page facts on a composer-missing message, event and `chatgpt-composer-missing.json` | unit tests over a faked page: the message ends `[page: challenge=no, login=no, composers=0 (0 hidden), toggle=yes, attach-menu=no, picker=no, title=chatgpt]`, the event carries the compact facts, the JSON beside the screenshot carries no markup. |
+| ten more drift facts, and the stale-fixture note | `preflight --browser` at 23:13 through the dedicated window: "the page matches the fixture recorded 2026-09-30T23:58:56Z; 10 newer fact(s) not in the fixture yet (composers.visible, ..., page.login): re-record and promote". The recording: 1 composer (0 hidden), 3 file inputs (`#upload-files` gone, one accepts any file), attach menu and picker present, no challenge, no login route. |
+| `composer-attached` re-recorded | T3 upload dry run at 23:13 with `RP_SNAPSHOT_DIR`: 1 passed in 44 s; the recording carries one attachment chip. |
+| promotion | `make refresh-dom-fixtures` for `composer` and `composer-attached`; hygiene 3 passed; replay 43 passed (three new cases prove the attach menu, the picker, the file inputs and the flags on every recorded composer). |
+| the send body's shape | `tests/fixtures/send/send_body.shape.json` from the evening's recorded High body (5,180 bytes, no value in it); the morning's Instant body against it reads "send_body: thinking_effort removed" plus two added fields -- the change of 2026-10-01, as the Sunday check would now report it. |
+| wrapper edits | `chatgpt-ops-send-check.sh` compares the shape in its drift step; `chatgpt-ops-heal.sh` puts the page facts in the evidence and tells the agent a repeated "transient" is not one; both parse (`bash -n`), both backed up as `*.bak-20261001`. Not exercised by cron yet: 05:25 and Sunday 05:40 are the first runs. |
+| offline gates | lint clean; the unit suite, replay and loopback green (the numbers in the gate log of this commit). |
+
+### Triage, reproduction and approval, 2026-10-01 23:30 - 2026-10-02 00:10
+
+| Step | Result |
+| --- | --- |
+| `triage.py` over the three real alert runs, in order, scratch registry | 09-29: escalate (unknown: the old client gave no page facts, streak 1); 09-30: escalate-repeat (streak 2); 10-01: escalate-repeat (class known-transient because the read path answered 403 that morning, exact-signature streak 1, browser streak 3). Three mornings, one incident. |
+| `chatgpt-ops-repro.sh` on a copy of the 10-01 run | one read-only `preflight --browser` through the dedicated window, 63 s; the composer appeared; a second call refuses ("already done for this run"). |
+| what the reproduction taught | its row was a warn: `controls.picker` differed from the fixture promoted at 23:13 -- the home page drew the model picker inside the composer on one load and not on the next, nothing else changed. The fact is recorded but no longer compared; a reproduction whose page drifts now escalates as a page change. |
+| `triage.py` with that reproduction | digest (known-transient, 403); with the picker rule gone the same reproduction reads "composer ok". |
+| unit tests | `tests/test_triage.py`: 35 tests, 99% of the module; classes, signatures, streaks, the ok reset, the reproduction's three effects, exit codes. |
+| `chatgpt-ops-approve last` | shows the run's status, triage, reproduction, heal gates, patch stat and report; `--merge`, `--promote` and `--discard` ask before changing anything (not exercised: no heal branch to merge tonight). |
+| wrappers | `chatgpt-ops-check.sh` and `chatgpt-ops-send-check.sh` reproduce, triage and call the agent only on exit 2, and record clean runs with `--ok`; `chatgpt-ops-heal.sh` carries the triage and reproduction in its evidence and allows `chatgpt-ops-repro.sh`; all parse (`bash -n`); backups `*.bak-20261002`. First scheduled proof: 05:25 on 2026-10-02. |
+
+### Four scheduled days, and what they taught, 2026-10-02 to 10-06
+
+| What | Result |
+| --- | --- |
+| 05:25 daily, 10-02 / 10-03 / 10-04 / 10-05 | ALERT (page without a composer at 05:25, reproduced fine at 05:29: digest) / ALERT (read-path 403: digest) / ALERT, 4 blocking (memory 3,372 MB, the cool-down from a refusal at 05:11, read-path 403, the composer held by the cool-down: digest) / GO. The agent never ran on a daily check. |
+| 05:40 weekly, 10-04 | ALERT: T3 failed in 2 s, held by the same cool-down; triage escalate (unknown, reproduction failed the same way); the agent ran (18 turns, 0.83 USD): diagnosis "the client's own cool-down; not transient, four ALERT days running", no patch, three measurements named -- and a quoting defect in the heal evidence builder, fixed the same day. |
+| the events of 10-03/04 | 8 logged-in composer-missing refusals, 6 with `composers=1`; the 10-04 22:00 screenshot shows the whole page on the Work surface, composer present. Load 10 on 4 cores; the dedicated Chrome peaked at 8.7 GB and was restarted by its unit at 06:06 on 10-04; the owner restarted it by hand at 14:04 on 10-05 (Chrome 154.0.8037.97 since the 10-02 upgrade). |
+| the window's tabs | 20 pages on 10-05 evening (18 chat tabs, none named by a failure event), 32 on 10-06 morning. |
+| the three fixes (F-2026-10-06-1, -2, -3) | unit tests fail without them (8 of 8 in a worktree at the previous commit); `dedicated_browser.py tidy` dry run listed 31 leftovers, `--apply` closed 31, the window back to 2 pages; `preflight --browser` right after: composer appeared through the window (the run's verdict blocked only on "rate limited on the read path", at a load of 17.4). |
+| offline gates | lint clean; the unit suite, replay and loopback green (this commit's gate log). |
+
+### The platform.openai.com probe, 2026-10-12
+
+| What | Result |
+| --- | --- |
+| why | the dedicated window's Platform login (separate from chatgpt.com's, not self-renewing) had gone stale unnoticed; the owner redid login and MFA on 2026-10-11 about 21:29Z and approved a read-only probe in the scheduled checks on 2026-10-12 |
+| cookie metadata, 08:5x | auth.openai.com: `oai-client-auth-info` 30.0 d, `__Host-unified_session_manifest` and `unified_session_manifest` 400 d; no platform-specific session cookie (`.platform.openai.com` holds only `__stripe_*`). Names and expiry only, from a copy. |
+| offline gates | `make lint` clean (140 files); `make test` 2,702 passed, `probe_platform.py` 100 % lines; `make replay` 43 passed; `make loopback` 43 passed. |
+| live probe, 09:07:07 local (22:07:07Z) | run once by hand after a send from another session had finished (waited, never forced): `VALID` at `platform.openai.com/home`, `platform_auth_days` 30 (`oai-client-auth-info` 30.0 d, unified session 400.0 d), tab closed, 10.1 s, exit 0; the window back to its 3 tabs. |
+| wrappers | `chatgpt-ops-check.sh --browser` and `chatgpt-ops-send-check.sh` run it (backups `*.bak-20261012`); `bash -n` clean; `--summary` checked on a synthetic `check.log` and `send-check.log` in a temporary HOME (state history, first change, min days, Sunday sample). First scheduled proof: 05:25 on 2026-10-13. |
+
+## What the owner decides
+
+- `/tmp/rp-browser-profile.stale-20261001` (174 MB) was deleted at the owner's request, 2026-10-01 15:4x.
+- Removing the 23 synced extensions from the dedicated profile for good: sign the profile out of Chrome first, then remove them in that window. The window no longer runs them meanwhile (`--disable-extensions`).
+- When to retry `make live-send` and the browser acceptance sends: after a
+  quiet period, one window at a time, with `preflight.py --browser` first.
+
+Raw evidence (logs, the instrumented send's request log and screenshots,
+the recordings before promotion) was kept in the session's scratchpad under
+`/tmp/claude-1000/…/scratchpad/`, which the host clears; the committed
+facts are in `references/failure-atlas.md`, the events file
+`~/.local/state/chatgpt-web-operations/events.jsonl` and the screenshots
+beside it.
+
+
 # Verification record — 2026-09-25
 
 The original 28 public commands were exercised on the installed Raspberry Pi 5 skill.
@@ -320,3 +590,10 @@ names it. Debugging the two defects added two releases to it by hand
 each T2 run adds a release, and a plugin's releases cannot be removed
 either.
 
+## Reading a deleted conversation (2026-09-29, afternoon)
+
+After the P10.4 worker project was deleted, `read_chat.py` on two of its
+recorded chat ids got HTTP 404 with the reason "Conversation has been
+deleted. Start a new chat." and ended in a traceback. After `827a3dd` the
+same live read prints that reason in one line and exits 3. The three new
+offline tests fail with the fix removed (F-2026-09-29-19).

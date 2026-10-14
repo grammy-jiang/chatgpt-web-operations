@@ -14,6 +14,8 @@ against, several of them straight out of ``references/failure-atlas.md``.
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import signal
 import sys
@@ -37,6 +39,11 @@ import fake_playwright as fp  # noqa: E402
 REAL_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 PROVISIONAL_ID = f"WEB:{REAL_ID}"
 REAL_URL = f"https://chatgpt.com/c/{REAL_ID}"
+# The locator find_composer waits on since 2026-10-01: the first *visible*
+# match (a chat page keeps a hidden composer ahead of the thread's own).
+VISIBLE_COMPOSER = (
+    f"{cc.COMPOSER_SELECTOR} >> filter({sorted({'visible': True}.items())!r})"
+)
 PROVISIONAL_URL = f"https://chatgpt.com/c/{PROVISIONAL_ID}"
 
 DIALOG_SELECTOR = '[role="dialog"], [role="alertdialog"]'
@@ -174,6 +181,15 @@ def _calls(page: fp.Page, method: str, selector: str | None = None) -> list[tupl
         and c[2] == method
         and (selector is None or c[1] == selector)
     ]
+
+
+def _events() -> list[dict]:
+    """The events this test's sender recorded (tests/conftest.py points
+    RP_EVENTS_FILE into tmp_path)."""
+    path = Path(os.environ["RP_EVENTS_FILE"])
+    if not path.is_file():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
 def _page_calls(page: fp.Page, method: str) -> list[tuple]:
@@ -924,7 +940,7 @@ def test_composer_returns_the_locator_once_it_is_visible(make_sender) -> None:
     composer = sender._composer()
 
     assert composer.selector == cc.COMPOSER_SELECTOR
-    waits = _calls(page, "wait_for", cc.COMPOSER_SELECTOR)
+    waits = _calls(page, "wait_for", VISIBLE_COMPOSER)
     assert waits and waits[0][4]["state"] == "visible"
 
 
@@ -977,7 +993,7 @@ def test_probe_composer_loads_the_new_chat_page_then_waits_for_the_composer(
     gotos = _page_calls(page, "goto")
     assert gotos and gotos[0][2] == ("https://chatgpt.com/g/g-p-abc/project",)
     assert gotos[0][3]["wait_until"] == "domcontentloaded"
-    waits = _calls(page, "wait_for", cc.COMPOSER_SELECTOR)
+    waits = _calls(page, "wait_for", VISIBLE_COMPOSER)
     assert waits and waits[0][4]["state"] == "visible"
 
 
@@ -1403,6 +1419,730 @@ def test_send_toggles_the_chat_surface_when_unchecked(make_sender) -> None:
     assert len(_calls(page, "click", toggle_key)) == 1
 
 
+def test_send_presses_chat_when_the_page_opened_on_the_work_surface(make_sender):
+    """Since 2026-10-01 the toggle is a group of aria-pressed buttons and the
+    composer's own label says which surface the page is on. A page that
+    opens on Work (the shared profile did on 2026-09-30, and every send
+    typed its text there and never posted) has Chat pressed before anything
+    is filled; the switch is an event, so the digest counts how often the
+    page opens there."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    _wire_click_send_success(page)
+    _wire_post_confirmed(page)
+    page.url = fp.sequence(REAL_URL)
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        attributes=fp.sequence(
+            {"aria-label": "Work with ChatGPT"}, {"aria-label": "Ask ChatGPT"}
+        ),
+    )
+    page.set_locator(cc.SURFACE_UNPRESSED_SELECTOR, count=1, visible=True)
+
+    assert sender._send("hello", chat=None, name="task") == REAL_ID
+
+    assert len(_calls(page, "click", cc.SURFACE_UNPRESSED_SELECTOR)) == 1
+    assert _calls(page, "fill", cc.COMPOSER_SELECTOR)
+    assert [e["kind"] for e in _events()] == ["surface-switched"]
+
+
+def test_send_stops_naming_the_work_surface_when_chat_cannot_be_pressed(
+    make_sender,
+) -> None:
+    """A page that stays on Work after the press is refused before the
+    fill, with the surface named, a screenshot and its own event: a
+    message typed there never posts through f/conversation, and "not
+    posted" would send the caller back for a retry that cannot work."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    _wire_click_send_success(page)
+    _wire_post_confirmed(page)
+    page.url = fp.sequence("https://chatgpt.com/")
+    page.set_locator(
+        cc.COMPOSER_SELECTOR, attributes={"aria-label": "Work with ChatGPT"}
+    )
+    page.set_locator(cc.SURFACE_UNPRESSED_SELECTOR, count=1, visible=True)
+
+    with pytest.raises(cc.TransportError, match="Work surface"):
+        sender._send("hello", chat=None, name="task")
+
+    assert len(_calls(page, "click", cc.SURFACE_UNPRESSED_SELECTOR)) == 1
+    assert _calls(page, "fill", cc.COMPOSER_SELECTOR) == []
+    assert [e["kind"] for e in _events()] == ["work-surface"]
+    assert _page_calls(page, "screenshot")
+
+
+def test_the_composer_probe_refuses_the_work_surface_without_a_toggle(
+    make_sender,
+) -> None:
+    """preflight --browser and measure_window go through the same
+    ``_load_composer``: a Work composer with no toggle to press is the same
+    refusal, so the morning check names the surface instead of passing."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    page.url = fp.sequence("https://chatgpt.com/")
+    page.set_locator(
+        cc.COMPOSER_SELECTOR, attributes={"aria-label": "Work with ChatGPT"}
+    )
+
+    with pytest.raises(cc.TransportError, match="Work surface"):
+        sender._probe_composer()
+
+    assert _calls(page, "click") == []
+    assert [e["kind"] for e in _events()] == ["work-surface"]
+
+
+def test_send_failure_evidence_is_read_on_the_owner_thread(make_sender, monkeypatch):
+    """F-2026-10-01-24: the screenshot and the rate-limit notice of a failed
+    send were read from the calling thread, which Playwright's sync objects
+    refuse ("Cannot switch to a different thread"), so a real failure never
+    had a screenshot and never saw the notice. Both reads now run on the
+    owner thread, whose name the executor prefixes with "chatgpt-send"."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    seen: list[str] = []
+    real_screenshot = page.screenshot
+
+    def screenshot(**kw):
+        seen.append(threading.current_thread().name)
+        real_screenshot(**kw)
+
+    page.screenshot = screenshot  # type: ignore[method-assign]
+    page.set_locator(
+        cc.BrowserSender.RATE_LIMIT_MODAL, count=1, texts=["Too many requests."]
+    )
+
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(sender, "_send", boom)
+    with pytest.raises(cc.TransportError) as excinfo:
+        sender.send("hi")
+
+    assert excinfo.value.status == 429
+    assert seen and all(name.startswith("chatgpt-send") for name in seen)
+    assert [e["kind"] for e in _events()] == ["send-error"]
+    assert _events()[0]["screenshot"].endswith("chatgpt-send-error.png")
+
+
+def test_a_missing_composer_on_a_logged_in_page_starts_the_cooldown(make_sender):
+    """The refusal's third shape (2026-10-01 10:33): logged in, no composer,
+    no challenge widget. Its event says logged_in and the cool-down starts,
+    so the next window is not opened into the same wall."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    page.url = fp.sequence("https://chatgpt.com/g/g-p-x/project")
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    page.set_locator(cc.LOGGED_IN_SELECTOR, count=14)
+
+    with pytest.raises(cc.TransportError, match="requests are being refused"):
+        sender._probe_composer()
+
+    events = _events()
+    assert [e["kind"] for e in events] == ["composer-missing"]
+    assert events[0]["logged_in"] is True
+    left, record = cc.cooldown_remaining()
+    assert left > 0
+    assert record["kind"] == "composer-missing"
+
+
+def test_a_composer_missing_event_carries_the_page_facts_and_writes_them(
+    make_sender, monkeypatch
+):
+    """2026-10-01 evening: beside the screenshot, the page's facts
+    (attributes only, no markup) as chatgpt-composer-missing.json, and the
+    compact ones in the event, so a morning mail or the heal evidence can
+    tell a challenge from a login page from a changed page."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    page.url = fp.sequence("https://chatgpt.com/")
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    page.set_evaluate_result(
+        "page_snapshot",
+        {
+            "url": "https://chatgpt.com/",
+            "composer": {"found": False, "count": 0, "matched": []},
+            "composers": {"total": 2, "visible": 0, "hidden": 2},
+            "surface": {"found": True, "buttons": 2, "pressed": ["true", "false"]},
+            "controls": {"attach_menu": True, "picker": False, "remove_chips": 0},
+            "page": {"title_kind": "chatgpt", "challenge": False, "login": False},
+            "html": {"composer": "<form><p>secret</p></form>", "turns": []},
+        },
+    )
+
+    # two composers in the page, both hidden: since 2026-10-06 that is a
+    # slow render (one more wait, then the slow-render reason), never a
+    # refusal; the facts still travel with the event and the file
+    monkeypatch.setattr(cc, "COMPOSER_SLOW_SECONDS", 1.0)
+    with pytest.raises(cc.TransportError, match="slow, not a refusal"):
+        sender._probe_composer()
+
+    event = _events()[-1]
+    assert event["kind"] == "composer-missing"
+    assert event["slow_render"] is True
+    assert event["page"] == {
+        "challenge": False,
+        "login": False,
+        "composers": 2,
+        "hidden": 2,
+        "toggle": True,
+        "attach_menu": True,
+        "picker": False,
+        "title": "chatgpt",
+    }
+    written = Path(os.environ["RP_SCREENSHOT_DIR"]) / "chatgpt-composer-missing.json"
+    record = json.loads(written.read_text(encoding="utf-8"))
+    assert record["composers"] == {"total": 2, "visible": 0, "hidden": 2}
+    assert "html" not in record and "secret" not in written.read_text()
+    assert record["recorded_at"]
+
+
+def test_a_slow_render_is_an_event_and_never_a_refusal(make_sender, monkeypatch):
+    """F-2026-10-06-1: the composer is in the page but not visible in time.
+    The event says slow_render, the cool-down does not start, so the next
+    send (and the daily check) are not held for 30 minutes."""
+    monkeypatch.setattr(cc, "COMPOSER_SLOW_SECONDS", 1.0)
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    page.url = fp.sequence("https://chatgpt.com/g/g-p-x/project")
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=1,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    page.set_locator(cc.LOGGED_IN_SELECTOR, count=14)
+    page.set_evaluate_result(
+        "page_snapshot",
+        {
+            "url": "https://chatgpt.com/g/g-p-x/project",
+            "composer": {"found": True, "count": 1, "matched": []},
+            "composers": {"total": 1, "visible": 1, "hidden": 0},
+            "surface": {"found": True, "buttons": 2, "pressed": ["false", "true"]},
+            "controls": {"attach_menu": True, "picker": True, "remove_chips": 0},
+            "page": {"title_kind": "chatgpt", "challenge": False, "login": False},
+            "html": {"composer": "", "turns": []},
+        },
+    )
+
+    with pytest.raises(cc.TransportError, match="slow, not a refusal"):
+        sender._probe_composer()
+
+    event = _events()[-1]
+    assert event["kind"] == "composer-missing"
+    assert event["slow_render"] is True and event["logged_in"] is True
+    assert event["page"]["composers"] == 1
+    assert cc.cooldown_remaining() == (0.0, {})
+
+
+def test_the_cooldown_holds_scripted_windows_only(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    """F-2026-10-06-2: on 2026-10-04 a refusal at 05:11 held the daily
+    check at 05:25 and the weekly send at 05:40 although the dedicated
+    window was fine. A send that attaches is not the window Cloudflare
+    refused, so the cool-down does not hold it."""
+    monkeypatch.setattr(cc, "COOLDOWN_SECONDS", 1800.0)
+    cc.note_refusal("composer-missing", "https://chatgpt.com/", "refused")
+    monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "http://127.0.0.1:9222")
+    browser = fp.Browser()
+    browser.contexts = [fp.BrowserContext()]
+    fake_pw.chromium.connect_result = browser
+    sender = make_sender()
+    with sender:
+        assert sender.attached_to == "http://127.0.0.1:9222"
+        assert fake_pw.chromium.connect_over_cdp_calls == ["http://127.0.0.1:9222"]
+    assert fake_pw.chromium.launch_calls == []
+    # and the scripted path is still held
+    monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "")
+    with pytest.raises(cc.TransportError, match="cool-down ends at"), make_sender():
+        pass
+
+
+def test_watchdog_closes_an_attached_tab_from_outside(monkeypatch, make_sender):
+    """F-2026-10-06-3: a hung send on an attached tab has no process to
+    kill; the watchdog closes the tab through the browser's endpoint, which
+    makes the hung call raise and leaves no tab behind."""
+    import urllib.request
+
+    sender = make_sender()
+    sender.attached_to = "http://127.0.0.1:9222"
+    sender._target_id = "T-hung"
+    sender._closed = FakeEvent(closed=False)
+    monkeypatch.setattr(cc, "scripted_browser_pids", lambda: set())
+    monkeypatch.setattr(cc.time, "monotonic", lambda: 10_000.0)
+    opened: list[str] = []
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(
+        urllib.request, "urlopen", lambda url, timeout=0: opened.append(url) or _Resp()
+    )
+    killed = []
+    monkeypatch.setattr(cc.os, "kill", lambda pid, sig: killed.append(pid))
+
+    sender._watchdog(deadline=0.0)
+
+    assert opened == ["http://127.0.0.1:9222/json/close/T-hung"]
+    assert killed == []
+
+
+def test_close_tab_from_outside_tries_twice_under_load(monkeypatch, make_sender):
+    import urllib.request
+
+    sender = make_sender()
+    sender.attached_to = "http://127.0.0.1:9222"
+    sender._target_id = "T"
+    calls: list[str] = []
+
+    def flaky(url, timeout=0):
+        calls.append(url)
+        if len(calls) == 1:
+            raise OSError("busy")
+
+        class _Resp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        return _Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", flaky)
+    assert sender.close_tab_from_outside() is True
+    assert len(calls) == 2
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout=0: 1 / 0)
+    assert sender.close_tab_from_outside() is False
+
+
+def test_a_chat_page_without_a_composer_records_no_refusal(make_sender):
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    chat_url = "https://chatgpt.com/g/g-p-x-s/c/6abdd50c-d21c-83ec-82d4-a5c8e4580113"
+    page.url = fp.sequence(chat_url)
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    page.set_locator(cc.LOGGED_IN_SELECTOR, count=14)
+    page.set_locator(cc.CHAT_TURN_SELECTOR, count=1)  # the thread rendered
+
+    with pytest.raises(cc.TransportError, match="this chat's composer"):
+        sender._load_composer(chat_url)
+
+    assert _events()[-1]["kind"] == "composer-missing"
+    assert _events()[-1]["logged_in"] is True
+    assert cc.cooldown_remaining() == (0.0, {})
+
+
+def test_a_logged_out_page_records_no_refusal(make_sender):
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    page.url = fp.sequence("https://chatgpt.com/")
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+
+    with pytest.raises(cc.TransportError, match="logged out or challenged"):
+        sender._probe_composer()
+
+    assert _events()[0]["logged_in"] is False
+    assert cc.cooldown_remaining() == (0.0, {})
+
+
+def test_profile_dir_from_reads_unset_and_empty_as_a_fresh_profile() -> None:
+    """Since 2026-10-01 a fresh profile per window is the default; a path
+    opts into a persistent one (F-2026-10-01-26)."""
+    assert cc.profile_dir_from(None) is None
+    assert cc.profile_dir_from("") is None
+    assert cc.profile_dir_from("/tmp/rp-browser-profile") == Path(
+        "/tmp/rp-browser-profile"
+    )
+
+
+def test_the_cooldown_is_noted_read_back_and_expires(monkeypatch) -> None:
+    monkeypatch.setattr(cc, "COOLDOWN_SECONDS", 1800.0)
+    assert cc.cooldown_remaining() == (0.0, {})
+    path = cc.note_refusal("handshake-refused", "https://chatgpt.com/", "403 on x")
+    assert path.endswith("browser-refusal.json")
+    left, record = cc.cooldown_remaining()
+    assert 1790 < left <= 1800
+    assert record["kind"] == "handshake-refused"
+    assert record["url"] == "https://chatgpt.com/"
+    assert cc.cooldown_remaining(now=record["at"] + 1801) == (0.0, {})
+    message = cc.cooldown_message(left, record)
+    assert "handshake-refused" in message
+    assert "cool-down ends at" in message
+    assert "RP_BROWSER_COOLDOWN_SECONDS=0" in message
+
+
+def test_the_cooldown_is_off_at_zero_and_ignores_a_damaged_record(monkeypatch):
+    cc.note_refusal("challenge-page", "https://chatgpt.com/", "challenge")
+    monkeypatch.setattr(cc, "COOLDOWN_SECONDS", 0.0)
+    assert cc.cooldown_remaining() == (0.0, {})
+    monkeypatch.setattr(cc, "COOLDOWN_SECONDS", 1800.0)
+    cc.refusal_file().write_text("not json", encoding="utf-8")
+    assert cc.cooldown_remaining() == (0.0, {})
+    cc.refusal_file().write_text('{"at": "soon"}', encoding="utf-8")
+    assert cc.cooldown_remaining() == (0.0, {})
+
+
+def test_enter_opens_no_window_during_the_cooldown(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    """A refused window puts every scripted window on hold: __enter__ fails
+    before the slot, the display and the launch, with the rate-limit status
+    the dispatcher's ladder waits on."""
+    monkeypatch.setattr(cc, "COOLDOWN_SECONDS", 1800.0)
+    cc.note_refusal("handshake-refused", "https://chatgpt.com/", "403 on x")
+    sender = make_sender()
+
+    with pytest.raises(cc.TransportError, match="cool-down ends at") as excinfo, sender:
+        pass
+
+    assert excinfo.value.status == 429
+    assert fake_pw.chromium.launch_calls == []
+    assert fake_pw.chromium.launch_persistent_context_calls == []
+
+
+def test_open_attaches_to_the_dedicated_browser_and_opens_one_tab(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    """2026-10-01: when the dedicated browser answers, a send attaches to it
+    over CDP, takes the window's own context (no cookie injected, no
+    display started, no process of ours to kill), opens one tab, routes on
+    that tab only, and -- with RP_BROWSER_TAB=new, the daytime behaviour --
+    on exit closes the tab and disconnects; the owner's window and tabs
+    stay."""
+    monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "http://127.0.0.1:9222")
+    monkeypatch.setattr(cc, "TAB_MODE", "new")
+    ctx = fp.BrowserContext()
+    browser = fp.Browser()
+    browser.contexts = [ctx]
+    fake_pw.chromium.connect_result = browser
+    sender = make_sender(project="g-p-x")
+
+    with sender:
+        assert fake_pw.chromium.connect_over_cdp_calls == ["http://127.0.0.1:9222"]
+        assert fake_pw.chromium.launch_calls == []
+        assert fake_pw.chromium.launch_persistent_context_calls == []
+        assert sender.attached_to == "http://127.0.0.1:9222"
+        assert sender._own_pids == set()
+        assert ctx.cookies is None
+        assert ctx.routes == []
+        page = sender.page
+        assert [pattern for pattern, _ in page.routes] == [
+            "**/backend-api/**",
+            "**/ces/v1/**",
+        ]
+        assert ctx.pages == [page]
+        assert sender._target_id == "TARGET-1"
+        assert sender.tab_how == "new"
+
+    assert page.closed is True
+    assert browser.closed is True
+    assert _events() == []
+    assert cc.tab_record() == {}  # a per-window tab is never remembered
+
+
+def _attached(fake_pw, monkeypatch, pages=()):
+    """A dedicated browser whose default context already holds ``pages``."""
+    monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "http://127.0.0.1:9222")
+    ctx = fp.BrowserContext()
+    for url in pages:
+        page = fp.Page()
+        page.url = url
+        ctx.pages.append(page)
+    browser = fp.Browser()
+    browser.contexts = [ctx]
+    fake_pw.chromium.connect_result = browser
+    return ctx, browser
+
+
+def test_open_keeps_a_tab_of_its_own_and_finds_it_again(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    """The default since 2026-10-01 evening (RP_BROWSER_TAB=own): the first
+    window makes a tab, remembers its target id and leaves it open; the
+    next window finds that tab by its id, raises it and drives it -- no tab
+    opened or closed per send, the owner's own tab never touched."""
+    ctx, browser = _attached(fake_pw, monkeypatch, pages=["https://chatgpt.com/"])
+    owners_tab = ctx.pages[0]
+    owners_tab.target_id = "T-owner"  # not the id the own tab will carry
+    first = make_sender(project="g-p-x")
+    with first:
+        made = first.page
+        assert first.tab_how == "own-made"
+        assert made is not owners_tab
+        assert ctx.pages == [owners_tab, made]
+    assert made.closed is False
+    assert owners_tab.closed is False
+    assert cc.tab_record()["target_id"] == "TARGET-1"
+    assert browser.closed is True
+
+    again = make_sender(project="g-p-x")
+    with again:
+        assert again.tab_how == "own"
+        assert again.page is made
+        assert ("page", "bring_to_front", (), {}) in made.calls
+        assert ctx.pages == [owners_tab, made]  # nothing new opened
+        assert [pattern for pattern, _ in made.routes][-2:] == [
+            "**/backend-api/**",
+            "**/ces/v1/**",
+        ]
+    assert made.closed is False
+    assert _events() == []
+
+
+def test_open_makes_a_new_own_tab_when_the_remembered_one_is_gone(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    """A remembered id no open tab carries (the owner closed it, or the
+    window restarted): a fresh own tab is made and remembered instead."""
+    ctx, _browser = _attached(fake_pw, monkeypatch, pages=["https://chatgpt.com/"])
+    cc.remember_tab("TARGET-9", "https://chatgpt.com/c/old")
+    sender = make_sender()
+    with sender:
+        assert sender.tab_how == "own-made"
+        assert sender.page is ctx.pages[-1]
+        assert len(ctx.pages) == 2
+    assert cc.tab_record()["target_id"] == "TARGET-1"
+
+
+def test_open_drives_the_tab_named_by_a_url_prefix(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    """RP_BROWSER_TAB=url:<prefix> is "specify which tab": the first open
+    tab whose address starts with the prefix is driven and kept; nothing is
+    opened or closed."""
+    monkeypatch.setattr(cc, "TAB_MODE", "url:https://chatgpt.com/")
+    ctx, _browser = _attached(
+        fake_pw,
+        monkeypatch,
+        pages=[
+            "https://example.invalid/",
+            "https://chatgpt.com/",
+            "https://chatgpt.com/c/x",
+        ],
+    )
+    sender = make_sender()
+    with sender:
+        assert sender.tab_how == "url"
+        assert sender.page is ctx.pages[1]
+        assert len(ctx.pages) == 3
+    assert ctx.pages[1].closed is False
+    assert cc.tab_record() == {}
+
+
+def test_open_falls_back_to_the_own_tab_when_no_tab_matches_the_prefix(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    monkeypatch.setattr(cc, "TAB_MODE", "url:https://chatgpt.com/")
+    ctx, _browser = _attached(fake_pw, monkeypatch, pages=["https://example.invalid/"])
+    sender = make_sender()
+    with sender:
+        assert sender.tab_how == "own-made"
+        assert len(ctx.pages) == 2
+    assert cc.tab_record()["target_id"] == "TARGET-1"
+
+
+def test_open_uses_a_fresh_tab_when_another_window_holds_the_kept_one(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    """Two windows never share one tab: the second finds the lock held,
+    opens a tab of its own and closes it at the end."""
+    import fcntl
+
+    ctx, _browser = _attached(fake_pw, monkeypatch, pages=["https://chatgpt.com/"])
+    lock_path = cc.tab_file().with_suffix(".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a+") as other:
+        fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        sender = make_sender()
+        with sender:
+            assert sender.tab_how == "busy"
+            fresh = sender.page
+            assert fresh is ctx.pages[-1] and len(ctx.pages) == 2
+        assert fresh.closed is True
+    assert cc.tab_record() == {}
+
+
+def test_tab_mode_parts_reads_own_new_and_a_url_prefix() -> None:
+    assert cc.tab_mode_parts("own") == ("own", "")
+    assert cc.tab_mode_parts("") == ("own", "")
+    assert cc.tab_mode_parts("NEW") == ("new", "")
+    assert cc.tab_mode_parts("url:https://chatgpt.com/") == (
+        "url",
+        "https://chatgpt.com/",
+    )
+    assert cc.tab_mode_parts("url:   ") == ("own", "")
+    assert cc.tab_mode_parts("whatever") == ("own", "")
+    assert cc.tab_mode_parts() == cc.tab_mode_parts(cc.TAB_MODE)
+
+
+def test_tab_record_and_lock_survive_a_missing_or_broken_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("RP_TAB_FILE", str(tmp_path / "nowhere" / "tab.json"))
+    assert cc.tab_record() == {}
+    cc.tab_file().parent.mkdir(parents=True)
+    cc.tab_file().write_text("not json")
+    assert cc.tab_record() == {}
+    with cc.tab_lock() as held:
+        assert held is True
+        with cc.tab_lock() as again:
+            assert again is False
+    with cc.tab_lock() as free_again:
+        assert free_again is True
+
+
+def test_sigterm_closes_the_attached_tab_and_leaves_through_systemexit(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    """F-2026-10-01-29: a timeout-killed send left its tab open twice. The
+    window installs a SIGTERM handler (main thread, default disposition
+    only) that closes its own tab through the browser's HTTP endpoint and
+    raises SystemExit, so the with-block's exit runs; the previous
+    disposition is restored on exit."""
+    import urllib.request
+
+    monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "http://127.0.0.1:9222")
+    browser = fp.Browser()
+    browser.contexts = [fp.BrowserContext()]
+    fake_pw.chromium.connect_result = browser
+    installed: list = []
+    monkeypatch.setattr(cc.signal, "getsignal", lambda s: cc.signal.SIG_DFL)
+    monkeypatch.setattr(cc.signal, "signal", lambda s, h: installed.append((s, h)))
+    opened: list[str] = []
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(
+        urllib.request, "urlopen", lambda url, timeout=0: opened.append(url) or _Resp()
+    )
+    sender = make_sender()
+
+    with sender:
+        assert installed and installed[-1][0] == cc.signal.SIGTERM
+        handler = installed[-1][1]
+        with pytest.raises(SystemExit) as excinfo:
+            handler(cc.signal.SIGTERM, None)
+
+    assert excinfo.value.code == 143
+    assert opened == ["http://127.0.0.1:9222/json/close/TARGET-1"]
+    assert installed[-1] == (cc.signal.SIGTERM, cc.signal.SIG_DFL)
+
+
+def test_an_existing_sigterm_handler_is_left_alone(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "")
+    monkeypatch.setattr(cc.signal, "getsignal", lambda s: (lambda *a: None))
+    installed: list = []
+    monkeypatch.setattr(cc.signal, "signal", lambda s, h: installed.append(s))
+    sender = make_sender()
+    with sender:
+        assert sender.close_tab_from_outside() is False  # a scripted window
+    assert installed == []
+
+
+def test_open_uses_a_new_context_when_the_attached_browser_offers_none(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "http://127.0.0.1:9222")
+    browser = fp.Browser()
+    fake_pw.chromium.connect_result = browser
+    sender = make_sender()
+    with sender:
+        assert browser.calls[0][1] == "new_context"
+        assert sender.page is browser.new_context_result.pages[0]
+
+
+def test_open_falls_back_to_the_scripted_window_when_nothing_answers(
+    make_sender, enter_env, fake_pw, monkeypatch
+) -> None:
+    monkeypatch.setattr(cc, "cdp_endpoint", lambda *a, **k: "")
+    sender = make_sender()
+    with sender:
+        assert fake_pw.chromium.connect_over_cdp_calls == []
+        opened = len(fake_pw.chromium.launch_calls) + len(
+            fake_pw.chromium.launch_persistent_context_calls
+        )
+        assert opened == 1
+        assert sender.attached_to == ""
+
+
+def test_cdp_endpoint_reads_off_auto_and_a_url() -> None:
+    alive = {"Browser": "Chrome/154.0.8037.92"}
+    assert cc.cdp_endpoint("off", probe=lambda url: alive) == ""
+    assert cc.cdp_endpoint("auto", probe=lambda url: alive) == cc.DEDICATED_URL
+    assert cc.cdp_endpoint("auto", probe=lambda url: None) == ""
+    assert cc.cdp_endpoint(" OFF ", probe=lambda url: alive) == ""
+    assert (
+        cc.cdp_endpoint("http://127.0.0.1:9333", probe=lambda url: None)
+        == "http://127.0.0.1:9333"
+    )
+
+
+def test_dedicated_browser_version_is_none_when_nothing_answers() -> None:
+    """The T0 socket guard refuses the connection; a refused or absent
+    endpoint is None, never an error."""
+    assert cc.dedicated_browser_version("http://127.0.0.1:1", timeout=0.2) is None
+
+
+def test_a_missing_composer_behind_the_challenge_is_its_own_event(make_sender):
+    """The three-day ALERT of 2026-09-29 to 2026-10-01: the page was
+    Cloudflare's challenge, recorded as ``composer-missing`` like a logged
+    out session. Now the event says which, with the same screenshot."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    page.url = fp.sequence("https://chatgpt.com/")
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    page.set_locator(cc.CHALLENGE_SELECTOR, count=1)
+
+    with pytest.raises(cc.TransportError, match="Verify you are human"):
+        sender._probe_composer()
+
+    assert [e["kind"] for e in _events()] == ["challenge-page"]
+    assert _page_calls(page, "screenshot")
+    left, record = cc.cooldown_remaining()
+    assert left > 0
+    assert record["kind"] == "challenge-page"
+
+
 def test_send_wraps_a_fill_timeout_as_a_rate_limit_when_the_modal_is_present(
     make_sender,
 ) -> None:
@@ -1674,3 +2414,32 @@ def test_chat_load_failure_regex_matches_the_notice_and_its_variants(
     text, matches
 ) -> None:
     assert bool(cc.CHAT_LOAD_FAILURE_RE.search(text)) is matches
+
+
+def test_a_tab_sent_off_chatgpt_right_after_loading_is_named_not_waited_for(
+    make_sender,
+) -> None:
+    """F-2026-10-01-32: a duplicate-tab blocker synced into the dedicated
+    profile bounced every new tab opened on the home page back to where it
+    came from; the probe then waited 60 s for a composer on about:blank and
+    blamed the login. The landing is checked one second after the load."""
+    sender = make_sender()
+    page = fp.Page()
+    sender.page = page
+    page.url = fp.sequence("about:blank")
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+
+    with pytest.raises(cc.TransportError, match="the tab is on 'about:blank'"):
+        sender._probe_composer()
+
+    events = _events()
+    assert [e["kind"] for e in events] == ["navigation-bounced"]
+    assert events[0]["url"] == "about:blank"
+    assert events[0]["screenshot"].endswith("chatgpt-composer-missing.png")
+    assert cc.cooldown_remaining() == (0.0, {})
+    assert cc.page_on_chatgpt("https://chatgpt.com/c/x") is True
+    assert cc.page_on_chatgpt("https://example.com/") is False

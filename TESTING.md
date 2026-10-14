@@ -11,7 +11,7 @@ case it removes what it created.
 
 | Tier | Marker | Opt-in variable | May touch | In `make test` |
 |------|--------|-----------------|-----------|----------------|
-| T0 | none | — | nothing outside this directory: no network, no browser, no cookie DB, no keyring; `tests/conftest.py` also clears `RP_SNAPSHOT_DIR`/`RP_SNAPSHOT_FIXTURE` and points `RP_EVENTS_FILE`/`RP_SCREENSHOT_DIR` into `tmp_path`, so the shell's recording settings never reach a test and no evidence is written outside it | yes |
+| T0 | none | — | nothing outside this directory: no network, no browser, no cookie DB, no keyring; `tests/conftest.py` also clears `RP_SNAPSHOT_DIR`/`RP_SNAPSHOT_FIXTURE` and points `RP_EVENTS_FILE`/`RP_SCREENSHOT_DIR`/`RP_REFUSAL_FILE` into `tmp_path`, so the shell's recording settings never reach a test and no evidence is written outside it | yes |
 | T1 | `live_read` | `CHATGPT_LIVE=read` | the real account, `GET` and the allowlisted read-only search POST; also this machine's own keyring (session-token renewal, `chatgpt_session.py` "Session token renewal") -- the one local write any live tier makes, tests/live/test_read_session_renewal.py | no |
 | T2 | `live_write` | `CHATGPT_LIVE=write` | the sandbox project only: its own gizmo id and conversations inside it; and the sandbox plugin `rp-test-plugin` (a new release, install, a skill switch, uninstall; never a new plugin, which could not be deleted) | no |
 | T3 | `live_browser` | `CHATGPT_LIVE=browser` | one Chrome window on the sandbox project; the composer is filled, send is never clicked | no |
@@ -63,6 +63,11 @@ Enforcement, not promises:
   reads as a pass -- which is exactly how `test_send_chat_flags.py` went
   unrun. A `CHATGPT_LIVE_SENDS` that is not a positive whole number falls
   back to the default, so a typo can never lift the cap.
+- Since 2026-10-01 the browser tiers (T3, T4) attach to the dedicated
+  browser window when it answers at 127.0.0.1:9222 and open one tab in it;
+  `tests/live/test_browser_dedicated.py` (T3) fails when the window is down,
+  because a send would then fall back to the scripted window Cloudflare
+  refuses. `RP_BROWSER_CDP=off` runs the tiers on the scripted window.
 - Browser send paths use the client's process/memory budget. A history
   rate-limit notice alone is not a send failure. Tests must not claim an
   account block merely because that notice is present. Check for an active
@@ -92,7 +97,7 @@ Enforcement, not promises:
 | API contract | T0 | every read command's real `main()` and the preflight and health reads run over payloads synthesized from the recorded response shapes in `tests/fixtures/http`; a call to an endpoint with no recorded shape fails; the fields they read are the ones the daily "api shapes" check guards | `tests/test_api_contracts.py`, 23 command lines; `make contract SHAPES=<run>/http` runs them against a fresh recording |
 | local secrets | TL | the session's first steps on this machine's real secrets: the jar opens from a copy, the keyring key is read over D-Bus once, the session token decrypts, `probe_cookies.py` exits 0 without printing a value, the keyring's own session record has an expiry, and the later of the two copies is the one a session uses | `tests/local/test_local_secrets.py`, daily before `health.py` |
 | real HTTP path | L | the client's own transport: `Session._request` through urllib and a socket, `Session.call`'s retries, the authentication ladders (production 30/90/180 s, health 5/10 s) and the rate-limit ladder, the cookie header from a Chrome jar, the renewal from `Set-Cookie`, every read command's `main()`, and one command as its own process through the system Python; each fault (a Cloudflare 403, 429, 424, a stall, a body cut short, a page instead of JSON) is scripted on the fake server | `tests/loopback/test_loopback.py`: two challenges then a login under each policy (the timeout of 2026-09-23, offline in under a second); a stalled handshake is one failed attempt, not a traceback |
-| recorded page | R | the client's page functions (`find_composer`, `composer_state`, `chat_load_failure`, `page_snapshot`, `text_taken` on a fill) run by a real Chrome against the DOM ChatGPT actually served, as recorded by the daily browser check and promoted into `tests/fixtures/dom`; a UI change fails here offline once the new recording is promoted | `tests/replay/test_dom_replay.py`: the composer selector matches exactly one element on every recorded and synthetic composer; a fill is read back; the "could not load" notice is detected; a snapshot of a snapshot keeps every fact the selectors depend on |
+| recorded page | R | the client's page functions (`find_composer`, `composer_state`, `chat_load_failure`, `page_snapshot`, `text_taken` on a fill, `ensure_chat_surface` on the synthetic Work page and the recorded Chat page) run by a real Chrome against the DOM ChatGPT actually served, as recorded by the daily browser check and promoted into `tests/fixtures/dom`; a UI change fails here offline once the new recording is promoted | `tests/replay/test_dom_replay.py`: the composer selector matches exactly one element on every recorded and synthetic composer; a fill is read back; the "could not load" notice is detected; a snapshot of a snapshot keeps every fact the selectors depend on |
 
 ## 3. Coverage gate
 
@@ -251,7 +256,12 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
     tag names, `id`, `class`, `role`, `aria-*`, `data-*`, `contenteditable`,
     `placeholder`, `type` and `disabled`; and `snapshot.json`: the URL, which
     alternative of `COMPOSER_SELECTOR` matched, the send button's test id or
-    label, the `COMPOSER_STATE_JS` result and the Chrome version.
+    label, the `COMPOSER_STATE_JS` result and the Chrome version. Since
+    2026-10-01 evening also the `composers`, `uploads`, `controls` and
+    `page` groups (ten more drift keys: hidden composers, the file inputs,
+    the attach menu and model picker, the chips, the challenge and login
+    flags); `snapshot_unproven` names the keys a fixture predates, and the
+    same facts end every composer-missing message and event.
   - `preflight.browser_composer_check` calls it when `RP_SNAPSHOT_DIR` is
     set; the daily wrapper passes its run directory. The daily run compares
     `snapshot.json` with `tests/fixtures/dom/composer.json` and reports WARN
@@ -322,7 +332,11 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
     with `--json`. Three facts: exit 0 and a chat id in the JSON; `read_chat
     --text` prints the reply to a nonce; teardown deletes the chat and
     `GET conversation/<id>` returns 404. The test also records
-    `conversation.html` for P1.
+    `conversation.html` for P1 and, since 2026-10-01 evening, the POST body's
+    shape (`send_body.shape.json`, compared by the wrapper with
+    `tests/fixtures/send/send_body.shape.json` through
+    `api_shapes.compare_send_body`: a pinned or server-read field missing or
+    retyped is drift, a new field is information).
   - Schedule: `chatgpt-ops-check.sh --send`, Sunday 05:40, `CHATGPT_LIVE=send
     CHATGPT_LIVE_SENDS=1`, mails on failure. Rule: run `make live-send` after
     any change to `BrowserSender` or `send_prompt.py`, before the commit.
@@ -571,6 +585,31 @@ the one-client work in `PLAN-2026-09-27.md`, section 5 A.
     after the send and reports WARN when either fails, without hiding a
     drift. `chatgpt-chats` and `chatgpt-project` were retired, so no
     installed name is left to call for them.
+- **P14. The dedicated window's platform.openai.com login, sampled on a
+  schedule** (owner's approval, 2026-10-12). Kind: scheduled read-only
+  probe. Tier: none of the test tiers; the probe is a command
+  (`scripts/probe_platform.py`) and its live samples are the wrappers' runs.
+  - Why: the Platform login is separate from chatgpt.com's and does not
+    renew itself; stale, it ends at an MFA challenge only the owner can
+    answer, and nothing saw that until a Platform step failed.
+  - Daily: `chatgpt-ops-check.sh --browser` runs it after `health.py`,
+    under the same browser slot (`RP_BROWSER_WAIT_SECONDS=60`), and logs
+    `platform=<STATE> platform_auth_days=<N>`. `LOGIN_REQUIRED`,
+    `MFA_REQUIRED`, `ERROR`, and 5 days or fewer left are one WARN finding
+    naming the state and the owner's action; never ALERT, never the repair
+    loop (its trigger phrase cannot appear in the finding, which a test
+    checks). The Friday digest prints a "Platform" line: the week's states,
+    the first change, the fewest days, and the Sunday sample.
+  - Weekly: `chatgpt-ops-send-check.sh` runs it once more after the send
+    and logs the same two fields in `send-check.log`; it can turn an OK into
+    a WARN, never more, and never changes an ALERT or FAIL.
+  - Offline: `tests/test_probe_platform.py`: one URL/title fixture per
+    state, the verdict mapping (ok or warn only), the `check.log` fields,
+    the cookie reader over a temporary Chrome-shaped jar with an sqlite
+    authorizer that refuses the `value` and `encrypted_value` columns, the
+    settle loop, the tab's open and close through a fake debugging
+    endpoint, and an AST check that the module can neither click, type,
+    run page script nor open the API-keys page.
 
 ### 6.4 Rules that come with the plan
 
@@ -586,7 +625,7 @@ yet, and the row says why.
 | A finding is closed by three things, never fewer: the fix; a test that fails with the fix removed; an entry in `references/failure-atlas.md`. | `tests/findings.json` is the ledger; `tests/test_findings_ledger.py` checks every listed test exists, the atlas carries each entry's id and phrase, and every "Fixed bugs" bullet dated 2026-09-27 or later carries a ledger id. "Fails with the fix removed" is a date recorded by hand (`removed_and_failed`) until P10 makes it a mutation run. | script, partial |
 | Every endpoint the commands call is recorded or excused by name, and every recorded endpoint is read by a contract. | `tests/test_api_shapes.py` (every endpoint constant in `scripts/` is in `api_shapes.ENDPOINTS` or in its excuse table with a reason) and `tests/test_api_contracts.py` (every registered endpoint has a committed shape and is called by a contract scenario; `read_paths.json` is what the contracts read). | script |
 | Every page selector is a named constant, and every named constant is proven against a recorded page or excused by name. | `tests/test_dom_coverage.py`: no bare string handed to a Playwright locator in the client; every `*_SELECTOR`, `*_JS`, page-facing `*_RE`, `SEND_BUTTONS` and `RATE_LIMIT_MODAL` appears in `tests/replay` or in its `EXCUSED` table with a reason. | script |
-| Every tier runs on a schedule; a tier that runs only by hand has already broken. | The crontab (daily 05:25: tier TL, T0, tier R, tier L, the composer recording; Sunday 05:40: T3, the scripted send with an attachment, the three conversation-side recordings). `chatgpt-ops-check.sh` warns when the weekly job is missing from the crontab or last ran more than 8 days ago. T1 and T2 run with every change to a command and on the acceptance procedure, by hand: no script checks that. | script for the scheduled tiers, prose for T1 and T2 |
+| Every tier runs on a schedule; a tier that runs only by hand has already broken. | The crontab (daily 05:25: tier TL, T0, tier R, tier L, the composer recording, the platform.openai.com probe; Sunday 05:40: T3, the scripted send with an attachment, the three conversation-side recordings, the second platform.openai.com sample). `chatgpt-ops-check.sh` warns when the weekly job is missing from the crontab or last ran more than 8 days ago. T1 and T2 run with every change to a command and on the acceptance procedure, by hand: no script checks that. | script for the scheduled tiers, prose for T1 and T2 |
 | The suite pins its inputs. | `tests/conftest.py` clears the shell's recording settings for every non-live test; `tests/test_harness_replay.py` runs an inner pytest with the settings leaked and checks a plain test sees none. | script |
 | A proposed fix is accepted by the gates, not by whoever wrote it. | `make lint`, `make test`, `make replay FIXTURES=<the fresh recording>`: the same three commands whether a person or the repair loop (6.5) wrote the patch. | script |
 | Cron never commits a fixture; promotion is a reviewed step. | Design: the wrappers hold no `git` command and the repair loop pushes a branch at most, never `main`. | prose |
@@ -625,6 +664,9 @@ differs from its fixture. Limits: one heal per run, one per 6 h
 agent's place (`codex exec --sandbox workspace-write` in the same worktree)
 by changing the one command in the script; the gates do not change.
 
+A platform.openai.com finding (P14) never triggers the loop: it is a WARN
+whose fix is the owner's login, which no agent can make.
+
 What this does not do, on purpose: it never promotes a recording into
 `tests/fixtures/dom`, never merges, never deploys, and never sends a message
 to prove a fix, because a wrong fix that sends is worse than a right fix
@@ -638,6 +680,14 @@ on `main` by `1ab5d55`, quoted the deciding log line, changed nothing,
 noted that the ledger still said `pending` for that fix, and ran
 `make replay FIXTURES=<run>/dom` itself (30 passed). The gates passed;
 `patch.diff` was empty. Evidence: that run's `heal/` directory.
+
+Since 2026-10-01 evening the loop has a first layer in front of the agent
+(the owner's design): `chatgpt-ops-repro.sh` reproduces the failed check the
+same way, read-only, and `scripts/triage.py` (rules, a registry, no model)
+classifies the failure, counts repeats and decides whether the agent runs at
+all; the agent's evidence carries both, and its prompt says what a
+reproduced or unreproduced failure means. `chatgpt-ops-approve RUN_ID` is
+the owner's review step (show, `--merge`, `--promote`, `--discard`).
 
 ### 6.6 Order and rough effort
 

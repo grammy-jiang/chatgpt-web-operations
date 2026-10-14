@@ -41,6 +41,13 @@ RAW_FORM = (
     "<!-- a comment --></FORM>"
 )
 
+RAW_SURFACE = (
+    '<div role="group" aria-label="Composer mode">'
+    '<button type="button" aria-pressed="true" data-state="closed">Chat</button>'
+    '<button type="button" aria-pressed="false" data-state="closed">Work</button>'
+    "</div>"
+)
+
 RAW_SNAPSHOT = {
     "url": "https://chatgpt.com/",
     "composer": {
@@ -65,9 +72,21 @@ RAW_SNAPSHOT = {
         "matched_user": [],
         "matched_any": [],
     },
+    "surface": {"found": True, "buttons": 2, "pressed": ["true", "false"]},
+    # 2026-10-01 evening: the facts beyond the composer (page_facts_compact)
+    "composers": {"total": 1, "visible": 1, "hidden": 0},
+    "uploads": {
+        "inputs": 3,
+        "primary_found": False,
+        "any_file": 1,
+        "accepts": ["", "image/*", "image/*,video/*"],
+    },
+    "controls": {"attach_menu": True, "picker": True, "remove_chips": 0},
+    "page": {"title_kind": "chatgpt", "challenge": False, "login": False},
     "html": {
         "composer": RAW_FORM,
         "turns": ["<article data-testid='conversation-turn-1'>hi</article>"],
+        "surface": RAW_SURFACE,
     },
 }
 
@@ -174,12 +193,37 @@ def test_page_snapshot_sanitizes_the_markup_and_keeps_the_facts() -> None:
     assert facts["html"]["turns"] == [
         f'<article data-testid="conversation-turn-1">{stand_in}</article>'
     ]
+    # The Chat/Work toggle group (2026-10-01): its facts, and its markup with
+    # the buttons' text gone and the pressed state kept.
+    assert facts["surface"] == {
+        "found": True,
+        "buttons": 2,
+        "pressed": ["true", "false"],
+    }
+    assert "Chat" not in facts["html"]["surface"]
+    assert facts["html"]["surface"].count('aria-pressed="true"') == 1
+    assert facts["html"]["surface"].count('aria-pressed="false"') == 1
     js, spec = next(c[2] for c in page.calls if c[0] == "page" and c[1] == "evaluate")
     assert "page_snapshot" in js
     assert spec == {
         "composer": list(cc.COMPOSER_SELECTORS),
         "user_turn": list(cc.USER_TURN_SELECTORS),
         "chat_turn": list(cc.CHAT_TURN_SELECTORS),
+        "surface_group": cc.SURFACE_GROUP_SELECTOR,
+        "upload_primary": cc.UPLOAD_INPUT_SELECTOR,
+        "attach_menu": cc.ATTACH_MENU_SELECTOR,
+        "picker": cc.PICKER_SELECTOR,
+        "challenge": cc.CHALLENGE_SELECTOR,
+        "login": cc.LOGIN_SELECTOR,
+    }
+    # the page facts of 2026-10-01 evening come through as recorded
+    assert facts["composers"] == {"total": 1, "visible": 1, "hidden": 0}
+    assert facts["uploads"]["inputs"] == 3 and facts["uploads"]["any_file"] == 1
+    assert facts["controls"] == {"attach_menu": True, "picker": True, "remove_chips": 0}
+    assert facts["page"] == {
+        "title_kind": "chatgpt",
+        "challenge": False,
+        "login": False,
     }
 
 
@@ -193,8 +237,155 @@ def test_page_snapshot_makes_an_empty_record_from_an_unusable_page(raw) -> None:
     assert facts["composer"] == {}
     assert facts["send_button"] == {}
     assert facts["turns"] == {}
-    assert facts["html"] == {"composer": "", "turns": []}
+    assert facts["surface"] == {}
+    for group in ("composers", "uploads", "controls", "page"):
+        assert facts[group] == {}, group
+    assert facts["html"] == {"composer": "", "turns": [], "surface": ""}
     assert facts["url"] == "https://chatgpt.com/x"
+    assert cc.page_facts_compact(facts) == {}
+    assert cc.page_facts_summary(facts) == ""
+
+
+def test_page_facts_compact_and_summary_name_what_a_page_without_a_composer_is():
+    """The owner's ask of 2026-10-01 evening: when the composer does not
+    appear, say what the page is instead -- a challenge, a login page, a
+    page with a hidden composer, a page that lost its controls."""
+    facts = json.loads(json.dumps(RAW_SNAPSHOT))
+    assert cc.page_facts_compact(facts) == {
+        "challenge": False,
+        "login": False,
+        "composers": 1,
+        "hidden": 0,
+        "toggle": True,
+        "attach_menu": True,
+        "picker": True,
+        "title": "chatgpt",
+    }
+    facts["page"] = {"title_kind": "other", "challenge": True, "login": False}
+    facts["composers"] = {"total": 2, "visible": 0, "hidden": 2}
+    facts["controls"] = {"attach_menu": False, "picker": False, "remove_chips": 0}
+    facts["surface"] = {"found": False}
+    assert cc.page_facts_summary(facts) == (
+        "page: challenge=yes, login=no, composers=2 (2 hidden), toggle=no, "
+        "attach-menu=no, picker=no, title=other"
+    )
+    # a page that answered with some groups but no page facts still counts
+    assert cc.page_facts_compact({"surface": {"found": True}})["toggle"] is True
+    assert cc.page_facts_compact({"composer": {"found": True}}) == {}
+
+
+def test_snapshot_drift_skips_facts_the_fixture_never_recorded_and_names_them():
+    """A fixture promoted before a fact joined SNAPSHOT_DRIFT_KEYS lacks
+    it: that is not drift (the page did not change, the keys did), it is an
+    unproven fact -- named by snapshot_unproven until a re-recording is
+    promoted. A fixture that has the fact still compares it."""
+    fresh = json.loads(json.dumps(RAW_SNAPSHOT))
+    older = {
+        k: v
+        for k, v in json.loads(json.dumps(RAW_SNAPSHOT)).items()
+        if k not in ("composers", "uploads", "controls", "page")
+    }
+    assert cc.snapshot_drift(fresh, older) == []
+    unproven = cc.snapshot_unproven(older)
+    assert "composers.visible" in unproven and "page.challenge" in unproven
+    assert "composer.found" not in unproven
+    assert cc.snapshot_unproven(RAW_SNAPSHOT) == []
+    current = json.loads(json.dumps(RAW_SNAPSHOT))
+    fresh["composers"]["hidden"] = 1
+    fresh["uploads"]["primary_found"] = True
+    fresh["page"]["login"] = True
+    assert cc.snapshot_drift(fresh, current) == [
+        "composers.hidden",
+        "uploads.primary_found",
+        "page.login",
+    ]
+
+
+def _slow_page(monkeypatch, *, visible_eventually: bool) -> fp.Page:
+    """A page whose composer the first wait does not see while the facts
+    count one: the slow render of 2026-10-03/04 (F-2026-10-06-1)."""
+    fp.install(monkeypatch)
+    page = fp.Page()
+    page.url = "https://chatgpt.com/g/g-p-x/project"
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=1,
+        raises={
+            "wait_for": fp.sequence(fp.PlaywrightTimeoutError("t"), None)
+            if visible_eventually
+            else fp.PlaywrightTimeoutError("t")
+        },
+    )
+    page.set_locator(cc.LOGGED_IN_SELECTOR, count=14)  # the sidebar is there
+    raw = json.loads(json.dumps(RAW_SNAPSHOT))
+    raw["composers"] = {"total": 1, "visible": 1, "hidden": 0}
+    page.set_evaluate_result("page_snapshot", raw)
+    return page
+
+
+def test_find_composer_waits_once_more_when_the_composer_is_in_the_page(monkeypatch):
+    """F-2026-10-06-1: six of eight "logged-in page without a composer"
+    refusals of 2026-10-03/04 were pages whose facts counted one composer.
+    The wait that timed out gets COMPOSER_SLOW_SECONDS more; the composer
+    that then shows is returned like any other, and nothing is a refusal."""
+    monkeypatch.setattr(cc, "COMPOSER_SLOW_SECONDS", 7.0)
+    page = _slow_page(monkeypatch, visible_eventually=True)
+    composer = cc.find_composer(page, timeout_ms=5)
+    assert composer.count() == 1
+    waits = [c for c in page.calls if c[0] == "locator" and c[2] == "wait_for"]
+    assert len(waits) == 2
+    assert waits[1][4].get("timeout") == 7000
+
+
+def test_find_composer_names_a_slow_render_and_not_a_refusal(monkeypatch) -> None:
+    monkeypatch.setattr(cc, "COMPOSER_SLOW_SECONDS", 7.0)
+    page = _slow_page(monkeypatch, visible_eventually=False)
+    with pytest.raises(cc.TransportError) as excinfo:
+        cc.find_composer(page, timeout_ms=5000)
+    message = str(excinfo.value)
+    assert cc.SLOW_RENDER_REASON in message
+    assert "(12 s)" in message
+    assert cc.REFUSED_REASON not in message
+    assert "[page: challenge=no, login=no, composers=1 (0 hidden)" in message
+    assert cc.composer_in_page_but_slow({}) is False
+
+
+def test_find_composer_s_message_carries_the_page_facts(monkeypatch) -> None:
+    """The three mornings of "logged out or challenged" (2026-09-29 to
+    10-01) now end with what the page is: no challenge, no login route, how
+    many composers the selector matched and whether the controls are there."""
+    fp.install(monkeypatch)
+    page = fp.Page()
+    page.url = "https://chatgpt.com/"
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    raw = json.loads(json.dumps(RAW_SNAPSHOT))
+    raw["composer"] = {"found": False, "count": 0, "matched": []}
+    raw["composers"] = {"total": 0, "visible": 0, "hidden": 0}
+    raw["controls"] = {"attach_menu": False, "picker": False, "remove_chips": 0}
+    page.set_evaluate_result("page_snapshot", raw)
+    with pytest.raises(cc.TransportError) as excinfo:
+        cc.find_composer(page, timeout_ms=5)
+    message = str(excinfo.value)
+    assert "(logged out or challenged)" in message
+    assert message.endswith(
+        "[page: challenge=no, login=no, composers=0 (0 hidden), toggle=yes, "
+        "attach-menu=no, picker=no, title=chatgpt]"
+    )
+    # a page that gives no facts keeps the plain message
+    plain = fp.Page()
+    plain.url = "https://chatgpt.com/"
+    plain.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    with pytest.raises(cc.TransportError) as plain_exc:
+        cc.find_composer(plain, timeout_ms=5)
+    assert "[page:" not in str(plain_exc.value)
 
 
 def test_snapshot_document_wraps_turns_and_composer_without_text_nodes() -> None:
@@ -210,6 +401,21 @@ def test_snapshot_document_wraps_turns_and_composer_without_text_nodes() -> None
     assert '<article id="t"></article>\n<form id="f"></form>' in doc
     assert not re.search(r">\s*[^<\s][^<]*<", doc)
     assert cc.snapshot_document({}).count("<main>") == 1
+    # The Chat/Work toggle group sits between the turns and the composer's
+    # form, the way the page lays them out; absent, it leaves no blank line.
+    with_surface = cc.snapshot_document(
+        {
+            "html": {
+                "composer": '<form id="f"></form>',
+                "turns": ['<article id="t"></article>'],
+                "surface": '<div role="group" id="s"></div>',
+            }
+        }
+    )
+    assert (
+        '<article id="t"></article>\n<div role="group" id="s"></div>\n'
+        '<form id="f"></form>'
+    ) in with_surface
 
 
 def test_snapshot_drift_names_only_the_facts_the_selectors_depend_on() -> None:
@@ -227,6 +433,18 @@ def test_snapshot_drift_names_only_the_facts_the_selectors_depend_on() -> None:
     ]
 
 
+def test_snapshot_drift_names_the_composer_label_and_the_toggle_group() -> None:
+    """Since 2026-10-01 a send would behave differently on a page whose
+    composer says "Work with ChatGPT" (the Work surface) or that has lost
+    the Chat/Work toggle, so both are drift."""
+    fixture = json.loads(json.dumps(RAW_SNAPSHOT))
+    fresh = json.loads(json.dumps(RAW_SNAPSHOT))
+    fresh["composer"]["aria_label"] = "Work with ChatGPT"
+    fresh["surface"]["found"] = False
+    fresh["surface"]["pressed"] = ["false", "true"]  # not compared: churns
+    assert cc.snapshot_drift(fresh, fixture) == ["composer.aria_label", "surface.found"]
+
+
 def test_snapshot_drift_treats_a_missing_group_as_empty() -> None:
     assert cc.snapshot_drift({}, {}) == []
     drift = cc.snapshot_drift({}, RAW_SNAPSHOT)
@@ -239,13 +457,66 @@ def test_snapshot_drift_treats_a_missing_group_as_empty() -> None:
 # ---------------------------------------------------------------------------
 
 
+VISIBLE_COMPOSER = (
+    f"{cc.COMPOSER_SELECTOR} >> filter({sorted({'visible': True}.items())!r})"
+)
+
+
 def test_find_composer_returns_the_locator_once_visible() -> None:
     page = fp.Page()
     page.set_locator(cc.COMPOSER_SELECTOR, count=1)
     composer = cc.find_composer(page, timeout_ms=5)
+    assert composer.selector == cc.COMPOSER_SELECTOR
     assert composer.count() == 1
     waits = [c for c in page.calls if c[2] == "wait_for"]
-    assert waits and waits[0][4] == {"state": "visible", "timeout": 5}
+    # The wait is on the first visible match (2026-10-01: a chat page's first
+    # match is a hidden one); the strict locator is what comes back.
+    assert waits and waits[0][1] == VISIBLE_COMPOSER
+    assert waits[0][4] == {"state": "visible", "timeout": 5}
+
+
+def test_find_composer_waits_out_a_chat_page_s_second_composer(monkeypatch) -> None:
+    """2026-10-01, through the dedicated window: a chat page matched two
+    composers for a moment ("strict mode violation ... resolved to 2
+    elements") and one eight seconds later. The wait is on the first match;
+    the strict locator is returned once only one is left."""
+    monkeypatch.setattr(cc, "COMPOSER_SETTLE_SECONDS", 5.0)
+    page = fp.Page()
+    page.set_locator(cc.COMPOSER_SELECTOR, count=fp.sequence(2, 2, 1))
+    composer = cc.find_composer(page, timeout_ms=5)
+    assert composer.selector == cc.COMPOSER_SELECTOR
+    assert composer.count() == 1
+    waits = [c for c in page.calls if c[2] == "wait_for"]
+    assert waits[0][1] == VISIBLE_COMPOSER
+
+
+def test_find_composer_settles_for_the_visible_composer_when_two_stay(monkeypatch):
+    monkeypatch.setattr(cc, "COMPOSER_SETTLE_SECONDS", 0.05)
+    page = fp.Page()
+    page.set_locator(cc.COMPOSER_SELECTOR, count=2)
+    page.set_locator(VISIBLE_COMPOSER, count=1)
+    assert cc.find_composer(page, timeout_ms=5).selector == VISIBLE_COMPOSER
+    page.set_locator(VISIBLE_COMPOSER, count=2)
+    first = cc.find_composer(page, timeout_ms=5)
+    assert first.selector == VISIBLE_COMPOSER
+    assert first._index == 0  # the first visible one drives the send
+
+
+def test_find_composer_on_a_chat_page_names_the_chat_not_the_window(monkeypatch):
+    """2026-10-01 13:38: a chat page whose composer never rendered was taken
+    for a refused window and started the cool-down for everyone. On a /c/
+    page the reason is the chat's."""
+    fp.install(monkeypatch)
+    page = fp.Page()
+    page.url = "https://chatgpt.com/g/g-p-x-s/c/6abdd50c-d21c-83ec-82d4-a5c8e4580113"
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    page.set_locator(cc.LOGGED_IN_SELECTOR, count=14)
+    with pytest.raises(cc.TransportError, match="this chat's composer never rendered"):
+        cc.find_composer(page, timeout_ms=5)
 
 
 def test_find_composer_raises_the_send_s_logged_out_error_on_a_timeout(
@@ -261,6 +532,68 @@ def test_find_composer_raises_the_send_s_logged_out_error_on_a_timeout(
     )
     with pytest.raises(cc.TransportError, match="logged out or challenged"):
         cc.find_composer(page, timeout_ms=5)
+
+
+def test_find_composer_names_the_cloudflare_challenge_when_its_widget_is_up(
+    monkeypatch,
+) -> None:
+    """The three-day ALERT of 2026-09-29 to 2026-10-01 read "logged out or
+    challenged" while the page was Cloudflare's "Verify you are human"
+    interstitial; the message now says which, and names the profile as
+    the thing to change, never the challenge."""
+    fp.install(monkeypatch)
+    page = fp.Page()
+    page.url = "https://chatgpt.com/"
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    page.set_locator(cc.CHALLENGE_SELECTOR, count=1)
+    with pytest.raises(cc.TransportError, match="Verify you are human") as excinfo:
+        cc.find_composer(page, timeout_ms=5)
+    assert cc.CHALLENGE_REASON in str(excinfo.value)
+    assert "not the account" in str(excinfo.value)
+    assert "logged out" not in str(excinfo.value)
+
+
+def test_find_composer_names_the_refused_requests_on_a_logged_in_page(monkeypatch):
+    """2026-10-01 10:33: the sidebar listed conversations, the main pane
+    stayed blank, no challenge widget; the page's own API requests were
+    refused. Neither "logged out" nor "challenged" was true."""
+    fp.install(monkeypatch)
+    page = fp.Page()
+    page.url = "https://chatgpt.com/g/g-p-x/project"
+    page.set_locator(
+        cc.COMPOSER_SELECTOR,
+        count=0,
+        raises={"wait_for": fp.PlaywrightTimeoutError("t")},
+    )
+    page.set_locator(cc.LOGGED_IN_SELECTOR, count=14)
+    with pytest.raises(cc.TransportError, match="requests are being refused") as exc:
+        cc.find_composer(page, timeout_ms=5)
+    assert cc.REFUSED_REASON in str(exc.value)
+    assert "logged out" not in str(exc.value)
+    assert cc.page_logged_in(page) is True
+    assert cc.page_logged_in(fp.Page()) is False
+
+
+def test_challenge_page_reads_the_widget_or_the_notice_and_survives_a_dead_page():
+    assert cc.challenge_page(fp.Page()) is False
+    by_notice = fp.Page()
+    by_notice.set_locator(fp.key_for_text(cc.CHALLENGE_TEXT_RE), count=1)
+    assert cc.challenge_page(by_notice) is True
+    by_widget = fp.Page()
+    by_widget.set_locator(cc.CHALLENGE_SELECTOR, count=1)
+    assert cc.challenge_page(by_widget) is True
+
+    def gone() -> int:
+        raise RuntimeError("target closed")
+
+    dead = fp.Page()
+    dead.set_locator(cc.CHALLENGE_SELECTOR, count=gone)
+    dead.set_locator(fp.key_for_text(cc.CHALLENGE_TEXT_RE), count=gone)
+    assert cc.challenge_page(dead) is False
 
 
 def test_chat_load_failure_reads_the_notice_and_is_empty_without_it() -> None:
@@ -388,7 +721,10 @@ def test_snapshot_page_reraises_a_transport_error_unchanged(
         count=0,
         raises={"wait_for": fp.PlaywrightTimeoutError("t")},
     )
-    with pytest.raises(cc.TransportError, match="logged out or challenged"):
+    # since 2026-10-06 the snapshot's own facts count a composer, so the
+    # error is the slow-render one; what matters here is that it passes
+    # through unchanged
+    with pytest.raises(cc.TransportError, match="composer did not appear"):
         sender.snapshot_page(tmp_path)
 
 
@@ -405,6 +741,23 @@ def test_the_selector_unions_are_the_joined_alternatives() -> None:
         '[data-message-author-role], [data-user-message-bubble="true"], '
         'article[data-testid^="conversation-turn"]'
     )
+
+
+def test_sanitize_drops_the_at_sign_class_tokens_the_hygiene_rule_refuses() -> None:
+    """The Chat/Work toggle's buttons (2026-10-01) carry Tailwind
+    container-query classes such as ``@max-xs/home-mode-toggle:px-2.5``;
+    the first promotion of a page with the toggle was refused for the "@"
+    (``tests/test_fixture_hygiene.py``). The token goes, the rest stays."""
+    out = cc.sanitize_html(
+        '<button class="rounded-full @max-xs/home-mode-toggle:px-2.5 px-10"'
+        ' aria-pressed="true">Chat</button>'
+    )
+    stand_in = '<br data-snapshot-text="">'
+    assert out == (
+        f'<button class="rounded-full px-10" aria-pressed="true">{stand_in}</button>'
+    )
+    assert "@" not in out
+    assert cc.sanitize_html('<div class="@container"></div>') == '<div class=""></div>'
 
 
 def test_sanitize_keeps_the_accept_attribute_a_selector_reads() -> None:

@@ -230,6 +230,73 @@ def test_default_output_message_table_exits_0_when_finished(
     assert "turn finished: yes" in capsys.readouterr().out
 
 
+class _ReadTransportError(RuntimeError):
+    def __init__(self, message: str, status: int = 0) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+class _FailingReadClient(_FakeReadClient):
+    TransportError = _ReadTransportError
+
+
+class _FailingConvSession:
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+
+    def get_conversation(self, chat_id: str) -> dict:
+        assert chat_id == "chat-123"
+        raise self.exc
+
+
+def _wire_failing_read(monkeypatch, exc: Exception) -> None:
+    monkeypatch.setattr(
+        read_chat, "load_client", lambda: _FailingReadClient([], final=False)
+    )
+    monkeypatch.setattr(
+        read_chat, "open_session", lambda *a, **k: _FailingConvSession(exc)
+    )
+
+
+DELETED_404 = (
+    "GET /backend-api/conversation/chat-123 -> HTTP 404: {'error': "
+    '\'{"detail":{"message":"Conversation has been deleted. Start a new chat.",'
+    '"code":"conversation_deleted"}}\'}'
+)
+
+
+def test_a_deleted_conversation_prints_the_server_reason_and_exits_3(
+    monkeypatch, capsys
+) -> None:
+    """A deleted chat used to end in a TransportError traceback (2026-09-29)."""
+    _wire_failing_read(monkeypatch, _ReadTransportError(DELETED_404, 404))
+    assert read_chat.main(["https://chatgpt.com/c/chat-123", "--text"]) == 3
+    out = capsys.readouterr().out
+    assert out.strip() == (
+        "conversation chat-123: Conversation has been deleted. "
+        "Start a new chat. (HTTP 404)"
+    )
+
+
+def test_a_404_without_a_reason_says_not_found(monkeypatch, capsys) -> None:
+    _wire_failing_read(monkeypatch, _ReadTransportError("GET x -> HTTP 404: {}", 404))
+    assert read_chat.main(["chat-123"]) == 3
+    assert (
+        capsys.readouterr().out.strip() == "conversation chat-123: not found (HTTP 404)"
+    )
+
+
+def test_another_failed_read_is_one_line_and_exits_4(monkeypatch, capsys) -> None:
+    """A 429 may pass; it must not look like a missing chat or a traceback."""
+    _wire_failing_read(
+        monkeypatch, _ReadTransportError("GET x -> HTTP 429: too many requests", 429)
+    )
+    assert read_chat.main(["chat-123", "--effort"]) == 4
+    out = capsys.readouterr().out
+    assert out.startswith("conversation chat-123: read failed: GET x -> HTTP 429")
+    assert "turn finished" not in out
+
+
 # ---------------------------------------------------------------------------
 # round_status.main -- branches test_commands.py's _workdir scenarios miss
 # ---------------------------------------------------------------------------

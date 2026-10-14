@@ -61,8 +61,27 @@ EXCUSED = {
     ),
     "RATE_LIMIT_MODAL": "the rate-limit notice has not been recorded either",
     "CHAT_SURFACE_RADIO_RE": (
-        "the Chat/Work toggle is absent on every recorded page, and a send "
-        "leaves it alone when absent"
+        "the radio the Chat/Work toggle was until 2026-09-27; since 2026-10-01 "
+        "the toggle is the aria-pressed group SURFACE_GROUP_SELECTOR, which "
+        "tier R proves, and the radio is pressed only when it is present"
+    ),
+    "CHALLENGE_SELECTOR": (
+        "Cloudflare's challenge page is never recorded: a recording keeps no "
+        "URL (the widget is an iframe src) and no text, and the page has no "
+        "composer to snapshot"
+    ),
+    "CHALLENGE_TEXT_RE": (
+        "the challenge notice is text, which no recording keeps (see "
+        "CHALLENGE_SELECTOR)"
+    ),
+    "LOGIN_SELECTOR": (
+        "no logged-out page is recorded (a recording keeps no URL, and the "
+        "login route is an href); the selector is best effort for the page "
+        "facts a composer-missing message carries (2026-10-01 evening)"
+    ),
+    "LOGGED_IN_SELECTOR": (
+        "the sidebar's conversation links are hrefs, which a recording drops; "
+        "the only logged-in sign a page without a composer has"
     ),
 }
 
@@ -138,6 +157,9 @@ def test_the_client_has_the_page_constants_this_rule_expects() -> None:
         "CHAT_RETRY_BUTTON_RE",
         "UPLOAD_INPUT_FALLBACK_SELECTOR",
         "SEND_BUTTONS",
+        "SURFACE_GROUP_SELECTOR",
+        "SURFACE_UNPRESSED_SELECTOR",
+        "WORK_COMPOSER_LABEL_RE",
     ):
         assert expected in names, names
 

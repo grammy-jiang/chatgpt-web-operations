@@ -38,7 +38,7 @@ pytestmark = pytest.mark.live_read
 
 STATES = {"ok", "warn", "block"}
 
-# The ten checks a bare `preflight.py` makes, in GROUP_ORDER.
+# The twelve checks a bare `preflight.py` makes, in GROUP_ORDER.
 DEFAULT_NAMES = [
     "available memory",
     "load average",
@@ -46,6 +46,8 @@ DEFAULT_NAMES = [
     "virtual displays",
     "browser tooling",
     "keyring bus",
+    "browser cool-down",
+    "dedicated browser",
     "wireless link",
     "auth and read",
     "send gates",
@@ -81,8 +83,11 @@ def test_run_group_resolves_what_a_send_inherits(live_session: Any) -> None:
         "custom instructions and memory",
     ]
     model = checks[0]
-    assert model["state"] == "ok"
+    # ok when the account's record is the rule's preset (one below Pro),
+    # warn with the command that sets it when the owner moved the slider
+    assert model["state"] in ("ok", "warn"), model["detail"]
     assert "model=" in model["detail"] and "effort=" in model["detail"]
+    assert "rule" in model["detail"], model["detail"]
     # The account's own record must land on a preset the slider offers; if
     # this ever fails, the presets changed under us (SKILL.md, "Reasoning
     # effort") and model_settings.py is the place to look.
@@ -117,6 +122,20 @@ def test_the_whole_command_exits_as_documented(
 
     assert code in (0, 1, 2)
     assert doc["exit_code"] == code
+    if (
+        preflight.sys.platform == "darwin"
+        and preflight.os.environ.get("CHATGPT_MACOS_CDP_MODE") == "1"
+    ):
+        assert doc["verdict"] in {"GO", "DO NOT START"}
+        assert {"platform", "python", "Chrome CDP", "ChatGPT auth"} <= {
+            c["name"] for c in doc["checks"]
+        }
+        assert not [
+            c
+            for c in doc["checks"]
+            if c["group"] == "account" and c["state"] == "block"
+        ]
+        return
     assert doc["verdict"] == preflight.verdict_of(doc["checks"])[0]
     assert [c["name"] for c in doc["checks"]] == DEFAULT_NAMES
     # A host may legitimately block right now (memory, a send in flight);

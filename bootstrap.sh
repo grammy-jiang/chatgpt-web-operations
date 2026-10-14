@@ -6,6 +6,25 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="$HERE/.venv"
+
+# Mac runs against a Chrome profile already logged in via localhost CDP.
+# The Linux GNOME D-Bus cookie decryptor is neither available nor required.
+if [ "$(uname -s)" = "Darwin" ]; then
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "bootstrap: macOS requires uv for an isolated venv" >&2
+    exit 1
+  fi
+  if [ ! -x "$VENV/bin/python" ]; then
+    uv venv --python 3.13 "$VENV"
+  fi
+  uv pip install --python "$VENV/bin/python" -r "$HERE/requirements.txt"
+  "$VENV/bin/python" - <<'EOF'
+import cryptography, playwright  # noqa: F401
+print("bootstrap: macOS Playwright and cryptography ready; no Linux dbus")
+EOF
+  echo "bootstrap: $VENV is ready"
+  exit 0
+fi
 PYTHON="${CHATGPT_WEB_OPS_PYTHON:-/usr/bin/python3}"
 
 if ! "$PYTHON" -c 'import dbus' 2>/dev/null; then

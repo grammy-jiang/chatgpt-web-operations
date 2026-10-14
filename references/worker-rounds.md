@@ -34,12 +34,36 @@ rule that prevents it is written next to it.
 
 - One `send_prompt.py` call per chat:
   `--project g-p-<id> --effort extended --no-wait --attach ... --json <file>`.
-- **Use a fresh browser profile per window when windows run in parallel:**
-  `RP_BROWSER_PROFILE=` (empty). On 2026-09-29 the shared profile
+- **Sends attach to the dedicated browser window since 2026-10-01**
+  (`dedicated_browser.py status`; SKILL.md, "Sending through the dedicated
+  browser window"): one tab per send in a window the owner logged in to by
+  hand. Keep that window alive; without it the sends below fall back to the
+  scripted window, which Cloudflare refuses at the time of writing.
+- **A fresh browser profile per scripted window is the default since 2026-10-01**
+  (`RP_BROWSER_PROFILE=<dir>` opts into a persistent one; atlas
+  F-2026-10-01-26). On 2026-09-29 the shared profile
   `/tmp/rp-browser-profile` stayed in a Cloudflare Turnstile loop and the
-  user's clicks on the check did not help; fresh profiles sent at once. The
-  shared profile is safe only with `RP_MAX_BROWSERS=1`. Never try to solve
-  the check automatically.
+  user's clicks on the check did not help; fresh profiles sent at once. From
+  2026-09-29 to 2026-10-01 the shared profile was challenged on every open,
+  three daily checks running, while fresh profiles passed every tier
+  (`failure-atlas.md`, F-2026-10-01-21); a `challenge-page` event in the
+  events file names it. The shared profile is safe only with
+  `RP_MAX_BROWSERS=1`. Never try to solve the check automatically.
+- **A `handshake-refused` event means the window, not the account.** On
+  2026-10-01 every scripted send on fresh profiles had its handshake
+  (sentinel, `conversation/init`, `f/conversation/prepare`) answered 403
+  while the user's own Chrome and the skill's HTTP reads worked; the page
+  still drew the bubble. The send now stops with that event instead of a
+  placeholder id (atlas F-2026-10-01-23), and no scripted window opens for
+  the next `RP_BROWSER_COOLDOWN_SECONDS` (1800 s): a send then fails at
+  once with the time the cool-down ends. Do not retry in a loop; check
+  `probe_account.py`, and send again after the cool-down with one window.
+- **A send belongs to the Chat surface.** Since 2026-10-01 the client
+  presses Chat on the page's Chat/Work toggle before it fills, and refuses a
+  page that stays on Work (`work-surface` event, atlas F-2026-10-01-20). On
+  2026-09-30 every send on the shared profile typed into Work and reported
+  "not posted" with no request; a `surface-switched` event in the events
+  file says the page had opened on Work and was switched.
 - `RP_MAX_BROWSERS=3 RP_BROWSER_WAIT_SECONDS=3600` let three sends run while
   another session held slots. With the default cap a send waited forever
   behind the other session.
@@ -80,7 +104,9 @@ rule that prevents it is written next to it.
   `clean_chats.py --project` both do (F-2026-09-29-16).
 - `delete_project.py g-p-<id> --expect-name NAME --force --apply` deletes
   the project and every chat in it. Run it only after every reply is
-  persisted.
+  persisted. Then `read_chat.py <id>` on a few recorded ids prints the
+  server's "Conversation has been deleted" reason and exits 3
+  (F-2026-09-29-19).
 - **Kill only exact PIDs.** A `pkill -f` or `pgrep -f` pattern that also
   occurs in the killer's own command line killed the coordinator's shell
   twice and once killed another session's send in flight.

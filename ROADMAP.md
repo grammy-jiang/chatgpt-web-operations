@@ -133,6 +133,51 @@ Two parts, both in `PLAN-2026-09-27.md`, section 5:
 
 Working rule 2 applies to every repository, not only research-pipeline.
 
+## Decisions of 2026-10-01
+
+1. **A browser is used only for what cannot be done over HTTP**: a send,
+   Deep research's start, and the browser diagnostics. Every read and every
+   other write stays on `/backend-api/*` with the session token (the owner's
+   rule, 2026-10-01).
+2. **The send attaches to the dedicated browser window** -- a Chrome with
+   its own profile, a debugging port on 127.0.0.1 and a login the owner
+   made by hand, kept alive by a systemd user unit (`dedicated_browser.py`)
+   -- and drives one tab there: its own kept tab by default, a tab named
+   by address with `RP_BROWSER_TAB=url:<prefix>`, or one per window with
+   `new` (the owner's question of the evening, "why can't you specify which
+   tab"). The scripted Xvfb window stays as the fallback, with a fresh
+   profile per window and a cool-down after a refusal (atlas
+   F-2026-10-01-23 and -26). Measured the same day: the scripted window's
+   handshake refused by Cloudflare, the dedicated window's accepted.
+3. **No challenge is ever solved or evaded by this skill.** A challenge in
+   the dedicated window is answered by the owner, in that window; until
+   then a send reports the refusal and waits.
+4. **The account's default effort is the preset one position below Pro**
+   (the owner's rule, 2026-10-01 evening): Pro has a limited quota, so the
+   highest thinking preset below it -- "Extra High", `gpt-5-6-thinking` /
+   `max`, today -- is the default. The rule is derived from the catalog each
+   time, never named (`model_settings.below_pro_preset`);
+   `model_settings.py --default below-pro --apply` sets it the way the
+   slider does, and preflight warns when the record drifts.
+5. **The dedicated window runs no extensions** (`--disable-extensions`,
+   2026-10-01 evening): what Chrome sync put into its profile stays
+   installed but inert, which the owner accepts; removing it, if ever, is
+   the owner's step, with the sync trap named (F-2026-10-01-32).
+6. **A page change is named, not guessed at** (the owner's ask, 2026-10-01
+   evening): a composer that does not appear says what the page is instead
+   (challenge, login, hidden composers, missing controls); the daily
+   recording compares the facts the day's changes hid behind, and a fixture
+   that predates a fact says so; the weekly send records the POST body's
+   shape and the check warns on a pinned or server-read field going. Where
+   the report is delivered stays the owner's decision.
+7. **Rules before the agent, the agent before the owner** (the owner's
+   layered design, approved 2026-10-01 evening): a failed check is
+   reproduced the same way, read-only (`chatgpt-ops-repro.sh`), then
+   classified and counted by `triage.py` (no model); the repair agent runs
+   only on an escalate decision and proposes on a branch; the owner merges
+   or promotes with `chatgpt-ops-approve`. A cheap-model layer for novel
+   signatures may come later, without the power to drop an issue.
+
 ## Historical decisions
 
 The original stages and abandoned experiments remain in git history,

@@ -18,6 +18,7 @@ sandbox.json itself is stale.
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -36,8 +37,8 @@ pytestmark = pytest.mark.live_read
 
 STATES = {"ok", "warn", "block"}
 
-# The sixteen checks a bare `health.py` makes with a working link and
-# account: preflight's own twelve (DEFAULT_NAMES in
+# The eighteen checks a bare `health.py` makes with a working link and
+# account: preflight's own fourteen (DEFAULT_NAMES in
 # tests/live/test_read_preflight.py), then health's three and the skills inventory.
 DEFAULT_NAMES = [
     "available memory",
@@ -46,6 +47,8 @@ DEFAULT_NAMES = [
     "virtual displays",
     "browser tooling",
     "keyring bus",
+    "browser cool-down",
+    "dedicated browser",
     "wireless link",
     "auth and read",
     "send gates",
@@ -141,7 +144,30 @@ def test_the_whole_command_exits_as_documented(
     assert code in (0, 1, 2)
     assert doc["exit_code"] == code
     assert doc["verdict"] == preflight.verdict_of(doc["checks"])[0]
-    assert [c["name"] for c in doc["checks"]] == DEFAULT_NAMES
+    mac_mode = (
+        sys.platform == "darwin" and os.environ.get("CHATGPT_MACOS_CDP_MODE") == "1"
+    )
+    if mac_mode:
+        # Real Mac checks cannot require Linux's Xvfb, /proc or GNOME D-Bus.
+        expected = [
+            "available memory",
+            "load average",
+            "in-flight browsers",
+            "dedicated browser",
+            "Chrome CDP link",
+            "auth and read",
+            "send gates",
+            "plan and credits",
+            "model and effort",
+            "custom instructions and memory",
+            "session token",
+            "sandbox",
+            "read endpoints",
+            "skills inventory",
+        ]
+    else:
+        expected = DEFAULT_NAMES
+    assert [c["name"] for c in doc["checks"]] == expected
 
     # A host may legitimately block right now (memory, a send in flight);
     # against a working account and a clean sandbox every other group must
@@ -183,6 +209,20 @@ def test_record_shapes_writes_every_registered_endpoint_and_finds_no_drift(
     assert row["name"] == "api shapes"
     assert row["state"] == "ok", row["detail"]
     recorded = set(api_shapes.load(shapes_dir))
-    assert recorded == set(api_shapes.BY_NAME), sorted(
-        set(api_shapes.BY_NAME) - recorded
-    )
+    missing = set(api_shapes.BY_NAME) - recorded
+    if sys.platform == "darwin" and os.environ.get("CHATGPT_MACOS_CDP_MODE") == "1":
+        # The sandbox is empty by design. Three read endpoints require a
+        # real conversation ID, so the guarded read-only test cannot mint
+        # one. They must be listed as unavailable, never claimed recorded.
+        expected_unavailable = {
+            "conversation",
+            "conversation_widgets",
+            "conversations",
+        }
+        assert missing <= expected_unavailable, sorted(missing)
+        if missing:
+            assert "not recorded:" in row["detail"]
+            for endpoint in missing:
+                assert endpoint in row["detail"]
+    else:
+        assert not missing, sorted(missing)

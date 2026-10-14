@@ -123,7 +123,12 @@ def delete_sandbox_chat(live_session: Any, conversation_id: str) -> None:
     in tests/live/conftest.py is a backstop for this, not a replacement:
     a test cleans up after itself.
     """
-    if not conversation_id or conversation_id.startswith("WEB:"):
+    # Any provisional id, not only the old ``WEB:`` one: since 2026-09-26 the
+    # page's own placeholder is ``local-chatgpt:<uuid>``, and on 2026-10-01 a
+    # send that never got its real id handed that to this teardown, which
+    # PATCHed it and tripped the guard ("outside the sandbox") on top of the
+    # real failure. A placeholder names no server conversation to delete.
+    if not conversation_id or conversation_id.startswith(("WEB:", "local-chatgpt:")):
         return
     live_session.call(
         CONVERSATION.format(id=conversation_id),

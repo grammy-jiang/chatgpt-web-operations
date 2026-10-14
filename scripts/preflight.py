@@ -57,6 +57,7 @@ import json
 import os
 import shutil
 import sys
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -69,7 +70,7 @@ import probe_send_gates as psg
 import profile_context as pc
 import review_topic as rt
 from _common import ensure_venv
-from chatgpt_client import snapshot_drift
+from chatgpt_client import snapshot_drift, snapshot_unproven
 
 GROUP_ORDER = ("host", "link", "account", "run", "browser")
 
@@ -280,6 +281,76 @@ def disk_check(free_bytes: int, workdir: Path) -> dict[str, Any]:
     return check("host", "disk space", "ok", detail)
 
 
+def browser_cooldown_check(
+    left: float, record: dict[str, Any], cooldown: float, attached: bool = False
+) -> dict[str, Any]:
+    """The cool-down after a refused scripted window (``cc.cooldown_remaining``,
+    atlas F-2026-10-01-26): a block while it runs, with the time it ends --
+    unless ``attached`` (the dedicated window answers), because since
+    2026-10-06 the cool-down holds scripted windows only (F-2026-10-06-2)."""
+    if cooldown <= 0:
+        return check("host", "browser cool-down", "ok", "cool-down disabled (0 s)")
+    if left <= 0:
+        return check(
+            "host",
+            "browser cool-down",
+            "ok",
+            f"no scripted window refused in the last {cooldown:.0f} s",
+        )
+    at = time.strftime("%H:%M:%S", time.localtime(float(record.get("at", 0))))
+    if attached:
+        return check(
+            "host",
+            "browser cool-down",
+            "ok",
+            f"Cloudflare refused the last scripted window at {at} "
+            f"({record.get('kind', 'refusal')}); {left:.0f} s left, which holds "
+            "scripted windows only: sends attach to the dedicated window",
+        )
+    return check(
+        "host",
+        "browser cool-down",
+        "block",
+        f"Cloudflare refused the last scripted window at {at} "
+        f"({record.get('kind', 'refusal')}); {left:.0f} s of the {cooldown:.0f} s "
+        "cool-down left",
+        COOLDOWN_FIX,
+    )
+
+
+def dedicated_browser_check(mode: str, url: str, probe: Any) -> dict[str, Any]:
+    """The dedicated browser a send attaches to (``cc.cdp_endpoint``; SKILL.md,
+    "Sending through the dedicated browser window"). ``mode`` is
+    ``cc.CDP_MODE`` ("off", "auto" or a URL), ``url`` the default endpoint,
+    ``probe`` ``cc.dedicated_browser_version``."""
+    chosen = mode.strip()
+    if chosen.lower() == "off":
+        return check(
+            "host",
+            "dedicated browser",
+            "ok",
+            "RP_BROWSER_CDP=off: sends use the scripted window",
+        )
+    endpoint = url if chosen.lower() == "auto" else chosen
+    version = probe(endpoint)
+    if version:
+        return check(
+            "host",
+            "dedicated browser",
+            "ok",
+            f"{version.get('Browser', 'a browser')} answers at {endpoint}; a send "
+            "attaches to it and drives one tab there (RP_BROWSER_TAB)",
+        )
+    return check(
+        "host",
+        "dedicated browser",
+        "block",
+        f"nothing answers at {endpoint}; a send would use the scripted window, "
+        "which Cloudflare refused on 2026-10-01",
+        DEDICATED_FIX,
+    )
+
+
 def host_checks(cc: Any, workdir: Path | None) -> list[dict[str, Any]]:
     checks = [
         memory_check(cc.available_mb(), cc.MIN_AVAILABLE_MB),
@@ -295,6 +366,12 @@ def host_checks(cc: Any, workdir: Path | None) -> list[dict[str, Any]]:
             importlib.util.find_spec("dbus") is not None,
         ),
         fetch_keyring_bus(cc),
+        browser_cooldown_check(
+            *cc.cooldown_remaining(), cc.COOLDOWN_SECONDS, bool(cc.cdp_endpoint())
+        ),
+        dedicated_browser_check(
+            cc.CDP_MODE, cc.DEDICATED_URL, cc.dedicated_browser_version
+        ),
     ]
     if workdir is not None:
         free = shutil.disk_usage(_existing_ancestor(workdir)).free
@@ -528,11 +605,24 @@ def account_checks(session: Any) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
+DEFAULT_RULE_FIX = (
+    "python3 scripts/model_settings.py --default below-pro --apply sets the "
+    "account's web default to the preset one position below Pro (the owner's "
+    'rule of 2026-10-01; SKILL.md, "Reasoning effort")'
+)
+
+
 def model_effort_check(
-    config: dict[str, str], preset: dict[str, Any] | None, total_presets: int
+    config: dict[str, str],
+    preset: dict[str, Any] | None,
+    total_presets: int,
+    rule: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Always ok: informational, and this is what a send inherits when
-    nothing pins an explicit --effort/--model."""
+    """What a send inherits when nothing pins an explicit --effort/--model.
+    Informational, except that ``rule`` -- the preset the owner's rule picks
+    (``model_settings.below_pro_preset``) -- turns it into a warn when the
+    record has drifted from it, with the command that sets it back. Never a
+    block: a send still works at any preset."""
     model = config.get("model") or "-"
     effort = config.get("effort") or "-"
     where = (
@@ -540,12 +630,26 @@ def model_effort_check(
         if preset
         else "matches no preset"
     )
+    detail = (
+        f"model={model} effort={effort} -> {where}; a send without "
+        "--effort/--model inherits this"
+    )
+    if rule is None:
+        return check("run", "model and effort", "ok", detail)
+    wanted = f"{rule['title']!r} ({rule['model']}/{rule['effort']})"
+    if ms.matches(config, rule):
+        return check(
+            "run",
+            "model and effort",
+            "ok",
+            f"{detail}; = the rule's preset {wanted}, one below Pro",
+        )
     return check(
         "run",
         "model and effort",
-        "ok",
-        f"model={model} effort={effort} -> {where}; a send without "
-        "--effort/--model inherits this",
+        "warn",
+        f"{detail}; the rule (one preset below Pro) wants {wanted}",
+        DEFAULT_RULE_FIX,
     )
 
 
@@ -557,7 +661,9 @@ def fetch_model_effort(session: Any) -> dict[str, Any]:
     presets = ms.presets_of(models)
     config = ms.server_config(settings)
     preset = ms.resolve_preset(presets, config["model"], config["effort"])
-    return model_effort_check(config, preset, len(presets))
+    return model_effort_check(
+        config, preset, len(presets), ms.below_pro_preset(presets)
+    )
 
 
 def instructions_memory_check(
@@ -698,6 +804,37 @@ LOGIN_FIX = (
     "log in to chatgpt.com from this machine's own browser, or clear any "
     "Cloudflare challenge, then re-run with --browser"
 )
+# The scripted window's own profile is what Cloudflare challenges (2026-09-29
+# to 2026-10-01: the shared /tmp/rp-browser-profile met the challenge on every
+# open while a fresh profile passed); never a solver, never a copied clearance.
+CHALLENGE_FIX = (
+    "the scripted browser's profile is challenged, not the account: send with "
+    "RP_BROWSER_PROFILE= (a fresh profile per window) or remove the shared "
+    "profile directory (RP_BROWSER_PROFILE, default /tmp/rp-browser-profile), "
+    "then re-run with --browser"
+)
+COOLDOWN_FIX = (
+    "wait for the cool-down to end (RP_BROWSER_COOLDOWN_SECONDS, default 1800 s "
+    "after a refused window), then re-run with --browser; "
+    "RP_BROWSER_COOLDOWN_SECONDS=0 overrides, and the account was never the "
+    "problem: check probe_account.py"
+)
+REFUSED_FIX = (
+    "the scripted window's own requests are refused by Cloudflare while the page "
+    "loads: not the account (probe_account.py reads), not the login. Wait for the "
+    "cool-down, then one window at a time; never solve or evade the check"
+)
+DEDICATED_FIX = (
+    "start the dedicated browser: python3 scripts/dedicated_browser.py start, "
+    "then log in to chatgpt.com in its window once (or enable its systemd user "
+    "unit: dedicated_browser.py unit --install); until then a send uses the "
+    "scripted window, which Cloudflare refused on 2026-10-01"
+)
+WORK_FIX = (
+    "the page opened on the Work surface and the Chat/Work toggle could not "
+    "switch it back: open chatgpt.com in this machine's own browser, press Chat, "
+    "then re-run with --browser; a send on Work never posts"
+)
 # The committed DOM fixture a fresh snapshot is compared with (TESTING.md
 # section 6, P1). RP_SNAPSHOT_DIR turns the recording on; RP_SNAPSHOT_FIXTURE
 # points the comparison at another committed fixture.
@@ -755,18 +892,33 @@ def browser_composer_check(
     try:
         with cc.BrowserSender(browser) as sender:
             url = sender.probe_composer()
+            attached = getattr(sender, "attached_to", "")
             if snapshot_dir:
                 try:
                     facts = sender.snapshot_page(snapshot_dir)
                 except Exception as exc:  # the probe passed; the record is extra
                     snapshot_error = str(exc)[:200]
     except Exception as exc:
-        detail = str(exc)[:200]
-        fix = LOGIN_FIX if "logged out or challenged" in detail else None
+        # 360, not 200: the message now ends with the page's facts
+        # ("[page: challenge=..., login=..., composers=...]"), which is the
+        # part a morning mail needs most.
+        detail = str(exc)[:360]
+        fix = None
+        if "logged out or challenged" in detail:
+            fix = LOGIN_FIX
+        elif "Verify you are human" in detail:
+            fix = CHALLENGE_FIX
+        elif "cool-down ends" in detail:
+            fix = COOLDOWN_FIX
+        elif "requests are being refused" in detail:
+            fix = REFUSED_FIX
+        elif "Work surface" in detail:
+            fix = WORK_FIX
         return check("browser", "composer", "block", detail, fix)
+    where = f" through the dedicated browser at {attached}" if attached else ""
     detail = (
-        f"the composer appeared at {url}; a send would not be blocked by a "
-        "logged-out or challenged session"
+        f"the composer appeared at {url}{where}; a send would not be blocked by "
+        "a logged-out or challenged session"
     )
     if not snapshot_dir:
         return check("browser", "composer", "ok", detail)
@@ -805,21 +957,32 @@ def snapshot_verdict(
             ],
         )
     recorded_at = fixture.get("recorded_at", "?") if isinstance(fixture, dict) else "?"
-    drift = snapshot_drift(facts, fixture if isinstance(fixture, dict) else {})
+    committed = fixture if isinstance(fixture, dict) else {}
+    drift = snapshot_drift(facts, committed)
+    unproven = snapshot_unproven(committed)
+    # Facts the keys gained after the fixture was promoted are compared by
+    # nobody until the page is re-recorded and promoted; say so in the ok
+    # row, so a stale fixture is a known gap rather than a silent one.
+    gap = (
+        f"; {len(unproven)} newer fact(s) not in the fixture yet "
+        f"({', '.join(unproven)}): re-record and promote (make refresh-dom-fixtures)"
+        if unproven
+        else ""
+    )
     if drift:
         return check(
             "browser",
             "composer",
             "warn",
             f"{detail}; the page differs from the fixture recorded {recorded_at} "
-            f"in {', '.join(drift)}",
+            f"in {', '.join(drift)}{gap}",
             SNAPSHOT_FIX,
         )
     return check(
         "browser",
         "composer",
         "ok",
-        f"{detail}; the page matches the fixture recorded {recorded_at}",
+        f"{detail}; the page matches the fixture recorded {recorded_at}{gap}",
     )
 
 
@@ -857,6 +1020,10 @@ def render(checks: list[dict[str, Any]], order: tuple[str, ...] = GROUP_ORDER) -
 
 
 def main(argv: list[str] | None = None) -> int:
+    if sys.platform == "darwin" and os.environ.get("CHATGPT_MACOS_CDP_MODE") == "1":
+        from mac_preflight import main as mac_main
+
+        return mac_main(argv)
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
         "--workdir",

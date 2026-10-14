@@ -11,6 +11,35 @@ description: >-
   skill.
 ---
 
+
+## MacBook Pro compatibility (local adapter, 2026-10-14)
+
+The MacBook copy is pinned to the Raspberry Pi's unpushed source revision
+b626c06 and adds a local macOS compatibility adapter. The two machines
+keep separate credentials, browser profiles, virtualenvs and state.
+
+On macOS, only use the separate user-authenticated Chrome on local
+CDP port 9233; do not fall back to a scripted browser, do not reuse the
+owner's ordinary tabs and do not copy secrets from the Raspberry Pi.
+The Mac-specific wrapper sets loopback CDP, one new tab per send and
+disables Linux-only GNOME keyring persistence:
+
+    S="$HOME/.codex/skills/chatgpt-web-operations/scripts"
+    "$S/mac_skill.sh" preflight.py --browser
+    "$S/mac_skill.sh" model_settings.py
+    "$S/mac_skill.sh" send_prompt.py TASK.prompt.md --model gpt-6-thinking --effort standard --no-wait --json TASK.send.json
+    "$S/mac_skill.sh" read_chat.py CHAT_ID --effort
+
+Read references/worker-rounds.md before dispatching multiple work agents.
+Always record TASK_ID, model, effort, actual conversation ID, test evidence,
+and real worker response. Confirm a POST wasn't accepted before resending.
+The original Linux bootstrap, Linux D-Bus keyring and Linux browser/process
+checking paths are not used on Mac. The macOS preflight is a separate
+read-only check for the actual Mac Chrome and the authenticated account.
+Not every Linux-specific diagnostic command has been ported; do not claim
+otherwise. Inspect any failure and stay within the Skill's allowed actions.
+
+
 # Operating ChatGPT from this machine
 
 Use the command for the requested operation. ChatGPT account operations and
@@ -90,7 +119,7 @@ skill does not import it.
 
 ## The commands
 
-There are 32 command scripts and six support modules. `clean_chats.py`,
+There are 35 command scripts and six support modules. `clean_chats.py`,
 `project_settings.py`, `pin_chat.py` and `delete_project.py` need `--apply`.
 `create_project.py`, `create_connector.py` and `connect_connector.py` act
 unless `--dry-run` is supplied. `delete_connector.py` and `delete_skill.py`
@@ -103,7 +132,8 @@ need `--confirm`.
 and `skill` need `--apply`, and its `uninstall` needs `--confirm`.
 
 Browser paths are sending, Deep research start, `preflight.py --browser`,
-`health.py --browser`, `measure_window.py`, and `discover_endpoints.py`.
+`health.py --browser`, `measure_window.py`, `discover_endpoints.py`, and
+`probe_platform.py` (one tab in the dedicated window, never a composer).
 Other account operations use HTTP. Read-only searches and connector lookups
 use POST; HTTP method alone does not determine whether an operation writes.
 
@@ -114,7 +144,7 @@ use POST; HTTP method alone does not determine whether an operation writes.
 | `probe_account.py` | Does the account answer at all? Auth, `/me`, one listing, plan window and credits. | 0 reads work |
 | `probe_cookies.py` | Which cookies decrypt, and when the session token expires (this probe does not renew cookies; session creation can renew the keyring copy). Never prints a value. `--json PATH` for a caller that wants the number. | 0 session cookie readable |
 | `probe_send_gates.py` | What a send requires right now: proof-of-work, Turnstile, `so`. | 0 no browser needed |
-| `model_settings.py` | Which model and effort a send will use: the Power slider's presets, the API levels, and the account's `last_used_model_config` resolved to a preset. | 0 record resolves |
+| `model_settings.py` | Which model and effort a send will use: the Power slider's presets, the API levels, the account's `last_used_model_config` resolved to a preset, and whether it is the rule's preset (one below Pro). `--default below-pro [--apply]` sets it the way the slider does (`PATCH settings/user_last_used_model_config`); a preset title or `model:effort` names another position. | 0 record resolves, or default applied / already held; 1 no preset, PATCH or read-back failed; 2 names no position |
 | `profile_context.py` | The hidden inputs of a run: custom instructions, memory usage, model and effort from cookie and server, one project's instructions and files. `--json` keeps them beside a run. | 0 every read answered |
 | `list_chats.py` | Recent conversations by title substring; `--pinned`, `--archived`, `--no-project-chats`; flags project / pinned / archived. | 0 always |
 | `search_chats.py` | Global search by content, not just title (`list_chats.py --match` cannot see inside a chat): `--limit` (server cap 40), `--pages` follows the `cursor`, `--json PATH`. Conversations only, never project or library sources. | 0 at least one hit, 1 no hit or a page failed, 2 bad argument |
@@ -134,13 +164,16 @@ use POST; HTTP method alone does not determine whether an operation writes.
 | `project_settings.py` | Set a project's instructions and memory scope (`--memory project-only` keeps its chats out of your memory), or print its instructions exactly (`--show`, changes nothing). The project is a `g-p-` id or `--name NAME` (exact, else a unique substring). Dry run unless `--apply`; an applied change is read back. | 0 dry run, shown or verified, 1 apply or read failed, 2 refused (bad id, unknown or ambiguous name, bad combination) |
 | `send_prompt.py` | Send one or more prompts: new chats (`--project` targets one) or a continuing one with `--chat`; `--effort`, `--model`, `--search` and `--system-hint HINT` (any composer "+" item's id, for example `plugin:connector_openai_deep_research`) pin the send by rewriting the `f/conversation` POST body in flight; `--record-send-body PATH` records it and the response stream (`PATH.stream.txt`, where a Deep research `session_id` is read back into `--json`; the window then stays open until the reply stream has ended), `--attach FILE ...` uploads before the fill, `--title` renames once the reply arrived, `--json` records the send. Several PROMPT_FILEs share one browser window and are waited on after it closes; `--no-wait` skips the wait. | 0 every prompt sent and replied, 1 a send, resolve, wait or rename failed, 2 bad arguments |
 | `deep_research.py` | Start a Deep research chat with the page's own hint (`start`, no MCP call), poll its widget state over plain HTTP (`status`, `--wait`), and collect native Markdown plus sources (`fetch`). `export` returns DOCX/PDF through MCP; completed widget runs need `--force` after `status --wait` confirms DONE. | `start` 0 written, 1 send failed, 2 bad argument; `status` and `fetch` 0 done or written, 3 running or not finished, 1 failed read; `export` 0 written, 3 legacy completion check not met, 1 failed, 2 bad argument |
-| `read_chat.py` | One conversation: is the turn finished, and what did it say? | 0 turn finished |
+| `read_chat.py` | One conversation: is the turn finished, and what did it say? | 0 turn finished, 1 not finished, 3 deleted or not found (HTTP 404), 4 another failed read |
 | `pin_chat.py` | Pin or unpin a chat (`is_starred`). Dry run unless `--apply`. | 0 dry run or verified, 1 apply failed, 2 bad id |
 | `clean_chats.py` | Archive, delete or unarchive chats. Select by `--match TEXT`, by `--project g-p-<id>` (its own listing, every chat when `--match` is absent, so a chat ChatGPT renamed is still found), by exact `--id ID_OR_URL` (repeatable), or by `--tracked`: a local ledger of test chats kept with `--track ID_OR_URL [--note]` and `--untrack` (`~/.local/share/chatgpt-chats/test-chats.json`, binnacle's old ledger). `--backup DIR` saves each chat's conversation JSON before acting. An account-wide `--match` needs 3 characters; `--max N` refuses an apply to more than N chats. Dry run unless `--apply`. | 0 done or dry run, 1 a read, backup or change failed, 2 refused |
 | `round_status.py` | A research round: admitted, read, written off, unread; `--collect [--apply]` classifies every entry stuck at "sent" (resumable, superseded, collectable, lost) and archives a collectable reply. | 0 nothing unread; with `--collect` 0 nothing to do or all collected, 1 a fetch or write failed, 2 refused |
 | `review_topic.py` | A finished topic, offline: six integrity checks, a seventh warning about the profile snapshot, review verdicts, gaps, and cost. | 0 nothing wrong |
+| `triage.py` | A failed scheduled check, offline: its signature, class (page-change, api-change, session, known-transient, host, unknown), streak in a registry and decision (digest / escalate / escalate-repeat), with the reproduction's result weighed in; the cron wrappers run the repair agent only on escalate. `--ok RUN_ID` records a clean run. | 0 digest, 2 escalate, 1 unreadable run |
 | `measure_window.py` | What a send window costs in memory and fill time. | 0 always |
 | `discover_endpoints.py` | Record what endpoints the page calls, and with `--bodies` what they sent. | 0 always |
+| `dedicated_browser.py` | The browser window a send attaches to since 2026-10-01: `start`, `run` (foreground, for its systemd user unit), `status [--json PATH]`, `stop`, `unit [--install]`, `tidy [--apply] [--json PATH]` (the leftover chat tabs a send's unfinished close left behind: named, and closed with `--apply`; the daily check runs it). A separate Chrome profile with a debugging port on 127.0.0.1, logged in once by hand; only sends, Deep research's start and the browser diagnostics use it, everything else stays HTTP. | 0 done, 1 the browser did not start, answer or stop, 2 bad arguments |
+| `probe_platform.py` | Is the dedicated window still logged in to platform.openai.com (a separate login from chatgpt.com)? Under the browser slot it opens ONE tab on the Platform root through the debugging endpoint, waits for the address to settle, classifies it -- `VALID`, `LOGIN_REQUIRED` (`/login`, the account chooser, an auth.openai.com log-in), `MFA_REQUIRED` (`auth.openai.com/mfa-challenge`, any verify page), `ERROR` -- and closes the tab; never a click, a keystroke, an account choice or the API-keys page. Also the days left on the auth.openai.com session cookies (`oai-client-auth-info`, the unified-session manifest), from a copy of the profile's cookie DB, names and expiry only. `--json PATH` (`-` prints it) carries the state, host+path, the days, a severity (`ok`/`warn`, never more) and the wrapper's `check.log` fields. | 0 VALID, 2 LOGIN_REQUIRED, MFA_REQUIRED or 5 days or fewer left, 1 ERROR |
 
 `_common.py` holds only session bootstrap, table formatting and the
 name-or-substring lookup the commands that take a name share.
@@ -162,6 +195,20 @@ listed `picture_v2` (Create image), `search`, `tasks`, `tatertot` (Study),
 of a dedicated script does not mean they cannot be invoked. Mode-specific
 completion, artifact download, scheduling changes, and cleanup need their
 own verification; the ordinary reply collector handles assistant text.
+
+**Only the Chat surface is in scope.** Since 2026-10-01 the home page has a
+Chat/Work toggle (a `div[role="group"][aria-label="Composer mode"]` of two
+`aria-pressed` buttons; until 2026-09-27 a radio group). Work is the
+Codex-style `tpp` surface: its chats list under
+`conversations?conversation_origin=tpp`, its models are the `-wm` slugs,
+and a message typed there never posts through `f/conversation`, so a send
+made there reads as "not posted" with no request at all (that is what every
+send of 2026-09-30 did; `references/failure-atlas.md`, F-2026-10-01-20).
+The composer's label says which surface the page is on ("Ask ChatGPT" on
+Chat, "Work with ChatGPT" on Work), and every path that loads a composer
+presses Chat first (`chatgpt_client.ensure_chat_surface`); a page that
+stays on Work is refused with the surface named (event `work-surface`).
+Nothing here drives the Work surface, Sites or Codex.
 
 There is no dedicated CLI for moving an existing chat into a project,
 renaming a project, editing account-wide memory/custom instructions,
@@ -310,6 +357,33 @@ served MCP endpoint. To retire an endpoint, remove its connector links/app,
 stop its forwarding daemon, then delete that tunnel. A tunnel delete does
 not perform those other actions or infer which existing resources to remove.
 
+### Is the dedicated window still logged in to platform.openai.com?
+
+The Platform dashboard (tunnels, keys) needs its own login in the dedicated
+window, separate from chatgpt.com's. chatgpt.com's session renews itself on
+every authenticated request; the Platform one does not. It lives in
+auth.openai.com's cookies (`oai-client-auth-info`, about 30 days;
+`__Host-unified_session_manifest`, about 400 days; there is no
+platform-specific cookie). Stale, it sends the tab to `/login`, an account
+chooser, and choosing the account leads to `auth.openai.com/mfa-challenge`
+("Check your authenticator app"), which only the owner can answer.
+
+```bash
+python3 $S/probe_platform.py                  # platform: VALID at platform.openai.com/...; auth cookies 29.6 d, ...
+python3 $S/probe_platform.py --json -         # the document the cron wrappers read
+```
+
+The daily browser check (`chatgpt-ops-check.sh --browser`) runs it after
+`health.py` and logs `platform=<STATE> platform_auth_days=<N>` in
+`check.log`; the weekly send check runs it once more as a second sample, and
+the Friday digest carries a "Platform" line (the week's states, the first
+change, the fewest days). `LOGIN_REQUIRED`, `MFA_REQUIRED`, `ERROR` and 5
+days or fewer left are a WARN mail naming the state and the owner's action
+("log in to platform.openai.com in the dedicated Chrome (MFA)"); a Platform
+problem is never an ALERT and never reaches triage's repair agent. The
+probe does not log in, and no script should: the owner logs in by hand in
+the dedicated window, as for chatgpt.com.
+
 ## Projects keep a run's chats out of the user's list
 
 A project groups conversations, carries its own instructions, and its chats
@@ -373,6 +447,90 @@ anti-automation control rather than speaking a protocol. Say so plainly, and
 answer the memory question instead, which is the real reason anyone asks.
 Re-check with `probe_send_gates.py` rather than trusting this paragraph.
 
+**The scripted window's profile can be challenged on its own.** From
+2026-09-29 to 2026-10-01 the shared profile `/tmp/rp-browser-profile` met
+Cloudflare's "Verify you are human" page on every open while HTTP reads,
+a fresh profile (`RP_BROWSER_PROFILE=`, one per window) and the user's own
+Chrome all passed. `find_composer` names that page when it is what the
+composer wait ran into (event `challenge-page`), and `preflight.py
+--browser` then offers the profile fix. Nothing in this skill solves, waits
+out or evades the challenge, and nothing will.
+
+Since 2026-10-01 a send attaches to the dedicated browser window first
+("Sending through the dedicated browser window"); what follows is the
+scripted fallback. A fresh profile per window is its default
+(`RP_BROWSER_PROFILE=<dir>` keeps a persistent one, which saves the bundle
+fetch between windows), and after any refusal no scripted window opens for
+`RP_BROWSER_COOLDOWN_SECONDS` (1800 s; 0 disables): `BrowserSender` reports
+the time the cool-down ends with status 429, `preflight.py` shows it as the
+host check "browser cool-down", and the refusal is one record in
+`~/.local/state/chatgpt-web-operations/browser-refusal.json`
+(F-2026-10-01-26). Since 2026-10-06 the cool-down holds scripted windows
+only: a send that attaches to the dedicated window is not the window
+Cloudflare refused, and on 2026-10-04 one refusal had held the daily check
+and the weekly send for half an hour while the window was fine
+(F-2026-10-06-2). The refusal has three shapes, each its own event: the
+challenge page (`challenge-page`), a refused send handshake
+(`handshake-refused`, F-2026-10-01-23), and a logged-in page whose composer
+never renders (`composer-missing` with `logged_in: true`). A page that holds
+a composer the wait did not see -- the facts count one, no challenge, no
+login route -- is not that third shape: it is a slow render, which gets
+`RP_COMPOSER_SLOW_SECONDS` (30 s) more and, failing that, is recorded as
+`composer-missing` with `slow_render: true`, never a refusal
+(F-2026-10-06-1: six of the eight refusals of 2026-10-03/04 were such
+pages, under a load of 10 on 4 cores). In every real shape the account is
+fine: `probe_account.py` reads, and the user's own Chrome sends. Wait for
+the cool-down, then one window at a time.
+
+**A failed check is triaged before anything expensive runs.** Layer 1 of
+the owner's design (2026-10-01 evening) is rules, not a model: the cron
+wrappers (`~/.local/bin/chatgpt-ops-check.sh`, `chatgpt-ops-send-check.sh`)
+first reproduce the failed check the same way, read-only
+(`chatgpt-ops-repro.sh`: `preflight --browser` through the dedicated window
+with the page recorded, plus the T3 upload dry run for the weekly send; never
+a send), then run `triage.py` over the run's evidence. It reduces the failure
+to a signature, a class and a streak kept in
+`~/.local/state/chatgpt-ops/triage.json`, weighs the reproduction (a
+failure that did not reproduce is probably transient; one that reproduced is
+real; a reproduction whose page drifted is a page change) and decides:
+`digest` (a known transient or host condition, first occurrence) or
+`escalate` (a page or API change, a session problem, an unknown shape, or any
+signature on two failing runs in a row, counted also by the browser check
+blocking every time whatever else failed beside it). Only `escalate` hands
+the evidence -- now including the triage record and the reproduction -- to
+the repair agent (`chatgpt-ops-heal.sh`, a large model in a worktree, which
+may reproduce once more itself and still never sends). The owner reviews
+with `chatgpt-ops-approve RUN_ID` (`--merge` the heal branch after the
+gates, `--promote` the recordings into the fixtures, `--discard`), which is
+layer 4; the delivery channel of the report is still the owner's decision.
+Measured on the three mornings of 2026-09-29 to 10-01 replayed in order: day
+one escalates (unknown, the old client gave no page facts), day two
+escalates as a repeat, day three -- the same browser failure beside a 403 on
+the read path -- escalates as a repeat too, where before each day was its
+own ALERT and its own agent run.
+
+**A page without a composer says what it is.** Since 2026-10-01 evening the
+composer-missing message ends with the page's facts -- `[page: challenge=...,
+login=..., composers=N (M hidden), toggle=..., attach-menu=..., picker=...,
+title=...]`, read by `page_snapshot` (attributes only) -- and the same facts
+go into the event (`page`) and, beside the screenshot, into
+`chatgpt-composer-missing.json`. Three mornings of "logged out or
+challenged" (2026-09-29 to 10-01) said none of this; a challenge, a login
+page and a changed page are now told apart in the morning mail and in the
+heal evidence. The daily recording compares ten more facts with the fixture
+(`SNAPSHOT_DRIFT_KEYS`: how many composers the selector matches and how many
+are hidden, the file inputs and whether `#upload-files` still exists, the
+attach menu, the model picker, the attachment chips, the challenge and login
+flags), and a fixture promoted before a fact joined the keys is named in the
+ok row as "newer fact(s) not in the fixture yet" until a re-recording is
+promoted (`make refresh-dom-fixtures`). The weekly send records the
+`f/conversation` body's shape as well (`tests/fixtures/send/send_body.shape.json`:
+field names and types, never a value; `api_shapes.compare_send_body`), so
+the Sunday check warns when a field the client pins or the server reads is
+missing or retyped: the body of 2026-10-01's morning, with `thinking_effort`
+gone and `one_off_model_override` added, reads "send_body: thinking_effort
+removed" against it.
+
 **A send is judged by its own request.** The sender counts a message as
 posted when the page's `f/conversation` POST is answered 2xx, when a new
 chat's address becomes a real `/c/<id>`, or when one more user turn appears
@@ -383,12 +541,127 @@ line in the events file is a real post the count missed: its screenshot
 shows whether the user-turn markup changed. "Message was not posted" now
 means no request was answered 2xx; before sending again, reading the chat
 (`read_chat.py`) or the list (`list_chats.py`) still costs nothing.
+Since 2026-10-01 the page's own handshake counts too: when its sentinel,
+`conversation/init` or `f/conversation/prepare` POSTs are refused and no
+`f/conversation` request follows, the send stops with a `handshake-refused`
+event naming the statuses, because the page draws the user's bubble and a
+`local-chatgpt:` address anyway and the turn count alone would read as a
+post (F-2026-10-01-23). That shape means Cloudflare is refusing the
+scripted window's requests, not that the account is blocked: the skill's
+HTTP reads and the user's own Chrome worked in the same minute.
+
+## Sending through the dedicated browser window
+
+Since 2026-10-01 a send does not open a window of its own first. It
+attaches over Chrome's debugging protocol to the **dedicated browser**: a
+Chrome on this machine with its own profile
+(`~/.local/share/chatgpt-web-operations/chrome`) and a debugging port on
+`127.0.0.1:9222`, started like any other program, logged in to chatgpt.com
+once by hand, and kept alive by a systemd user unit. Cloudflare then sees a
+normally launched browser carrying a human's login, not a Playwright-launched
+window: measured 2026-10-01 11:43, every handshake 200 and the reply in 10 s,
+while the scripted window had every handshake refused the same hour
+(`VERIFICATION.md`; `references/failure-atlas.md`, F-2026-10-01-23). Only
+what needs a browser goes this way: a send, Deep research's `start`, and the
+browser diagnostics (`preflight --browser`, `measure_window`,
+`discover_endpoints`, `health --browser`). Every read and every other write
+stays HTTP, as before.
+
+```bash
+python3 $S/dedicated_browser.py start            # one window on chatgpt.com; log in once
+python3 $S/dedicated_browser.py status           # Chrome/154 at 127.0.0.1:9222, its tabs
+python3 $S/dedicated_browser.py unit --install   # keep it alive (systemd --user)
+python3 $S/preflight.py --browser                # "... through the dedicated browser at ..."
+```
+
+What a send does there: it drives one tab of the window -- the composer
+filled, the button clicked, the handshake and `f/conversation` watched
+exactly as before -- and which tab is `RP_BROWSER_TAB`'s choice (the owner's
+question of 2026-10-01 evening, "why can't you specify which tab"):
+
+- `own` (the default): the skill keeps one tab of its own across sends,
+  remembered by its target id in `~/.local/state/chatgpt-web-operations/dedicated-tab.json`
+  (`RP_TAB_FILE`), made on the first send and never closed by a send; the
+  next send finds it, raises it and drives it, so no tab opens and closes
+  per send and the owner's own tab is never touched. A failed send leaves
+  that tab where it failed, which is evidence the owner can look at.
+- `url:<prefix>`: the first open tab whose address starts with the prefix
+  -- `url:https://chatgpt.com/` is the owner's own chatgpt.com tab -- is
+  driven and kept; when none matches, the own tab is used.
+- `new`: one tab per window, closed at its end (the behaviour of 2026-10-01
+  daytime).
+
+A kept tab is held under an advisory lock while a window drives it; a
+second window finding it held opens a tab of its own for that window and
+closes it afterwards, so two sends never share one tab. A send killed by
+SIGTERM closes the tab it was driving, whichever mode chose it
+(F-2026-10-01-29); the next send makes or finds one again. A send that
+outlives `RP_BROWSER_MAX_SECONDS` on an attached tab has its tab closed from
+outside by the watchdog (the hung call raises, the tab is not left behind),
+and `dedicated_browser.py tidy --apply` sweeps the chat tabs that still get
+left (31 on the morning of 2026-10-06, after two days at a load of 10;
+F-2026-10-06-3).
+`dedicated_browser.py status` prints which tab a send would drive. Measured
+2026-10-01 17:15-17:18: a preflight made the own tab, a sandbox send and a
+second preflight reused it (two pages in the window throughout, the owner's
+and the skill's), and the pinned effort was recorded as before. The window
+and the owner's own tab stay. No cookie is injected (the profile holds the
+login) and no display is started. Routes (the request blocking and the
+effort/model rewrite) go on the driven tab only, and vanish with the
+connection at the end. `RP_BROWSER_CDP` chooses: unset or `auto` attaches when the window
+answers and falls back to the scripted Xvfb window otherwise -- which
+Cloudflare refuses at the time of writing, so preflight's host check
+"dedicated browser" blocks when the window is down; `off` never attaches; a
+URL names another endpoint.
+
+The window runs no extensions. `dedicated_browser.py` launches Chrome with
+`--disable-extensions`, so whatever Chrome sync put into the profile
+(below, F-2026-10-01-32) stays installed but inert: measured 2026-10-01
+16:34 after the restart, the debugging endpoint listed no extension target
+and three browser preflights in a row found the composer without a bounce.
+`status` reports `extensions_disabled` with the names, and a window started
+before the switch existed says "restart it" (`dedicated_browser.py stop`;
+the unit starts it again).
+
+Limits. The window has to exist, on the desktop of this machine's only user
+(another workspace is fine); the login expires like any other and is
+renewed by hand in that window; a tab appears and disappears per send; the
+window is driven for nothing else. Through it `--record-send-body` records
+the request but not the reply stream (`stream_skipped` in the record;
+F-2026-10-01-28), so the older MCP-only Deep research export route is not
+available there, while the widget route (`deep_research.py start`, `status`,
+`fetch`, `export --force`) is and was verified through the window. An
+effort pinned without a model lands on `EFFORT_MODEL` (`gpt-5-6-thinking`),
+because the window's own picker may hold a model that takes no effort
+(F-2026-10-01-30). **The dedicated profile must carry no extensions.** Signing it into a
+Google account in Chrome syncs the owner's extensions into it (23 Web
+Store extensions arrived on 2026-10-01 after the login), and a duplicate-tab blocker among them
+bounced every new tab opened on the home page, the address the owner's own
+tab holds (F-2026-10-01-32): `preflight --browser`, `health --browser` and
+`measure_window` then fail with "the tab is on 'about:blank'", while sends
+into a project work. Since the same evening the window runs none of them
+(`--disable-extensions`, above); `dedicated_browser.py status` lists them
+and says whether the running window has them disabled. They may stay
+installed -- the owner's choice of 2026-10-01 evening, since the window runs
+none of them. If they are ever to go, the order matters: sign the profile
+out of Chrome first (Settings > You and Google; not out of chatgpt.com),
+because removing a synced extension removes it from the owner's own Chrome
+too, then remove them in that window. A fresh profile's picker sits on "Instant",
+whose body carries a one-off model override that makes the server ignore a
+pinned level; the rewrite drops it, so `--effort` takes there too
+(F-2026-10-01-31, "Reasoning effort" below). Chrome 136 and later ignore the debugging
+switches on the default profile, which is why this is a separate profile
+and never the owner's own Chrome. Nothing here solves or evades a
+challenge: if Cloudflare asks the dedicated window to prove a human, the
+owner answers in it, and until then a send reports `challenge-page` or
+`handshake-refused` as before.
 
 ## Reasoning effort is a setting; know which one a send will use
 
-Every send carries a `thinking_effort` and a `model` in its
-`POST /backend-api/f/conversation` body. Where they come from, measured on
-2026-09-20 with recorded sends:
+Every send carries a `model` in its `POST /backend-api/f/conversation`
+body, and a `thinking_effort` whenever the picker is on a thinking preset.
+Where they come from, measured on 2026-09-20 with recorded sends and
+re-measured on 2026-10-01 through the dedicated window:
 
 - **A send inherits the server's record**: `GET /backend-api/settings/user`
   → `settings.last_used_model_config`, `slugs` for the last model per surface
@@ -411,10 +684,37 @@ Every send carries a `thinking_effort` and a `model` in its
   reply whose metadata says `thinking_effort: standard`,
   `search_result_groups` filled and a cited answer, where two sends before
   it had posted `max` and no search.
+- **The default is one preset below Pro (the owner's rule, 2026-10-01).**
+  The Pro lane has a limited quota, so the account's default is the highest
+  thinking preset below it: "Extra High" (`gpt-5-6-thinking` / `max`,
+  position 4 of 5) in the catalog of 2026-10-01. Names and versions change;
+  the rule does not: `model_settings.below_pro_preset` derives the preset
+  from the catalog's `intelligence_presets` every time (Pro by its `pro`
+  lane, then the last preset below it that carries a `thinking_effort`).
+  `model_settings.py` ends its report with the rule and whether the record
+  matches; preflight's "model and effort" check warns when it does not and
+  names the command. Set on 2026-10-01 16:19 over HTTP; the dedicated
+  window's picker read "Extra High" on its next load.
+- **The slider writes the record, and so does `model_settings.py --default
+  ... --apply`, on request only.** Moving the Power slider fires `PATCH
+  /backend-api/settings/user_last_used_model_config?model_slug=<slug>&thinking_effort=<level>`
+  (empty body; measured 2026-10-01), which is what fills
+  `last_used_model_config` and what the picker reads back after a reload.
+  `--default below-pro --apply` sends the same request and reads the record
+  back (a dry run without `--apply`; "already holds it" sends nothing). A
+  pinned send never touches it (read before and after every test send).
+- **A one-off model override cancels the level.** When the picker holds a
+  model other than the account's default -- the "Instant" position a fresh
+  profile starts on -- the page builds `model: "gpt-5-6"`,
+  `requested_default_model: "gpt-5-6-thinking"`, `one_off_model_override:
+  true` and no `thinking_effort`, and the server ignores a
+  `thinking_effort` added to such a body (F-2026-10-01-31). An effort or
+  model pin therefore drops both fields (`ONE_OFF_FIELDS`); a search or
+  hint alone leaves them.
 - **A transcript records what was used**: each assistant message's
-  `metadata` carries `thinking_effort`, `model_slug`, `resolved_model_slug`,
-  `search_result_groups` and `citations`; `read_chat.py --effort` prints
-  them per turn. `send_prompt.py --record-send-body PATH` keeps `original`
+  `metadata` carries `thinking_effort` when a level applied (absent when
+  none did), `model_slug`, `resolved_model_slug`, `search_result_groups`
+  and `citations`; `read_chat.py --effort` prints them per turn. `send_prompt.py --record-send-body PATH` keeps `original`
   (what the page built) and `sent` (what left the browser).
 
 **The UI control** (checked 2026-09-19) is the **Power** slider in the
@@ -428,6 +728,10 @@ the selected version in `GET /backend-api/models`, not five effort levels:
 | 3 | High | `gpt-5-6-thinking`, `extended` |
 | 4 | Extra High | `gpt-5-6-thinking`, `max` |
 | 5 | Pro | `gpt-6-pro`, no effort field |
+
+At position 1 the dedicated window's page built `model: "gpt-5-6"` with the
+one-off override fields rather than `gpt-5-6-instant` (2026-10-01); `--model
+gpt-5-6-instant` still pins the instant model by name.
 
 **The API levels are unchanged**, from a model's `thinking_efforts` when
 `configurable_thinking_effort` is true:
@@ -568,16 +872,22 @@ probe script run by hand is how a second window appears.
 
     RP_MAX_BROWSERS=1  RP_BROWSER_MAX_SECONDS=1500
     RP_MIN_AVAILABLE_MB=4000  RP_BROWSER_WAIT_SECONDS=900
+    RP_BROWSER_PROFILE=  RP_BROWSER_COOLDOWN_SECONDS=1800
+    RP_COMPOSER_SLOW_SECONDS=30
+    RP_BROWSER_CDP=auto  RP_DEDICATED_PORT=9222
+    RP_BROWSER_TAB=own  RP_TAB_FILE=
 
 Refusing to open is correct: a window opened into swap makes every Playwright
 call time out, so the send fails anyway and the host suffers. The lifetime
 ceiling is enforced by SIGKILL, not `close()`, because a hung Playwright call
 blocks its owner thread. Only processes carrying one of the skill's own
-markers (Playwright's temporary profile path, or the shared profile
-`/tmp/rp-browser-profile`) are ever killed.
+markers (Playwright's temporary profile path, or the profile named by
+`RP_BROWSER_PROFILE`) are ever killed.
 
-**The window never appears on your desktop.** A send draws its window on an
-Xvfb display nobody looks at: inside the send `DISPLAY` names that server,
+**The scripted window never appears on your desktop** (the dedicated browser
+window does, by design; see "Sending through the dedicated browser
+window"). A scripted send draws its window on an Xvfb display nobody looks
+at: inside the send `DISPLAY` names that server,
 the Wayland and GTK variables are removed or pinned to X11, and Chrome is
 launched with `--ozone-platform=x11`, so it cannot pick the desktop's
 compositor. Right after launch the sender checks where the window went and

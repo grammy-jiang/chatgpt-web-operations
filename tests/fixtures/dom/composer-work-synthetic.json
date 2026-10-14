@@ -1,0 +1,38 @@
+{
+  "browser": "synthetic",
+  "composer": {
+    "aria_label": "Work with ChatGPT",
+    "count": 1,
+    "found": true,
+    "id": null,
+    "in_form": true,
+    "matched": [
+      "div.ProseMirror[contenteditable=\"true\"][role=\"textbox\"]"
+    ],
+    "tag": "div"
+  },
+  "recorded_at": "hand-written 2026-10-01 from the Work surface of the home page as the user's own Chrome showed it (page_snapshot facts and the Chat/Work toggle read from the live page); not a recording",
+  "send_button": {
+    "aria_label": null,
+    "disabled": null,
+    "found": false,
+    "testid": null
+  },
+  "surface": {
+    "buttons": 2,
+    "found": true,
+    "pressed": [
+      "false",
+      "true"
+    ]
+  },
+  "synthetic": true,
+  "turns": {
+    "any": 0,
+    "articles": 0,
+    "matched_any": [],
+    "matched_user": [],
+    "user": 0
+  },
+  "url": "https://chatgpt.com/"
+}
