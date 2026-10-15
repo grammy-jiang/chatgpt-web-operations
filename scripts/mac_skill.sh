@@ -19,7 +19,12 @@ fi
 export RP_BROWSER_CDP="http://127.0.0.1:9233"
 export RP_DEDICATED_PORT=9233
 export RP_BROWSER_TAB=new
-export RP_MAX_BROWSERS=1
+# MacBook Pro has ample RAM; each concurrent sender gets a separate Chrome tab
+# and a shared cross-process slot. Pi's single-window budget does not apply.
+export RP_MAX_BROWSERS=4
+# New worker chats with unique first-line TASK_ID can be composed concurrently.
+# Other chat creation keeps its strict global newchat.lock fallback.
+export RP_NEWCHAT_FAST=1
 export CHATGPT_SESSION_STORE=0
 export CHATGPT_MACOS_CDP_MODE=1
 if ! /usr/bin/curl -fsS --max-time 4 "$RP_BROWSER_CDP/json/version" >/dev/null; then

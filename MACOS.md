@@ -133,3 +133,27 @@ release/install/skill-toggle/download/uninstall lifecycle. A test-only
 plugin release may remain in history. Every write is constrained by the
 live tier guard to sandbox resources, with post-test identity and state
 checks. Real production projects, chats and plugins must remain untouched.
+
+
+## 2026-10-15: Parallel Mac Chat Mode senders
+
+The MacBook Pro has 128 GiB RAM and a persistent authenticated Chrome CDP
+on 127.0.0.1:9233. Pi's original `RP_MAX_BROWSERS=1` is not an appropriate
+hard cap for Mac. The shared Mac entrypoint now sets
+`RP_MAX_BROWSERS=4`, `RP_BROWSER_TAB=new`, and `RP_NEWCHAT_FAST=1`.
+Distinct send processes allocate different cross-process browser slots
+(`/tmp/rp-browser-slots/slotN.lock`) and separate, disposable Chrome tabs.
+Unmarked new chats still use `newchat.lock`. Worker prompts with a unique
+first-line `TASK_ID` may create chats without the account-global lock:
+they use the real conversation URL, or an exact TASK_ID/user-turn matching
+fallback to disambiguate concurrent provisional URLs. Do not guess a chat ID
+from the newest conversation or retry uncertain sends without reconciliation.
+
+Verified on Mac: four overlapping browser slots; two concurrent CDP tabs with
+original tab preserved; two real Chat Mode sends completed in 6.17 seconds,
+with different confirmed conversation IDs and correct independent TASK_ID
+replies. Both test prompts are stored privately in
+`~/Projects/host-mcp-orchestration-20261015/v2/receipts/browser-concurrency-20261015`.
+ChatGPT account HTTP API returned 429 during subsequent test-chat archival;
+this is an external rate limit, not a Mac memory or CDP slot limit. Respect
+cooldown, preserve the two exact-ID cleanup receipts, and do not spam retries.

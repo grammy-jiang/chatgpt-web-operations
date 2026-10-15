@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import socket
+import ssl  # noqa: F401  # initialize SSL before T0 monkeypatches socket.socket
 import sys
 from datetime import date
 from pathlib import Path

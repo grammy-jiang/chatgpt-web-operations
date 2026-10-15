@@ -85,6 +85,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 import time
 from datetime import UTC, datetime
@@ -265,6 +266,14 @@ def _send_single(
     # cost the whole send budget whenever the read path is throttled or
     # another session holds the lock. A provisional id still falls back to the
     # locked, time-bounded listing.
+    # Parallel worker new-chat sends are safe only with a unique first-line
+    # TASK_ID. Unmarked user sends retain the original serialized flow.
+    first_line = text.splitlines()[0].strip() if text.splitlines() else ""
+    worker_marker = (
+        first_line
+        if re.fullmatch(r"TASK_ID:\s*[A-Za-z0-9_.:-]{8,150}", first_line)
+        else ""
+    )
     fast = os.environ.get("RP_NEWCHAT_FAST") == "1" and not args.chat
     try:
         session = None if fast else open_session(args.browser)
@@ -292,10 +301,18 @@ def _send_single(
                     "resolving the new conversation id (fast-path fallback)...",
                 )
                 session = open_session(args.browser)
-                with cc.new_chat_lock():
-                    conversation_id = cc.resolve_new_conversation(
-                        session, set(), since=since
+                if worker_marker:
+                    # Parallel worker sends can only adopt their own exact ID.
+                    conversation_id = cc.resolve_new_conversation_for_marker(
+                        session, worker_marker, project=args.project, since=since
                     )
+                else:
+                    # Preserve the Skill's existing opt-in fast-path contract
+                    # for ordinary prompts without a unique TASK_ID.
+                    with cc.new_chat_lock():
+                        conversation_id = cc.resolve_new_conversation(
+                            session, set(), since=since
+                        )
             else:
                 _progress(step, total, "already a real conversation id")
         elif args.chat:

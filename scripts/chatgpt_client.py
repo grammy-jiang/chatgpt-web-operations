@@ -377,6 +377,63 @@ def resolve_new_conversation(
         sleep(interval)
 
 
+def resolve_new_conversation_for_marker(
+    session: Any,
+    marker: str,
+    *,
+    project: str = "",
+    since: float = 0.0,
+    timeout: float = 150,
+    interval: float = 5,
+    sleep: Any = time.sleep,
+) -> str:
+    """Resolve parallel new-chat sends by the *exact* first user TASK_ID line.
+
+    The old listing-difference method is ambiguous when more than one agent
+    creates a new conversation. Do not guess based on timestamps, sorting or
+    titles. Each worker prompt supplies a unique TASK_ID first line; this
+    method finds the matching user turn in the authenticated account, or
+    fails closed without resending. Existing chats and chats in other projects
+    are never modified.
+    """
+    if not re.fullmatch(r"TASK_ID:\s*[A-Za-z0-9_.:-]{8,150}", marker):
+        raise ValueError("a unique first-line TASK_ID is required")
+    deadline = time.monotonic() + timeout
+    sleep(interval)
+    while True:
+        matches: set[str] = set()
+        for candidate in session.list_conversations(limit=40):
+            if not isinstance(candidate, dict):
+                continue
+            cid = candidate.get("id")
+            if not isinstance(cid, str) or not cid:
+                continue
+            if not _created_since(candidate.get("create_time"), since):
+                continue
+            try:
+                conversation = session.get_conversation(cid)
+            except TransportError as exc:
+                if exc.status == 404:  # backend may index new chat before readable
+                    continue
+                raise
+            if project and conversation.get("gizmo_id") not in (None, "", project):
+                continue
+            for message in chain(conversation):
+                if (message.get("author") or {}).get("role") != "user":
+                    continue
+                first = message_text(message).splitlines()
+                if first and first[0].strip() == marker:
+                    matches.add(cid)
+                    break
+        if len(matches) == 1:
+            return next(iter(matches))
+        if len(matches) > 1:
+            raise TransportError("ambiguous exact TASK_ID: more than one chat matched")
+        if time.monotonic() >= deadline:
+            raise TransportError("posted chat did not appear with its exact TASK_ID")
+        sleep(interval)
+
+
 def chain(conv: dict) -> list[dict]:
     """Messages from the root to ``current_node`` in order."""
     mapping = conv.get("mapping", {})
